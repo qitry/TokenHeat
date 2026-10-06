@@ -1,6 +1,13 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FFFFFF"
-        android:pathData="M30,38h48v7H30zM30,50h48v7H30zM30,62h30v7H30z" />
+    <!-- Token ring: the coin / token -->
+    <path
+        android:fillColor="#F5F1E8"
+        android:fillType="evenOdd"
+        android:pathData="M54,29 A25,25 0 1,0 54,79 A25,25 0 1,0 54,29 M54,36 A18,18 0 1,0 54,72 A18,18 0 1,0 54,36" />
+    <!-- Heat mark: a flame drop rising inside the ring -->
+    <path
+        android:fillColor="#E8A33D"
+        android:pathData="M54,43 C49,51 45,56 45,61 A9,9 0 0,0 63,61 C63,56 59,51 54,43 Z" />
 </vector>

@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package com.tokenheat.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,7 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wbhub.app.proto.HubModel
+import com.tokenheat.proto.HubModel
 
 /**
  * Vendor mark drawn from the initial rather than fetched artwork: the upstream

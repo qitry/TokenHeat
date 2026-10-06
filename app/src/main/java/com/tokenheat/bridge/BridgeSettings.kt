@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import android.content.Context
 
@@ -10,7 +10,7 @@ import android.content.Context
  */
 object BridgeSettings {
 
-    private const val PREFS = "wb-overlay"
+    private const val PREFS = "tokenheat-overlay"
     private const val KEY_OPACITY = "opacity"
     private const val KEY_LOCKED = "locked"
     private const val KEY_X = "x"

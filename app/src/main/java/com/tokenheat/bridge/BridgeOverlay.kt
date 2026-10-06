@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import android.annotation.SuppressLint
 import android.content.Context

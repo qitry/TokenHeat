@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import java.util.concurrent.atomic.AtomicInteger
 

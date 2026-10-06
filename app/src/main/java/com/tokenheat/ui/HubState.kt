@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package com.tokenheat.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CardGiftcard
@@ -6,13 +6,14 @@ import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.wbhub.app.bridge.CallRecord
-import com.wbhub.app.data.CheckinItem
-import com.wbhub.app.proto.Balance
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.SavedAccount
-import com.wbhub.app.proto.HubModel
-import com.wbhub.app.proto.Wire
+import com.tokenheat.bridge.CallRecord
+import com.tokenheat.data.CheckinItem
+import com.tokenheat.proto.Balance
+import com.tokenheat.proto.Credential
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.SavedAccount
+import com.tokenheat.proto.HubModel
+import com.tokenheat.proto.Wire
 
 enum class HubTab(val label: String, val icon: ImageVector) {
     Credential("凭证", Icons.Default.Key),
@@ -27,7 +28,7 @@ data class HubState(
     val expiryText: String = "",
     val bridgeRunning: Boolean = false,
     val port: Int = 8765,
-    val secret: String = "wb-local",
+    val secret: String = "tokenheat-local",
     val status: String = "",
     val balance: Balance? = null,
     val checkinMessage: String = "",
@@ -45,11 +46,16 @@ data class HubState(
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,
+    val provider: Provider = Provider.WORKBUDDY,
+    val zcodeAccounts: List<SavedAccount> = emptyList(),
+    val zcodeActiveId: String? = null,
+    /** ZCode quota summary text; WorkBuddy uses [balance] instead. */
+    val zcodeQuota: String = "",
 )
 
 /** Which operation is in flight, so each control can show its own indicator. */
 enum class Loading { CHECKIN, BALANCE, MODELS }
 
-/** Whether any build holds at least one saved account. */
+/** Whether any provider holds at least one saved account. */
 val HubState.hasAnyCredential: Boolean
-    get() = accounts.values.any { it.isNotEmpty() }
+    get() = accounts.values.any { it.isNotEmpty() } || zcodeAccounts.isNotEmpty()

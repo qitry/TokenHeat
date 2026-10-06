@@ -7,15 +7,15 @@ plugins {
 }
 
 android {
-    namespace = "com.wbhub.app"
+    namespace = "com.tokenheat"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.wbhub.app"
+        applicationId = "com.tokenheat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // Release signing reads keystore.properties, which is git-ignored. When it is

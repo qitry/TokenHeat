@@ -1,4 +1,4 @@
-package com.wbhub.app.proto
+package com.tokenheat.proto
 
 import android.util.Log
 import org.json.JSONArray
@@ -292,7 +292,7 @@ class UpstreamClient {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(date)
 
     private companion object {
-        const val TAG = "WBHub"
+        const val TAG = "TokenHeat"
     }
 }
 

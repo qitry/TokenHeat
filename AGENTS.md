@@ -1,0 +1,40 @@
+# AGENTS.md — TokenHeat
+
+Single-module Android app (`:app`, `com.tokenheat`). Kotlin 2.0.21, AGP 8.3.2, Compose BOM `2025.05.00`, `compileSdk/targetSdk 35`, `minSdk 26`, JDK 21. No tests, no CI, no lint/detekt config.
+
+## Build
+
+Requires JDK 21 + Android SDK (platform 35, build-tools). Gradle via wrapper only.
+
+```sh
+echo "sdk.dir=$HOME/Android/Sdk" > local.properties
+./gradlew assembleDebug   # APK: app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+- `local.properties` is git-ignored; never commit it.
+- Release signing reads root `keystore.properties` (also git-ignored, plus `*.jks`/`*.keystore`). Missing file = unsigned release build still compiles, do not "fix" by hardcoding signing.
+- No unit tests exist (`app/src/main` only). Verify with `assembleDebug` (or `assembleRelease` for signing path).
+
+## Architecture
+
+- `ui/` (`HubApp.kt`, `HubState.kt`, `Screens.kt`, `ModelList.kt`) — pure Compose UI, state in `HubState`. All upstream I/O lives in `MainActivity.kt`.
+- `MainActivity.kt` — wiring: login polling, `loadModels` / `loadBalance` / `doCheckin` / `checkinAllAccounts`, bridge start/stop, call-log reload. Login poll uses a standalone `loginScope` (not `lifecycleScope`) so polling survives browser foreground switch — keep it that way.
+- `bridge/BridgeService.kt` — foreground service hosting the endpoint. Must be started from a foreground context (`MainActivity.onCreate` does a silent start); Android 12+ refuses background `startForeground`. Owns wake lock + 5-min model-refresh loop. Credential/models lambdas branch on `store.activeProvider()`: WorkBuddy resolves with token refresh, ZCode returns the active key as-is (long-lived, no refresh).
+- `bridge/BridgeServer.kt` — hand-rolled raw-`ServerSocket` HTTP on `127.0.0.1:8765` (default port/secret `tokenheat-local`, see `BridgeService` companion). Endpoints only: `GET /healthz`, `GET /v1/models`, `POST /v1/chat/completions`. Reads request body as bytes (multi-byte JSON), parses head as ASCII CRLF. Do not replace with a framework without preserving: Bearer-secret check, `Host`-must-be-loopback, `Origin`-absent-or-loopback, `Content-Type: application/json` required on chat. Chat dispatches on `cred.provider` (`UpstreamClient` vs `ZUpstreamClient`, results share `ChatResult`); `/v1/models` `owned_by` comes from the `modelOwner` lambda.
+- `bridge/AccountPool.kt` — round-robin over one slot's enabled accounts (slot = provider + WorkBuddy build) with same-request failover. Marks: `HARD_CREDIT`→`EXHAUSTED`, `SOFT_RATE`→`COOLING` (5 min), `SESSION_DEAD`→`INVALID`; `SERVER` fails over unmarked, `CLIENT`/`NOT_FOUND` answer directly (retrying burns quota). Empty pool triggers one recovery sweep instead of refusing. Only manual `disabled` is persisted; failure marks are process-local and re-probed after restart. Thread-safe; shared by all request threads.
+- `bridge/BridgeOverlay.kt` — overlay panel is the keep-alive mechanism (visible importance > foreground service alone). Gated on `Settings.canDrawOverlays`; bridge runs without it but will be frozen.
+- `proto/Wire.kt` — upstream quirks, all load-bearing: force `stream=true`, rewrite `developer`→`system` (gateway 400/11128 otherwise), normalize `tool_choice`, international body prepends `system` prompt and strips `reasoning_effort=off`, `X-No-*` absence headers, model roster = `cli` agent list ∩ servable rows (throws on empty — means upstream shape changed).
+- `proto/UpstreamClient.kt` — WorkBuddy chat `/v2/chat/completions` (caller must `disconnect`), refresh `/v2/plugin/auth/token/refresh` (`expiresIn` duration → `expiresAt` seconds), models `/v3/config`, credits personal vs enterprise endpoints (`-1` limit = unlimited flag, never report as 0).
+- `proto/ZUpstreamClient.kt` — ZCode over `https://api.z.ai/api/paas/v4` (OpenAI dialect, `Authorization: Bearer {apiKey}.{secretKey}`): passthrough chat with only `stream` forced (no WorkBuddy body rewrites), `/models` list, quota summary from `zcode.z.ai/api/v1/zcode-plan/billing/balance`. Reuses `ChatResult` + `Wire.classify`.
+- `proto/CredentialStore.kt` — per-build files `tokenheat-auth-cn.json` / `tokenheat-auth-global.json` plus `tokenheat-auth-zcode.json` (array of accounts; legacy single-object read kept for upgrade), selection in `tokenheat` prefs (`active_region`, `active_provider`, `active_account_*`). `Credential.provider` selects the code path; ZCode creds carry `apiKey` and `expiresAt = 0`. `resolve()` auto-refreshes WorkBuddy with 5-min margin (`resolveAccount()` generalizes it to any pool member); refresh failure returns existing token if unexpired. `setDisabled()` opts one account out of rotation (persisted in the account file, kept across re-login); manual selection, balance and check-in ignore it. `mirrorActiveForDaemon()` publishes the provider-active account to `/data/local/tmp/tokenheat/tokenheat-auth.json` world-readable — only the active account, by design; consumers must read the new `provider`/`apiKey` fields.
+- `data/Login.kt` — WorkBuddy official-CLI OAuth: `POST .../v2/plugin/auth/state?platform=CLI` → browser `authUrl` → poll `GET .../v2/plugin/auth/token?state=` (`code 11217` = pending). Response may omit `domain`; fallback is the realm the user signed into.
+- `data/ZLogin.kt` — ZCode CLI OAuth: `POST zcode.z.ai/api/v1/oauth/cli/init` (random Bearer) → browser → poll `/oauth/cli/poll/{flow}` → `POST api.z.ai/api/auth/z/login` → default org/project → ensure key `zcode-api-key` → copy secret. Poll token field spellings are defensive (third-party shape, verify at runtime). JWT/Coding-Plan route intentionally unused — it needs an Alibaba captcha solver (Node+jsdom), unavailable on-device.
+
+## Gotchas
+
+- Upstream hosts are private (`copilot.tencent.com`, `www.codebuddy.cn`, `www.workbuddy.ai`, `zcode.z.ai`, `api.z.ai`), not public APIs — breakage after upstream change is expected; check `Wire`/`UpstreamClient`/`ZUpstreamClient` first. `paas/v4` + `oauth/cli` endpoint existence was probed 2026-10 (401/invalid_flow JSON), but the ZCode poll-token field and key header (`Bearer` vs `x-api-key` on paas) still need a real-login verification.
+- `Credential.expiresAt` seconds vs `Date` millis: `MainActivity.formatExpiry` normalizes `< 1e12` as seconds. Keep new time code in the same convention.
+- Check-in of multiple accounts runs sequentially (upstream rate-limits); do not parallelize.
+- `BridgeServer.KIND_STATUS` maps `ErrorKind` → HTTP status (401 keeps `(http 401)` note); preserve mapping when editing error paths.
+- SSE usage parsing scans trailing 8 KB for the last `"usage"` block — usage object is nested, brace-depth matched, not first-`}`.

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WBHub"
+rootProject.name = "TokenHeat"
 include(":app")

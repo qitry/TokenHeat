@@ -1,4 +1,4 @@
-# WorkBuddy Hub Android
+# TokenHeat Android
 
 English | [中文](./README.md)
 
@@ -8,7 +8,7 @@ it and it works — no official API, and no computer required.
 
 ```
 Phone
-├─ WB Hub
+├─ TokenHeat
 │    ├─ OAuth sign-in (China / Global)
 │    ├─ Local forwarding endpoint  127.0.0.1:8765
 │    └─ Overlay status panel (keeps the process from being frozen)
@@ -31,6 +31,9 @@ Phone
   its opacity and position lock are adjustable
 - **Call history**: every call's model, token counts, and credit cost, with
   totals
+- **Account rotation**: several accounts under one system share requests
+  round-robin, with automatic failover on exhausted credit, rate limits, or
+  dead sessions; any account can be paused manually
 - **Check-in and balance**: view remaining credit and claim the daily check-in
 
 ## Build
@@ -83,7 +86,7 @@ A `models.json`-style example:
     "workbuddy": {
       "baseUrl": "http://127.0.0.1:8765/v1",
       "api": "openai-completions",
-      "apiKey": "wb-local",
+      "apiKey": "tokenheat-local",
       "models": [
         { "id": "hy3" }
       ]

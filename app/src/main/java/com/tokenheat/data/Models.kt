@@ -1,4 +1,4 @@
-package com.wbhub.app.data
+package com.tokenheat.data
 
 /** One account's outcome in a batch check-in. */
 data class CheckinItem(

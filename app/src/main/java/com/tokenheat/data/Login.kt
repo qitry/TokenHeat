@@ -1,7 +1,7 @@
-package com.wbhub.app.data
+package com.tokenheat.data
 
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.Wire
+import com.tokenheat.proto.Credential
+import com.tokenheat.proto.Wire
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader

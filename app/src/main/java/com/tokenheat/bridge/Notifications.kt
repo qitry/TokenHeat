@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,14 +8,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import com.wbhub.app.MainActivity
-import com.wbhub.app.R
+import com.tokenheat.MainActivity
+import com.tokenheat.R
 
 /** Notification plumbing: the bridge's ongoing notification and login alerts. */
 object Notifications {
 
-    const val BRIDGE_CHANNEL = "wb_bridge"
-    const val LOGIN_CHANNEL = "wb_login"
+    const val BRIDGE_CHANNEL = "tokenheat_bridge"
+    const val LOGIN_CHANNEL = "tokenheat_login"
     private const val BRIDGE_NOTIFICATION = 8765
     private const val LOGIN_NOTIFICATION = 8766
 
@@ -25,7 +25,7 @@ object Notifications {
         manager.createNotificationChannel(
             NotificationChannel(
                 BRIDGE_CHANNEL,
-                "WorkBuddy 转发服务",
+                "TokenHeat 转发服务",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply { description = "本地 API 平台运行状态" },
         )
@@ -54,8 +54,8 @@ object Notifications {
     fun showBridgeReady(context: Context, port: Int) {
         if (!hasPermission(context)) return
         val notification = NotificationCompat.Builder(context, BRIDGE_CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_hub)
-            .setContentTitle("WorkBuddy Hub")
+            .setSmallIcon(R.drawable.ic_stat_tokenheat)
+            .setContentTitle("TokenHeat")
             .setContentText("已就绪 · API 平台端口 $port")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -83,8 +83,8 @@ object Notifications {
 
     fun buildBridge(context: Context, port: Int) =
         NotificationCompat.Builder(context, BRIDGE_CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_hub)
-            .setContentTitle("WorkBuddy 本地 API 平台")
+            .setSmallIcon(R.drawable.ic_stat_tokenheat)
+            .setContentTitle("TokenHeat 本地 API 平台")
             .setContentText("127.0.0.1:$port 运行中")
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -96,8 +96,8 @@ object Notifications {
         if (!hasPermission(context)) return
         val text = if (nickname.isBlank()) "凭证已保存" else "已登录：$nickname"
         val notification = NotificationCompat.Builder(context, LOGIN_CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_hub)
-            .setContentTitle("WorkBuddy 登录成功")
+            .setSmallIcon(R.drawable.ic_stat_tokenheat)
+            .setContentTitle("TokenHeat 登录成功")
             .setContentText(text)
             .setAutoCancel(true)
             .setContentIntent(contentIntent(context, EXTRA_OPEN_AFTER_LOGIN))

@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package com.tokenheat.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -25,6 +25,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -56,12 +58,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wbhub.app.data.Login
-import com.wbhub.app.bridge.CallRecord
-import com.wbhub.app.bridge.UsageSummary
+import com.tokenheat.data.Login
+import com.tokenheat.bridge.CallRecord
+import com.tokenheat.bridge.UsageSummary
 import java.util.Locale
-import com.wbhub.app.data.CheckinItem
-import com.wbhub.app.proto.Wire
+import com.tokenheat.data.CheckinItem
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.SavedAccount
+import com.tokenheat.proto.Wire
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -73,7 +77,25 @@ fun CredentialScreen(
     onLogin: (Wire.Region) -> Unit,
     onLogout: () -> Unit,
     onOpenDetails: () -> Unit,
+    onSwitchProvider: (Provider) -> Unit,
+    onLoginZcode: () -> Unit,
+    onSwitchZcodeAccount: (String) -> Unit,
+    onDeleteZcodeAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
 ) {
+    if (state.provider == Provider.ZCODE) {
+        ZcodeCredentialScreen(
+            state = state,
+            onSwitchProvider = onSwitchProvider,
+            onLoginZcode = onLoginZcode,
+            onSwitchAccount = onSwitchZcodeAccount,
+            onDeleteAccount = onDeleteZcodeAccount,
+            onToggleAccount = onToggleAccount,
+            onLogout = onLogout,
+            onOpenDetails = onOpenDetails,
+        )
+        return
+    }
     val region = state.realm
     val regionLabel = realmName(region)
     val active = state.credential
@@ -83,6 +105,9 @@ fun CredentialScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        item {
+            ProviderSwitch(selected = state.provider, onSwitch = onSwitchProvider)
+        }
         item {
             Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
@@ -152,7 +177,9 @@ fun CredentialScreen(
                     label = account.label,
                     uid = account.uid,
                     isActive = isActive,
+                    enabled = !account.disabled,
                     onSelect = { onSwitchAccount(account.id) },
+                    onToggleEnabled = { onToggleAccount(account) },
                     onDelete = { onDeleteAccount(account.id) },
                 )
             }
@@ -183,13 +210,141 @@ fun CredentialScreen(
     }
 }
 
-/** One saved account, with a switch and a delete action. */
+/** Provider switch shared by both credential pages. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ProviderSwitch(selected: Provider, onSwitch: (Provider) -> Unit) {
+    Column {
+        Text("账号体系", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            Provider.entries.forEachIndexed { index, item ->
+                SegmentedButton(
+                    selected = selected == item,
+                    onClick = { onSwitch(item) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = Provider.entries.size),
+                ) {
+                    Text(item.label)
+                }
+            }
+        }
+    }
+}
+
+/** ZCode accounts: same list mechanics as WorkBuddy, no build switch. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ZcodeCredentialScreen(
+    state: HubState,
+    onSwitchProvider: (Provider) -> Unit,
+    onLoginZcode: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
+    onLogout: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    val active = state.credential
+    val saved = state.zcodeAccounts
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            ProviderSwitch(selected = state.provider, onSwitch = onSwitchProvider)
+        }
+        item {
+            Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "当前账号 · ZCode",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "查看详情",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    when {
+                        active == null -> Text(
+                            "ZCode 还没有账号，点下面的按钮登录。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> {
+                            Text("账号：${active.nickname.ifBlank { active.uid.take(8).ifBlank { "ZCode" } }}")
+                            Text("有效期：长期有效（API Key）")
+                            Text(
+                                "点本卡片查看 API Key 等完整信息",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (saved.isNotEmpty()) {
+            item {
+                Text(
+                    "ZCode 账号",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items(saved, key = { it.id }) { account ->
+                val isActive = account.id == state.zcodeActiveId
+                AccountRow(
+                    label = account.label,
+                    uid = account.uid,
+                    isActive = isActive,
+                    enabled = !account.disabled,
+                    onSelect = { onSwitchAccount(account.id) },
+                    onToggleEnabled = { onToggleAccount(account) },
+                    onDelete = { onDeleteAccount(account.id) },
+                )
+            }
+        }
+
+        item {
+            Button(onClick = onLoginZcode, modifier = Modifier.fillMaxWidth()) {
+                Text(if (active == null) "登录 ZCode" else "添加 ZCode 账号")
+            }
+        }
+
+        if (state.hasAnyCredential) {
+            item {
+                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Text("退出登录（清除全部账号）")
+                }
+            }
+        }
+
+        item {
+            Text(
+                "说明：走 ZCode 官方 CLI 的 OAuth 流程，登录后自动兑换长期有效的 API Key，" +
+                    "调用走 api.z.ai 标准 OpenAI 接口，无需验证码。可以添加多个账号（轮训第二阶段启用）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** One saved account, with a switch, a rotation toggle and a delete action. */
 @Composable
 private fun AccountRow(
     label: String,
     uid: String,
     isActive: Boolean,
+    enabled: Boolean,
     onSelect: () -> Unit,
+    onToggleEnabled: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -214,10 +369,21 @@ private fun AccountRow(
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
                 if (uid.isNotBlank()) {
                     Text(
-                        uid.take(8),
+                        uid.take(8) + if (enabled) "" else " · 已暂停轮训",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (!enabled) {
+                    Text(
+                        "已暂停轮训",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -229,6 +395,13 @@ private fun AccountRow(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(end = 8.dp),
+                )
+            }
+            IconButton(onClick = onToggleEnabled) {
+                Icon(
+                    if (enabled) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (enabled) "暂停轮训" else "恢复轮训",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             IconButton(onClick = onDelete) {
@@ -271,14 +444,23 @@ fun CredentialDetailDrawer(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            item { detailRow("版本", realmName(Wire.regionOf(cred.domain)), onCopy) }
-            item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
-            item { detailRow("UID", cred.uid, onCopy) }
-            item { detailRow("Domain", cred.domain, onCopy) }
-            item { detailRow("来源", cred.source, onCopy) }
-            item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
-            item { detailRow("Access Token", cred.accessToken, onCopy) }
-            item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
+            if (cred.provider == Provider.ZCODE) {
+                item { detailRow("账号体系", "ZCode", onCopy) }
+                item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("UID", cred.uid.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("来源", cred.source, onCopy) }
+                item { detailRow("有效期", "长期有效（API Key）", onCopy) }
+                item { detailRow("API Key", cred.apiKey.ifBlank { "(无)" }, onCopy) }
+            } else {
+                item { detailRow("版本", realmName(Wire.regionOf(cred.domain)), onCopy) }
+                item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("UID", cred.uid, onCopy) }
+                item { detailRow("Domain", cred.domain, onCopy) }
+                item { detailRow("来源", cred.source, onCopy) }
+                item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
+                item { detailRow("Access Token", cred.accessToken, onCopy) }
+                item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
+            }
             item {
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -526,6 +708,11 @@ fun RewardsScreen(
     onCheckinAll: () -> Unit,
     onRefreshBalance: () -> Unit,
 ) {
+    // ZCode has no check-in; its Coding Plan quota is shown instead.
+    if (state.provider == Provider.ZCODE) {
+        ZcodeRewardsScreen(state, onRefreshBalance)
+        return
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -611,6 +798,58 @@ fun RewardsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** ZCode quota view: no sign-in bonus here, just the plan remainder. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ZcodeRewardsScreen(state: HubState, onRefreshBalance: () -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "剩余额度",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        FilledTonalButton(
+                            onClick = onRefreshBalance,
+                            enabled = state.loading != Loading.BALANCE,
+                        ) {
+                            if (state.loading == Loading.BALANCE) {
+                                CircularWavyProgressIndicator(modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("刷新中")
+                            } else {
+                                Text("刷新")
+                            }
+                        }
+                    }
+                    when {
+                        state.loading == Loading.BALANCE && state.zcodeQuota.isBlank() -> {
+                            CircularWavyProgressIndicator()
+                        }
+                        state.zcodeQuota.isBlank() -> Text("点“刷新”查询剩余额度")
+                        else -> Text(state.zcodeQuota)
+                    }
+                }
+            }
+        }
+        item {
+            Text(
+                "说明：ZCode 没有每日签到，额度来自 Coding Plan 订阅，用完需等待周期重置或更换账号。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -741,7 +980,7 @@ fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("退出登录") },
-        text = { Text("将清除已保存的登录凭证（国内版与国际版），需要重新登录才能继续使用。") },
+        text = { Text("将清除已保存的登录凭证（国内版、国际版与 ZCode），需要重新登录才能继续使用。") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("退出登录") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
@@ -849,6 +1088,15 @@ private fun CallRow(record: CallRecord) {
                     record.timeText,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (record.accountLabel.isNotBlank()) {
+                Text(
+                    "账号：${record.accountLabel}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (failed) {

@@ -1,4 +1,4 @@
-package com.wbhub.app.proto
+package com.tokenheat.proto
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -435,11 +435,15 @@ data class HubModel(
  *
  * `expiresAt` is epoch **seconds** (the unit the upstream reports and the JWT
  * `exp` claim uses). `enterpriseId` is absent for personal accounts, which is
- * what selects the personal billing endpoint.
+ * what selects the personal billing endpoint. ZCode credentials instead carry
+ * `apiKey` (`{apiKey}.{secretKey}` for `api.z.ai`) and never expire, so
+ * `expiresAt` stays 0 for them.
  */
 data class Credential(
+    val provider: Provider = Provider.WORKBUDDY,
     val accessToken: String,
     val refreshToken: String = "",
+    val apiKey: String = "",
     val expiresAt: Long = 0L,
     val domain: String = Wire.CN_CHAT_BASE,
     val uid: String = "",

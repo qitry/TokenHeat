@@ -1,4 +1,4 @@
-package com.wbhub.app.proto
+package com.tokenheat.proto
 
 import android.content.Context
 import org.json.JSONArray
@@ -11,12 +11,16 @@ import java.io.File
  */
 data class SavedAccount(
     val id: String,
+    val provider: Provider = Provider.WORKBUDDY,
     val region: Wire.Region,
     val nickname: String,
     val uid: String,
     val domain: String,
     val accessToken: String,
     val refreshToken: String,
+    val apiKey: String = "",
+    /** Manual opt-out from rotation; the row stays usable by hand. */
+    val disabled: Boolean = false,
     val expiresAt: Long,
     val enterpriseId: String? = null,
     val source: String = "oauth",
@@ -25,8 +29,10 @@ data class SavedAccount(
     val label: String get() = nickname.ifBlank { uid.take(8) }
 
     fun toCredential(): Credential = Credential(
+        provider = provider,
         accessToken = accessToken,
         refreshToken = refreshToken,
+        apiKey = apiKey,
         expiresAt = expiresAt,
         domain = domain,
         uid = uid,
@@ -46,44 +52,58 @@ data class SavedAccount(
 class CredentialStore(context: Context) {
 
     private val dir = context.filesDir
-    private val prefs = context.getSharedPreferences("wb-hub", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("tokenheat", Context.MODE_PRIVATE)
 
     private fun fileFor(region: Wire.Region): File =
-        File(dir, "wb-auth-${region.name.lowercase()}.json")
+        File(dir, "tokenheat-auth-${region.name.lowercase()}.json")
+
+    /** ZCode owns its own slot file; WorkBuddy keeps the per-build files. */
+    private fun fileForProvider(provider: Provider): File =
+        File(dir, "tokenheat-auth-${provider.name.lowercase()}.json")
 
     // ------------------------------------------------------------------ //
     // Accounts
     // ------------------------------------------------------------------ //
 
-    /** Every account saved for one build. */
-    fun accounts(region: Wire.Region): List<SavedAccount> {
-        val file = fileFor(region)
+    /** Every WorkBuddy account saved for one build. */
+    fun accounts(region: Wire.Region): List<SavedAccount> =
+        accountsIn(fileFor(region), region, Provider.WORKBUDDY)
+
+    /** Every ZCode account. Its `region` is always CN and unused for routing. */
+    fun zcodeAccounts(): List<SavedAccount> =
+        accountsIn(fileForProvider(Provider.ZCODE), Wire.Region.CN, Provider.ZCODE)
+
+    private fun accountsIn(file: File, region: Wire.Region, provider: Provider): List<SavedAccount> {
         if (!file.exists()) return emptyList()
         val text = runCatching { file.readText() }.getOrNull() ?: return emptyList()
         return runCatching {
             val array = JSONArray(text)
-            (0 until array.length()).mapNotNull { readAccount(array.optJSONObject(it), region) }
+            (0 until array.length()).mapNotNull { readAccount(array.optJSONObject(it), region, provider) }
         }.getOrElse {
             // An older build wrote a single credential object at this path.
-            readLegacy(file, region)?.let { listOf(it) } ?: emptyList()
+            readLegacy(file, region, provider)?.let { listOf(it) } ?: emptyList()
         }
     }
 
-    private fun readAccount(obj: JSONObject?, region: Wire.Region): SavedAccount? {
+    private fun readAccount(obj: JSONObject?, region: Wire.Region, provider: Provider): SavedAccount? {
         obj ?: return null
         val token = obj.optString("accessToken")
-        if (token.isEmpty()) return null
+        val apiKey = obj.optString("apiKey")
+        if (token.isEmpty() && apiKey.isEmpty()) return null
         val domain = obj.optString("domain").ifEmpty { defaultDomain(region) }
         val uid = obj.optString("uid")
         val stored = obj.optLong("expiresAt", 0L)
         return SavedAccount(
-            id = obj.optString("id").ifEmpty { accountId(region, uid, domain) },
+            id = obj.optString("id").ifEmpty { accountId(provider.name, uid, domain, token.ifEmpty { apiKey }) },
+            provider = provider,
             region = region,
             nickname = obj.optString("nickname"),
             uid = uid,
             domain = domain,
             accessToken = token,
             refreshToken = obj.optString("refreshToken"),
+            apiKey = apiKey,
+            disabled = obj.optBoolean("disabled", false),
             expiresAt = if (stored > 0) stored else expiryFromJwt(token),
             enterpriseId = obj.optString("enterpriseId").ifEmpty { null },
             source = obj.optString("source", "oauth"),
@@ -94,7 +114,7 @@ class CredentialStore(context: Context) {
      * Reads the single-object shape written before multi-account support, so an
      * existing install does not lose its credential on upgrade.
      */
-    private fun readLegacy(file: File, region: Wire.Region): SavedAccount? = runCatching {
+    private fun readLegacy(file: File, region: Wire.Region, provider: Provider): SavedAccount? = runCatching {
         val obj = JSONObject(file.readText())
         val token = obj.optString("accessToken")
         if (token.isEmpty()) return null
@@ -102,20 +122,22 @@ class CredentialStore(context: Context) {
         val uid = obj.optString("uid")
         val stored = obj.optLong("expiresAt", 0L)
         SavedAccount(
-            id = accountId(region, uid, domain),
+            id = accountId(region.name, uid, domain),
+            provider = provider,
             region = region,
             nickname = obj.optString("nickname"),
             uid = uid,
             domain = domain,
             accessToken = token,
             refreshToken = obj.optString("refreshToken"),
+            apiKey = obj.optString("apiKey"),
             expiresAt = if (stored > 0) stored else expiryFromJwt(token),
             enterpriseId = obj.optString("enterpriseId").ifEmpty { null },
             source = obj.optString("source", "oauth"),
         )
     }.getOrNull()
 
-    private fun writeAccounts(region: Wire.Region, accounts: List<SavedAccount>) {
+    private fun writeAccounts(region: Wire.Region, provider: Provider, accounts: List<SavedAccount>) {
         val array = JSONArray()
         accounts.forEach { account ->
             array.put(
@@ -123,6 +145,8 @@ class CredentialStore(context: Context) {
                     put("id", account.id)
                     put("accessToken", account.accessToken)
                     put("refreshToken", account.refreshToken)
+                    put("apiKey", account.apiKey)
+                    put("disabled", account.disabled)
                     put("expiresAt", account.expiresAt)
                     put("domain", account.domain)
                     put("uid", account.uid)
@@ -132,7 +156,7 @@ class CredentialStore(context: Context) {
                 },
             )
         }
-        fileFor(region).writeText(array.toString())
+        (if (provider == Provider.ZCODE) fileForProvider(provider) else fileFor(region)).writeText(array.toString())
     }
 
     /**
@@ -140,35 +164,59 @@ class CredentialStore(context: Context) {
      * already stored. Replacing rather than duplicating means signing in again
      * renews a token instead of creating a confusing second entry.
      */
-    fun save(region: Wire.Region, credential: Credential): SavedAccount {
-        val id = accountId(region, credential.uid, credential.domain, credential.accessToken)
+    fun save(region: Wire.Region, credential: Credential): SavedAccount =
+        saveIn(region, Provider.WORKBUDDY, credential)
+
+    /** Adds a ZCode credential to its own slot. */
+    fun saveZcode(credential: Credential): SavedAccount =
+        saveIn(Wire.Region.CN, Provider.ZCODE, credential)
+
+    private fun saveIn(region: Wire.Region, provider: Provider, credential: Credential): SavedAccount {
+        val seed = credential.accessToken.ifEmpty { credential.apiKey }
+        val id = accountId(provider.name, credential.uid, credential.domain, seed)
+        val current = (if (provider == Provider.ZCODE) zcodeAccounts() else accounts(region)).toMutableList()
+        // Re-signing renews the token but keeps a manual rotation opt-out.
+        val keepDisabled = current.firstOrNull { it.id == id }?.disabled ?: false
         val account = SavedAccount(
             id = id,
+            provider = provider,
             region = region,
             nickname = credential.nickname,
             uid = credential.uid,
             domain = credential.domain.ifEmpty { defaultDomain(region) },
             accessToken = credential.accessToken,
             refreshToken = credential.refreshToken,
+            apiKey = credential.apiKey,
+            disabled = keepDisabled,
             expiresAt = credential.expiresAt,
             enterpriseId = credential.enterpriseId,
             source = credential.source,
         )
-        val current = accounts(region).toMutableList()
         val index = current.indexOfFirst { it.id == id }
         if (index >= 0) current[index] = account else current.add(account)
-        writeAccounts(region, current)
-        setActive(region, id)
+        writeAccounts(region, provider, current)
+        setActiveSlot(activeSlot(provider, region), id)
         return account
     }
 
     /** Removes one account; the selection falls back to another one. */
     fun delete(region: Wire.Region, accountId: String) {
         val remaining = accounts(region).filterNot { it.id == accountId }
-        writeAccounts(region, remaining)
+        writeAccounts(region, Provider.WORKBUDDY, remaining)
         if (activeId(region) == accountId) {
             remaining.firstOrNull()?.let { setActive(region, it.id) }
                 ?: clearActive(region)
+        }
+    }
+
+    /** Removes one ZCode account; the selection falls back to another one. */
+    fun deleteZcode(accountId: String) {
+        val remaining = zcodeAccounts().filterNot { it.id == accountId }
+        writeAccounts(Wire.Region.CN, Provider.ZCODE, remaining)
+        val slot = activeSlot(Provider.ZCODE, Wire.Region.CN)
+        if (activeSlotId(slot) == accountId) {
+            remaining.firstOrNull()?.let { setActiveSlot(slot, it.id) }
+                ?: clearActiveSlot(slot)
         }
     }
 
@@ -177,14 +225,20 @@ class CredentialStore(context: Context) {
         clearActive(region)
     }
 
+    /** Drops every ZCode account and its selection. */
+    fun clearZcode() {
+        fileForProvider(Provider.ZCODE).delete()
+        clearActiveSlot(activeSlot(Provider.ZCODE, Wire.Region.CN))
+    }
+
     /**
      * Stable id for an account. The uid identifies a person, so it is preferred;
      * a credential without one falls back to its domain plus a token digest so
      * two such accounts still get distinct ids.
      */
-    private fun accountId(region: Wire.Region, uid: String, domain: String, accessToken: String = ""): String =
-        if (uid.isNotBlank()) "$region:${uid.take(8)}"
-        else "$region:${domain}:${accessToken.hashCode()}"
+    private fun accountId(slot: String, uid: String, domain: String, accessToken: String = ""): String =
+        if (uid.isNotBlank()) "$slot:${uid.take(8)}"
+        else "$slot:${domain}:${accessToken.hashCode()}"
 
     // ------------------------------------------------------------------ //
     // Selection
@@ -225,6 +279,56 @@ class CredentialStore(context: Context) {
         prefs.edit().remove("$KEY_ACTIVE_ID${region.name}").apply()
     }
 
+    /** Prefs slot holding one provider's (or build's) selected account. */
+    private fun activeSlot(provider: Provider, region: Wire.Region): String =
+        if (provider == Provider.ZCODE) "ZCODE" else region.name
+
+    private fun activeSlotId(slot: String): String? = prefs.getString("$KEY_ACTIVE_ID$slot", null)
+
+    private fun setActiveSlot(slot: String, accountId: String) {
+        prefs.edit().putString("$KEY_ACTIVE_ID$slot", accountId).apply()
+        mirrorActiveForDaemon()
+    }
+
+    private fun clearActiveSlot(slot: String) {
+        prefs.edit().remove("$KEY_ACTIVE_ID$slot").apply()
+    }
+
+    /** Which upstream account system the bridge currently serves. */
+    fun activeProvider(): Provider {
+        val stored = prefs.getString(KEY_ACTIVE_PROVIDER, null) ?: return Provider.WORKBUDDY
+        return runCatching { Provider.valueOf(stored) }.getOrDefault(Provider.WORKBUDDY)
+    }
+
+    fun setActiveProvider(provider: Provider) {
+        prefs.edit().putString(KEY_ACTIVE_PROVIDER, provider.name).apply()
+        mirrorActiveForDaemon()
+    }
+
+    /** Selects the ZCode account in use; unknown ids are ignored. */
+    fun selectZcodeAccount(accountId: String) {
+        if (zcodeAccounts().none { it.id == accountId }) return
+        setActiveSlot(activeSlot(Provider.ZCODE, Wire.Region.CN), accountId)
+    }
+
+    fun zcodeActiveId(): String? = activeSlotId(activeSlot(Provider.ZCODE, Wire.Region.CN))
+
+    /** The ZCode account in use, or null when none is stored. */
+    fun activeZcodeAccount(): SavedAccount? {
+        val list = zcodeAccounts()
+        if (list.isEmpty()) return null
+        val selected = zcodeActiveId()
+        return list.firstOrNull { it.id == selected } ?: list.first()
+    }
+
+    fun activeZcode(): Credential? = activeZcodeAccount()?.toCredential()
+
+    /** The credential the bridge should serve under the current provider. */
+    fun effectiveActive(): Credential? = when (activeProvider()) {
+        Provider.ZCODE -> activeZcode()
+        Provider.WORKBUDDY -> active()
+    }
+
     /** The account in use, or null when that build holds none. */
     fun active(): Credential? = activeAccount()?.toCredential()
 
@@ -239,7 +343,7 @@ class CredentialStore(context: Context) {
     /** Whether a build has at least one saved account. */
     fun has(region: Wire.Region): Boolean = accounts(region).isNotEmpty()
 
-    fun hasAny(): Boolean = Wire.Region.entries.any { has(it) }
+    fun hasAny(): Boolean = Wire.Region.entries.any { has(it) } || zcodeAccounts().isNotEmpty()
 
     // ------------------------------------------------------------------ //
     // Refresh
@@ -259,11 +363,21 @@ class CredentialStore(context: Context) {
     @Synchronized
     fun resolve(renew: (Credential) -> Credential): Credential? {
         val account = activeAccount() ?: return null
+        return resolveAccount(account, renew)
+    }
+
+    /**
+     * Same as [resolve] but for an explicit pool member, so rotation can serve
+     * a fresh credential for whichever account is picked — not just the
+     * selected one. Synchronized because request threads share the pool.
+     */
+    @Synchronized
+    fun resolveAccount(account: SavedAccount, renew: (Credential) -> Credential): Credential? {
         if (!needsRefresh(account.toCredential())) return account.toCredential()
         return runCatching {
             val renewed = renew(account.toCredential())
-            val region = account.region
-            val updated = accounts(region).map {
+            val current = if (account.provider == Provider.ZCODE) zcodeAccounts() else accounts(account.region)
+            val updated = current.map {
                 if (it.id == account.id) it.copy(
                     accessToken = renewed.accessToken,
                     refreshToken = renewed.refreshToken,
@@ -271,15 +385,29 @@ class CredentialStore(context: Context) {
                     domain = renewed.domain,
                 ) else it
             }
-            writeAccounts(region, updated)
+            writeAccounts(account.region, account.provider, updated)
             renewed
         }.getOrElse {
             // A failed renewal still returns the existing token when it has not
             // yet expired, so an unreachable refresh endpoint does not take a
             // working session down.
-            android.util.Log.w("WBHub", "token refresh failed; using existing token", it)
+            android.util.Log.w("TokenHeat", "token refresh failed; using existing token", it)
             account.toCredential()
         }
+    }
+
+    /**
+     * Takes one account out of (or returns it to) rotation. The row stays for
+     * manual selection, balance checks and check-in; only serving skips it.
+     */
+    fun setDisabled(account: SavedAccount, disabled: Boolean) {
+        val current = (
+            if (account.provider == Provider.ZCODE) zcodeAccounts() else accounts(account.region)
+            ).toMutableList()
+        val index = current.indexOfFirst { it.id == account.id }
+        if (index < 0) return
+        current[index] = current[index].copy(disabled = disabled)
+        writeAccounts(account.region, account.provider, current)
     }
 
     /**
@@ -289,7 +417,7 @@ class CredentialStore(context: Context) {
      */
     fun mirrorActiveForDaemon() {
         val target = File(DAEMON_AUTH_PATH)
-        val credential = active()
+        val credential = effectiveActive()
         runCatching {
             target.parentFile?.mkdirs()
             if (credential == null) {
@@ -297,8 +425,10 @@ class CredentialStore(context: Context) {
                 return@runCatching
             }
             val json = JSONObject().apply {
+                put("provider", credential.provider.name)
                 put("accessToken", credential.accessToken)
                 put("refreshToken", credential.refreshToken)
+                put("apiKey", credential.apiKey)
                 put("expiresAt", credential.expiresAt)
                 put("domain", credential.domain)
                 put("uid", credential.uid)
@@ -329,9 +459,10 @@ class CredentialStore(context: Context) {
 
     companion object {
         /** Where a local consumer expects the account in use. */
-        const val DAEMON_AUTH_PATH = "/data/local/tmp/wb-hub/wb-auth.json"
+        const val DAEMON_AUTH_PATH = "/data/local/tmp/tokenheat/tokenheat-auth.json"
 
         private const val KEY_ACTIVE_REGION = "active_region"
+        private const val KEY_ACTIVE_PROVIDER = "active_provider"
         private const val KEY_ACTIVE_ID = "active_account_"
 
         /** Renew this long before the token actually expires. */

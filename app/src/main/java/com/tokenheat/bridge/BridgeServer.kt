@@ -1,8 +1,10 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.UpstreamClient
-import com.wbhub.app.proto.Wire
+import com.tokenheat.proto.Credential
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.UpstreamClient
+import com.tokenheat.proto.Wire
+import com.tokenheat.proto.ZUpstreamClient
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -31,7 +33,9 @@ class BridgeServer(
     private val port: Int,
     private val secret: String,
     private val credential: () -> Credential?,
+    private val pool: () -> AccountPool,
     private val models: () -> List<String>,
+    private val modelOwner: () -> String = { "workbuddy" },
     private val onCall: (CallRecord) -> Unit = {},
 ) {
 
@@ -44,6 +48,7 @@ class BridgeServer(
     private val running = AtomicBoolean(false)
     private val pool = Executors.newCachedThreadPool()
     private val client = UpstreamClient()
+    private val zclient = ZUpstreamClient()
     private var server: ServerSocket? = null
 
     fun start() {
@@ -134,13 +139,17 @@ class BridgeServer(
 
             when {
                 requestLine.startsWith("GET /healthz") -> {
-                    val region = credential()?.region?.name ?: "none"
+                    val cred = credential()
+                    val region = cred?.region?.name ?: "none"
+                    val provider = cred?.provider?.name?.lowercase() ?: "none"
+                    val rotation = pool().eligibleCount()
                     BridgeStatus.region = region
-                    sendJson(output, 200, """{"ok":true,"region":"$region"}""")
+                    sendJson(output, 200, """{"ok":true,"region":"$region","provider":"$provider","rotation":$rotation}""")
                 }
                 requestLine.startsWith("GET /v1/models") -> {
+                    val owner = modelOwner()
                     val list = models().joinToString(",") {
-                        """{"id":"$it","object":"model","owned_by":"workbuddy"}"""
+                        """{"id":"$it","object":"model","owned_by":"$owner"}"""
                     }
                     sendJson(output, 200, """{"object":"list","data":[$list]}""")
                 }
@@ -173,56 +182,108 @@ class BridgeServer(
             sendJson(output, 415, """{"error":{"message":"Content-Type must be application/json","type":"unsupported_media_type"}}""")
             return
         }
-        val cred = credential()
-        if (cred == null) {
-            sendJson(output, 401, """{"error":{"message":"no credential","type":"not_signed_in"}}""")
-            return
-        }
         if (runCatching { JSONObject(body) }.isFailure) {
             sendJson(output, 400, """{"error":{"message":"invalid json"}}""")
             return
         }
         val model = runCatching { JSONObject(body).optString("model") }.getOrDefault("")
         val started = System.currentTimeMillis()
-        when (val result = client.chatStream(cred, body)) {
-            is UpstreamClient.ChatResult.Failed -> {
-                val detail = Wire.displayError(result.message) ?: result.message.take(200)
-                BridgeStatus.recordError("${result.kind.name.lowercase()}: $detail")
-                // A 401 keeps its status note so the caller can classify it as
-                // auth; every other failure speaks through the message alone,
-                // because a bare status word would mask a business error.
-                val note = if (result.status == 401) " (http 401)" else ""
-                onCall(
-                    CallRecord(
-                        timestamp = started,
-                        model = model,
-                        outcome = CallRecord.Outcome.FAILED,
-                        detail = "${result.kind.name.lowercase()}: $detail".take(120),
-                    ),
-                )
-                sendJson(
-                    output,
-                    KIND_STATUS.getValue(result.kind),
-                    """{"error":{"message":"workbuddy ${result.kind.name.lowercase()}$note: ${detail.replace("\"", "'")}","type":"${result.kind.name.lowercase()}"}}""",
-                )
-            }
-            is UpstreamClient.ChatResult.Ok -> {
-                try {
-                    val usage = relay(output, result, model)
-                    onCall(
-                        CallRecord(
-                            timestamp = started,
-                            model = model,
-                            outcome = CallRecord.Outcome.OK,
-                            promptTokens = usage.prompt,
-                            completionTokens = usage.completion,
-                            credits = usage.credits,
-                        ),
-                    )
-                } finally {
-                    runCatching { result.connection.disconnect() }
+
+        // Rotation: each request starts at the next account, and a retriable
+        // failure moves to another account inside the same request. `tried`
+        // bounds the loop: a single-account pool answers with its own failure
+        // instead of spinning.
+        var pick: AccountPool.Pick? = pool().pick()
+        if (pick == null) {
+            sendJson(output, 401, """{"error":{"message":"no credential","type":"not_signed_in"}}""")
+            return
+        }
+        val tried = HashSet<String>()
+        var pending: UpstreamClient.ChatResult.Failed? = null
+        var pendingCred: Credential? = null
+        while (true) {
+            val current = pick ?: break
+            if (!tried.add(current.account.id)) break
+            when (val result = dispatch(current.credential, body)) {
+                is UpstreamClient.ChatResult.Failed -> {
+                    pool().report(current.account.id, result.kind, result.status)
+                    pending = result
+                    pendingCred = current.credential
+                    pick = if (pool().shouldFailover(result.kind)) pool().pick() else null
+                }
+                is UpstreamClient.ChatResult.Ok -> {
+                    serveOk(output, started, model, current.account.label, result)
+                    return
                 }
             }
+        }
+        // Every candidate failed (or the only one did): answer with the last one.
+        val last = pending
+        val lastCred = pendingCred
+        if (last == null || lastCred == null) {
+            sendJson(output, 500, """{"error":{"message":"internal"}}""")
+            return
+        }
+        fail(output, started, model, lastCred, last)
+    }
+
+    private fun dispatch(cred: Credential, body: String): UpstreamClient.ChatResult =
+        when (cred.provider) {
+            Provider.ZCODE -> zclient.chatStream(cred, body)
+            Provider.WORKBUDDY -> client.chatStream(cred, body)
+        }
+
+    private fun fail(
+        output: OutputStream,
+        started: Long,
+        model: String,
+        cred: Credential,
+        result: UpstreamClient.ChatResult.Failed,
+    ) {
+        val detail = Wire.displayError(result.message) ?: result.message.take(200)
+        BridgeStatus.recordError("${result.kind.name.lowercase()}: $detail")
+        // A 401 keeps its status note so the caller can classify it as
+        // auth; every other failure speaks through the message alone,
+        // because a bare status word would mask a business error.
+        val note = if (result.status == 401) " (http 401)" else ""
+        onCall(
+            CallRecord(
+                timestamp = started,
+                model = model,
+                outcome = CallRecord.Outcome.FAILED,
+                detail = "${result.kind.name.lowercase()}: $detail".take(120),
+                accountLabel = cred.nickname.ifBlank { cred.uid.take(8) },
+            ),
+        )
+        sendJson(
+            output,
+            KIND_STATUS.getValue(result.kind),
+            """{"error":{"message":"${cred.provider.name.lowercase()} ${result.kind.name.lowercase()}$note: ${detail.replace("\"", "'")}","type":"${result.kind.name.lowercase()}"}}""",
+        )
+    }
+
+    private fun serveOk(
+        output: OutputStream,
+        started: Long,
+        model: String,
+        accountLabel: String,
+        result: UpstreamClient.ChatResult.Ok,
+    ) {
+        try {
+            val usage = relay(output, result, model)
+            onCall(
+                CallRecord(
+                    timestamp = started,
+                    model = model,
+                    outcome = CallRecord.Outcome.OK,
+                    promptTokens = usage.prompt,
+                    completionTokens = usage.completion,
+                    credits = usage.credits,
+                    accountLabel = accountLabel,
+                ),
+            )
+        } finally {
+            runCatching { result.connection.disconnect() }
         }
     }
 
@@ -375,7 +436,7 @@ class BridgeServer(
     }
 
     private companion object {
-        const val TAG = "WBHub"
+        const val TAG = "TokenHeat"
 
         /** How much of the stream tail is kept for usage scanning. */
         const val USAGE_SCAN_BYTES = 8192

@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package com.tokenheat.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,8 +27,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import com.wbhub.app.data.Login
-import com.wbhub.app.proto.Wire
+import com.tokenheat.data.Login
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.SavedAccount
+import com.tokenheat.proto.Wire
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -43,6 +45,11 @@ fun HubApp(
     onSwitchRealm: (Wire.Region) -> Unit,
     onSwitchAccount: (String) -> Unit,
     onDeleteAccount: (String) -> Unit,
+    onSwitchProvider: (Provider) -> Unit,
+    onLoginZcode: () -> Unit,
+    onSwitchZcodeAccount: (String) -> Unit,
+    onDeleteZcodeAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
     onOpenCredentialDetails: () -> Unit,
     onDismissCredentialDetails: () -> Unit,
     onCopyField: (String, String) -> Unit,
@@ -79,7 +86,7 @@ fun HubApp(
                 topBar = {
                     TopAppBar(
                         title = {
-                            Text("WorkBuddy Hub", fontWeight = FontWeight.SemiBold)
+                            Text("TokenHeat", fontWeight = FontWeight.SemiBold)
                         },
                     )
                 },
@@ -110,6 +117,11 @@ fun HubApp(
                             onLogin = onLogin,
                             onLogout = onLogout,
                             onOpenDetails = onOpenCredentialDetails,
+                            onSwitchProvider = onSwitchProvider,
+                            onLoginZcode = onLoginZcode,
+                            onSwitchZcodeAccount = onSwitchZcodeAccount,
+                            onDeleteZcodeAccount = onDeleteZcodeAccount,
+                            onToggleAccount = onToggleAccount,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

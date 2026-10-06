@@ -1,4 +1,4 @@
-# WorkBuddy Hub Android
+# TokenHeat Android
 
 [English](./README.en.md) | 中文
 
@@ -8,7 +8,7 @@
 
 ```
 手机
-├─ WB Hub
+├─ TokenHeat
 │    ├─ OAuth 登录（国内版 / 国际版）
 │    ├─ 本地转发端点  127.0.0.1:8765
 │    └─ 悬浮窗状态面板（防止后台被系统冻结）
@@ -28,6 +28,7 @@
 - **悬浮窗保活**：显示一个小状态面板，让应用保持可见，避免服务在后台被系统冻结。
   面板可拖动、可收起，支持调节透明度与固定位置
 - **调用记录**：记录每次调用的模型、Tokens 与积分消耗，并汇总统计
+- **账号轮训**：同一体系的多个账号按轮询分担请求，额度用完 / 限流 / 鉴权失效自动换号重试；单个账号可手动暂停轮训
 - **签到与余额**：查看剩余积分、执行每日签到
 
 ## 构建
@@ -78,7 +79,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
     "workbuddy": {
       "baseUrl": "http://127.0.0.1:8765/v1",
       "api": "openai-completions",
-      "apiKey": "wb-local",
+      "apiKey": "tokenheat-local",
       "models": [
         { "id": "hy3" }
       ]

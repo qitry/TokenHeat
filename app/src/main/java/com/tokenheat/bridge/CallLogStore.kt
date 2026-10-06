@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import android.content.Context
 import org.json.JSONArray
@@ -22,6 +22,8 @@ data class CallRecord(
     val completionTokens: Int = 0,
     val credits: Double = 0.0,
     val detail: String = "",
+    /** Which account served the call; blank for records written before rotation. */
+    val accountLabel: String = "",
 ) {
     enum class Outcome { OK, FAILED }
 
@@ -40,7 +42,7 @@ data class CallRecord(
  */
 class CallLogStore(context: Context) {
 
-    private val file = File(context.filesDir, "wb-call-log.json")
+    private val file = File(context.filesDir, "tokenheat-call-log.json")
     private val lock = Any()
 
     fun load(): List<CallRecord> {
@@ -59,6 +61,7 @@ class CallLogStore(context: Context) {
                     completionTokens = item.optInt("completion"),
                     credits = item.optDouble("credits", 0.0),
                     detail = item.optString("detail"),
+                    accountLabel = item.optString("account"),
                 )
             }
         }.getOrDefault(emptyList())
@@ -85,6 +88,7 @@ class CallLogStore(context: Context) {
                         put("completion", entry.completionTokens)
                         put("credits", entry.credits)
                         put("detail", entry.detail)
+                        put("account", entry.accountLabel)
                     },
                 )
             }

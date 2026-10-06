@@ -1,4 +1,4 @@
-package com.wbhub.app
+package com.tokenheat
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -17,24 +17,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import com.wbhub.app.bridge.BridgeService
-import com.wbhub.app.bridge.BridgeSettings
-import com.wbhub.app.bridge.CallLogStore
-import com.wbhub.app.bridge.Notifications
-import com.wbhub.app.data.CheckinItem
-import com.wbhub.app.data.Login
-import com.wbhub.app.proto.CheckinOutcome
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.CredentialStore
-import com.wbhub.app.proto.UpstreamClient
-import com.wbhub.app.proto.Wire
-import com.wbhub.app.proto.toHubModel
-import com.wbhub.app.ui.CheckinDialog
-import com.wbhub.app.ui.HubApp
-import com.wbhub.app.ui.Loading
-import com.wbhub.app.ui.LogoutDialog
-import com.wbhub.app.ui.HubState
-import com.wbhub.app.ui.HubTab
+import com.tokenheat.bridge.BridgeService
+import com.tokenheat.bridge.BridgeSettings
+import com.tokenheat.bridge.CallLogStore
+import com.tokenheat.bridge.Notifications
+import com.tokenheat.data.CheckinItem
+import com.tokenheat.data.Login
+import com.tokenheat.data.ZLogin
+import com.tokenheat.proto.CheckinOutcome
+import com.tokenheat.proto.Credential
+import com.tokenheat.proto.CredentialStore
+import com.tokenheat.proto.HubModel
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.SavedAccount
+import com.tokenheat.proto.UpstreamClient
+import com.tokenheat.proto.Wire
+import com.tokenheat.proto.ZUpstreamClient
+import com.tokenheat.proto.toHubModel
+import com.tokenheat.ui.CheckinDialog
+import com.tokenheat.ui.HubApp
+import com.tokenheat.ui.Loading
+import com.tokenheat.ui.LogoutDialog
+import com.tokenheat.ui.HubState
+import com.tokenheat.ui.HubTab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,6 +64,7 @@ class MainActivity : ComponentActivity() {
     private var showHelp by mutableStateOf(false)
     private var askedForNotifications = false
     private val upstream = UpstreamClient()
+    private val zupstream = ZUpstreamClient()
 
     /**
      * Sign-in polling must survive the app leaving the foreground, because the
@@ -134,6 +140,11 @@ class MainActivity : ComponentActivity() {
                 onSwitchRealm = { region -> switchRealm(region) },
                 onSwitchAccount = { id -> switchAccount(id) },
                 onDeleteAccount = { id -> deleteAccount(id) },
+                onSwitchProvider = { provider -> switchProvider(provider) },
+                onLoginZcode = { startZLogin() },
+                onSwitchZcodeAccount = { id -> switchZcodeAccount(id) },
+                onDeleteZcodeAccount = { id -> deleteZcodeAccount(id) },
+                onToggleAccount = { account -> toggleAccount(account) },
                 onRequestOverlay = { requestOverlayPermission() },
                 onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
                 onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
@@ -208,17 +219,63 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    /** Re-reads the account in use and every build's saved accounts. */
+    /** Re-reads the account in use and every provider's saved accounts. */
     private fun refreshCredential() {
-        val region = store.activeRegion()
-        val account = store.activeAccount()
+        val provider = store.activeProvider()
+        val wbAccount = store.activeAccount()
+        val zcodeAccount = store.activeZcodeAccount()
+        val account = if (provider == Provider.ZCODE) zcodeAccount else wbAccount
         state = state.copy(
-            realm = region,
+            provider = provider,
+            realm = store.activeRegion(),
             credential = account?.toCredential(),
             expiryText = account?.let { formatExpiry(it.toCredential()) } ?: "",
             accounts = Wire.Region.entries.associateWith { store.accounts(it) },
-            activeAccountId = account?.id,
+            activeAccountId = wbAccount?.id,
+            zcodeAccounts = store.zcodeAccounts(),
+            zcodeActiveId = zcodeAccount?.id,
         )
+    }
+
+    /**
+     * Switches which account system the bridge serves. Each provider keeps its
+     * own stored accounts, so the switch is instant and needs no re-login.
+     */
+    private fun switchProvider(provider: Provider) {
+        store.setActiveProvider(provider)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已切换到${provider.label}账号")
+    }
+
+    /** Switches to another saved ZCode account. */
+    private fun switchZcodeAccount(accountId: String) {
+        store.selectZcodeAccount(accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已切换账号")
+    }
+
+    /** Removes one saved ZCode account. */
+    private fun deleteZcodeAccount(accountId: String) {
+        store.deleteZcode(accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已删除账号")
+    }
+
+    /**
+     * Takes one account out of (or returns it to) rotation. The pool reads the
+     * store on every request, so the switch applies without restarting the
+     * bridge; manual selection, balance and check-in are unaffected.
+     */
+    private fun toggleAccount(account: SavedAccount) {
+        store.setDisabled(account, !account.disabled)
+        refreshCredential()
+        state = state.copy(status = if (account.disabled) "已恢复轮训" else "已暂停轮训")
     }
 
     /** Switches to another saved account inside the current build. */
@@ -305,12 +362,24 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val models = withContext(Dispatchers.IO) {
                 withLoading(Loading.MODELS) {
-                    runCatching { upstream.fetchModels(cred).map { it.toHubModel() } }.getOrDefault(emptyList())
+                    if (cred.provider == Provider.ZCODE) {
+                        runCatching { zupstream.fetchModels(cred).map { it.toZcodeHubModel() } }
+                            .getOrDefault(emptyList())
+                    } else {
+                        runCatching { upstream.fetchModels(cred).map { it.toHubModel() } }.getOrDefault(emptyList())
+                    }
                 }
             }
             state = state.copy(models = models)
         }
     }
+
+    /** ZCode ids arrive bare; only the vendor tag is derived for display. */
+    private fun String.toZcodeHubModel(): HubModel = HubModel(
+        id = this,
+        name = this,
+        vendor = if (startsWith("glm", ignoreCase = true)) "智谱" else "",
+    )
 
     private fun startLogin(region: Wire.Region) {
         lifecycleScope.launch {
@@ -353,6 +422,63 @@ class MainActivity : ComponentActivity() {
                         return@launch
                     }
                     is Login.Poll.Failed -> {
+                        state = state.copy(status = "登录失败：${result.message}")
+                        return@launch
+                    }
+                    else -> delay(POLL_INTERVAL_MS)
+                }
+            }
+            state = state.copy(status = "登录超时，请重试")
+        }
+    }
+
+    private fun startZLogin() {
+        lifecycleScope.launch {
+            val session = withContext(Dispatchers.IO) {
+                runCatching { ZLogin.start() }.getOrNull()
+            }
+            if (session == null) {
+                toast("获取登录链接失败")
+                return@launch
+            }
+            state = state.copy(status = "请在浏览器完成登录：${session.authUrl}")
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl)))
+            pollZcodeForToken(session)
+        }
+    }
+
+    /**
+     * Polls the ZCode OAuth flow, then exchanges the token for an API key.
+     * The exchange walks several gateway calls (business login, org/project,
+     * key ensure, secret copy), so it runs off the main thread with its own
+     * status line instead of reusing the poll loop's.
+     */
+    private fun pollZcodeForToken(session: ZLogin.Session) {
+        pollJob?.cancel()
+        pollJob = loginScope.launch {
+            val deadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+            while (isActive && System.currentTimeMillis() < deadline) {
+                val result = withContext(Dispatchers.IO) { runCatching { ZLogin.poll(session) }.getOrNull() }
+                when (result) {
+                    is ZLogin.Poll.Done -> {
+                        state = state.copy(status = "登录成功，正在兑换 API Key…")
+                        val credential = withContext(Dispatchers.IO) {
+                            runCatching { ZLogin.exchange(result.oauthToken) }.getOrNull()
+                        }
+                        if (credential == null) {
+                            state = state.copy(status = "兑换 API Key 失败，请重试")
+                            return@launch
+                        }
+                        store.saveZcode(credential)
+                        store.setActiveProvider(Provider.ZCODE)
+                        refreshCredential()
+                        loadModels()
+                        loadBalance()
+                        Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+                        toast("凭证已保存")
+                        return@launch
+                    }
+                    is ZLogin.Poll.Failed -> {
                         state = state.copy(status = "登录失败：${result.message}")
                         return@launch
                     }
@@ -426,6 +552,10 @@ class MainActivity : ComponentActivity() {
             state = state.copy(status = "余额：未登录")
             return
         }
+        if (cred.provider == Provider.ZCODE) {
+            loadQuota(cred)
+            return
+        }
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 withLoading(Loading.BALANCE) { runCatching { upstream.fetchCredits(cred) } }
@@ -442,6 +572,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** ZCode quota is a display string, not a structured balance. */
+    private fun loadQuota(cred: Credential) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                withLoading(Loading.BALANCE) { runCatching { zupstream.fetchQuota(cred) } }
+            }
+            val quota = result.getOrNull()
+            state = state.copy(
+                zcodeQuota = quota.orEmpty(),
+                status = if (quota.isNullOrBlank()) {
+                    "额度查询失败：${result.exceptionOrNull()?.message?.take(80)}"
+                } else {
+                    ""
+                },
+            )
+        }
+    }
     /** Whether this package is exempt from battery optimisation. */
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -470,7 +617,7 @@ class MainActivity : ComponentActivity() {
 
     private fun copyToClipboard(text: String, message: String) {
         val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        manager.setPrimaryClip(ClipData.newPlainText("wb", text))
+        manager.setPrimaryClip(ClipData.newPlainText("tokenheat", text))
         toast(message)
     }
 
@@ -501,11 +648,12 @@ class MainActivity : ComponentActivity() {
         toast("调用记录已清空")
     }
 
-    /** Signs the user out everywhere, discarding both stored credentials. */
+    /** Signs the user out everywhere, discarding all stored credentials. */
     private fun logout() {
         Wire.Region.entries.forEach { store.clear(it) }
+        store.clearZcode()
         refreshCredential()
-        state = state.copy(models = emptyList(), balance = null, status = "已退出登录")
+        state = state.copy(models = emptyList(), balance = null, zcodeQuota = "", status = "已退出登录")
         toast("已退出登录")
     }
 

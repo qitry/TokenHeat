@@ -1,12 +1,14 @@
-package com.wbhub.app.bridge
+package com.tokenheat.bridge
 
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
-import com.wbhub.app.proto.CredentialStore
-import com.wbhub.app.proto.UpstreamClient
+import com.tokenheat.proto.CredentialStore
+import com.tokenheat.proto.Provider
+import com.tokenheat.proto.UpstreamClient
+import com.tokenheat.proto.ZUpstreamClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +34,28 @@ class BridgeService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var models: List<String> = emptyList()
     private val upstream = UpstreamClient()
+    private val zupstream = ZUpstreamClient()
+
+    /**
+     * Rotation pool shared by all requests. Candidates follow the current
+     * slot (active provider + WorkBuddy build); marks are keyed by account
+     * id, so a slot switch never confuses them. The lambdas run per request,
+     * so `store` being late-initialized is fine.
+     */
+    private val pool = AccountPool(
+        candidates = {
+            when (store.activeProvider()) {
+                Provider.ZCODE -> store.zcodeAccounts()
+                Provider.WORKBUDDY -> store.accounts(store.activeRegion())
+            }
+        },
+        refresher = { account ->
+            when (account.provider) {
+                Provider.ZCODE -> account.toCredential()
+                Provider.WORKBUDDY -> store.resolveAccount(account) { c -> upstream.refreshToken(c) }
+            }
+        },
+    )
     private lateinit var store: CredentialStore
     private var bridge: BridgeServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -66,8 +90,16 @@ class BridgeService : Service() {
             bridge = BridgeServer(
                 port = port,
                 secret = secret,
-                credential = { store.resolve { c -> upstream.refreshToken(c) } },
+                // ZCode keys are long-lived, so no refresh applies to them.
+                credential = {
+                    when (store.activeProvider()) {
+                        Provider.ZCODE -> store.activeZcode()
+                        Provider.WORKBUDDY -> store.resolve { c -> upstream.refreshToken(c) }
+                    }
+                },
                 models = { models },
+                modelOwner = { if (store.activeProvider() == Provider.ZCODE) "zcode" else "workbuddy" },
+                pool = { pool },
                 onCall = { record -> callLog.append(record) },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
@@ -84,7 +116,7 @@ class BridgeService : Service() {
             startForeground(Notifications.bridgeId(), Notifications.buildBridge(this, port))
             true
         }.onFailure {
-            android.util.Log.e("WBHub", "startForeground refused; bridge is unprotected", it)
+            android.util.Log.e("TokenHeat", "startForeground refused; bridge is unprotected", it)
         }.getOrDefault(false)
     }
 
@@ -96,9 +128,9 @@ class BridgeService : Service() {
         if (wakeLock?.isHeld == true) return
         wakeLock = runCatching {
             (getSystemService(POWER_SERVICE) as PowerManager)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WBHub:bridge")
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TokenHeat:bridge")
                 .apply { setReferenceCounted(false); acquire() }
-        }.onFailure { android.util.Log.w("WBHub", "wake lock unavailable", it) }.getOrNull()
+        }.onFailure { android.util.Log.w("TokenHeat", "wake lock unavailable", it) }.getOrNull()
     }
 
     /**
@@ -111,7 +143,7 @@ class BridgeService : Service() {
     private fun showOverlay() {
         if (overlay?.isShowing() == true) return
         if (!android.provider.Settings.canDrawOverlays(this)) {
-            android.util.Log.i("WBHub", "overlay permission not granted; bridge runs without the panel")
+            android.util.Log.i("TokenHeat", "overlay permission not granted; bridge runs without the panel")
             return
         }
         overlay = BridgeOverlay(
@@ -132,11 +164,15 @@ class BridgeService : Service() {
 
     private suspend fun refreshModelsLoop() {
         while (true) {
-            val cred = store.active()
-            if (cred != null) {
-                val fetched = runCatching { upstream.fetchModels(cred).map { it.id } }.getOrNull()
-                if (!fetched.isNullOrEmpty()) models = fetched
+            val fetched = when (store.activeProvider()) {
+                Provider.ZCODE -> store.activeZcode()?.let { cred ->
+                    runCatching { zupstream.fetchModels(cred) }.getOrNull()
+                }
+                Provider.WORKBUDDY -> store.active()?.let { cred ->
+                    runCatching { upstream.fetchModels(cred).map { it.id } }.getOrNull()
+                }
             }
+            if (!fetched.isNullOrEmpty()) models = fetched
             delay(MODEL_REFRESH_MS)
         }
     }
@@ -161,7 +197,7 @@ class BridgeService : Service() {
             private set
 
         const val DEFAULT_PORT = 8765
-        const val DEFAULT_SECRET = "wb-local"
+        const val DEFAULT_SECRET = "tokenheat-local"
         const val EXTRA_PORT = "port"
         const val EXTRA_SECRET = "secret"
         private const val MODEL_REFRESH_MS = 5 * 60 * 1000L
