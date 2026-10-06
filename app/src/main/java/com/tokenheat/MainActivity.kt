@@ -102,6 +102,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = CredentialStore(this)
         callLog = CallLogStore(this)
+        // One-time repair: keys once mis-saved into a build file move home.
+        store.repairMisplacedApiKeys()
         Notifications.ensureChannel(this)
         refreshCredential()
         // Keep the daemon's credential copy current, including the first run

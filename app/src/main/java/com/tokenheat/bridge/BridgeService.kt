@@ -79,6 +79,8 @@ class BridgeService : Service() {
         super.onCreate()
         store = CredentialStore(this)
         callLog = CallLogStore(this)
+        // Same one-time repair as the activity: the service reads the files too.
+        store.repairMisplacedApiKeys()
         Notifications.ensureChannel(this)
     }
 

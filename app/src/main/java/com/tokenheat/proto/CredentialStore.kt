@@ -77,6 +77,17 @@ class CredentialStore(context: Context) {
     fun zenAccounts(): List<SavedAccount> =
         accountsIn(fileForProvider(Provider.ZEN), Wire.Region.CN, Provider.ZEN)
 
+    /**
+     * Every account of one slot. All mutations must go through here (and
+     * [writeAccounts]) — branching on a single provider inline is how Zen
+     * keys once ended up in the WorkBuddy file.
+     */
+    private fun accountsOf(provider: Provider, region: Wire.Region): List<SavedAccount> = when (provider) {
+        Provider.ZCODE -> zcodeAccounts()
+        Provider.ZEN -> zenAccounts()
+        Provider.WORKBUDDY -> accounts(region)
+    }
+
     private fun accountsIn(file: File, region: Wire.Region, provider: Provider): List<SavedAccount> {
         if (!file.exists()) return emptyList()
         val text = runCatching { file.readText() }.getOrNull() ?: return emptyList()
@@ -93,7 +104,10 @@ class CredentialStore(context: Context) {
         obj ?: return null
         val token = obj.optString("accessToken")
         val apiKey = obj.optString("apiKey")
-        if (token.isEmpty() && apiKey.isEmpty()) return null
+        // WorkBuddy authenticates with access tokens; an apiKey-only entry in
+        // a build file is a misplaced foreign key, not a login — drop it so a
+        // stale miswrite can never surface as a phantom account.
+        if (token.isEmpty() && (provider == Provider.WORKBUDDY || apiKey.isEmpty())) return null
         val domain = obj.optString("domain").ifEmpty { defaultDomain(region) }
         val uid = obj.optString("uid")
         val stored = obj.optLong("expiresAt", 0L)
@@ -160,7 +174,7 @@ class CredentialStore(context: Context) {
                 },
             )
         }
-        (if (provider == Provider.ZCODE) fileForProvider(provider) else fileFor(region)).writeText(array.toString())
+        (if (provider == Provider.WORKBUDDY) fileFor(region) else fileForProvider(provider)).writeText(array.toString())
     }
 
     /**
@@ -184,7 +198,7 @@ class CredentialStore(context: Context) {
         // The id slot matches the selection slot, so re-signing replaces the
         // old entry instead of orphaning it (WorkBuddy ids stay "CN:…").
         val id = accountId(activeSlot(provider, region), credential.uid, credential.domain, seed)
-        val current = (if (provider == Provider.ZCODE) zcodeAccounts() else accounts(region)).toMutableList()
+        val current = accountsOf(provider, region).toMutableList()
         // Re-signing renews the token but keeps a manual rotation opt-out.
         val keepDisabled = current.firstOrNull { it.id == id }?.disabled ?: false
         val account = SavedAccount(
@@ -256,6 +270,56 @@ class CredentialStore(context: Context) {
     fun clearZen() {
         fileForProvider(Provider.ZEN).delete()
         clearActiveSlot(activeSlot(Provider.ZEN, Wire.Region.CN))
+    }
+
+    /**
+     * One-time repair for keys the pre-fix writer saved into a build file
+     * (Zen went to the CN file, so it listed under WorkBuddy). Moves
+     * apiKey-only entries to the Zen slot, preserving nickname/label.
+     * Idempotent: a clean tree is a no-op, so both entry points call it.
+     */
+    fun repairMisplacedApiKeys() {
+        val zen = zenAccounts().toMutableList()
+        var zenDirty = false
+        Wire.Region.entries.forEach { region ->
+            val file = fileFor(region)
+            if (!file.exists()) return@forEach
+            val array = runCatching { JSONArray(file.readText()) }.getOrNull() ?: return@forEach
+            val keep = JSONArray()
+            var dirty = false
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                if (obj.optString("accessToken").isEmpty() && obj.optString("apiKey").isNotEmpty()) {
+                    val apiKey = obj.optString("apiKey")
+                    val id = obj.optString("id")
+                        .ifEmpty { accountId("ZEN", obj.optString("uid"), obj.optString("domain"), apiKey) }
+                    if (zen.none { it.id == id }) {
+                        zen += SavedAccount(
+                            id = id,
+                            provider = Provider.ZEN,
+                            region = Wire.Region.CN,
+                            nickname = obj.optString("nickname").ifEmpty { "Zen" },
+                            uid = obj.optString("uid"),
+                            domain = obj.optString("domain").ifEmpty { ZenUpstreamClient.CHAT_BASE },
+                            accessToken = "",
+                            refreshToken = "",
+                            apiKey = apiKey,
+                            disabled = obj.optBoolean("disabled", false),
+                            expiresAt = obj.optLong("expiresAt", 0L),
+                            source = obj.optString("source", "manual-zen"),
+                        )
+                    }
+                    dirty = true
+                } else {
+                    keep.put(obj)
+                }
+            }
+            if (dirty) {
+                file.writeText(keep.toString())
+                zenDirty = true
+            }
+        }
+        if (zenDirty) writeAccounts(Wire.Region.CN, Provider.ZEN, zen)
     }
 
     /**
@@ -427,7 +491,7 @@ class CredentialStore(context: Context) {
         if (!needsRefresh(account.toCredential())) return account.toCredential()
         return runCatching {
             val renewed = renew(account.toCredential())
-            val current = if (account.provider == Provider.ZCODE) zcodeAccounts() else accounts(account.region)
+            val current = accountsOf(account.provider, account.region)
             val updated = current.map {
                 if (it.id == account.id) it.copy(
                     accessToken = renewed.accessToken,
@@ -452,9 +516,7 @@ class CredentialStore(context: Context) {
      * manual selection, balance checks and check-in; only serving skips it.
      */
     fun setDisabled(account: SavedAccount, disabled: Boolean) {
-        val current = (
-            if (account.provider == Provider.ZCODE) zcodeAccounts() else accounts(account.region)
-            ).toMutableList()
+        val current = accountsOf(account.provider, account.region).toMutableList()
         val index = current.indexOfFirst { it.id == account.id }
         if (index < 0) return
         current[index] = current[index].copy(disabled = disabled)
