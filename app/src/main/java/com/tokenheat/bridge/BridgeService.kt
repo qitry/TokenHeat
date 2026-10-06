@@ -195,7 +195,7 @@ class BridgeService : Service() {
             Provider.entries.forEach { provider ->
                 val fetched = when (provider) {
                     Provider.ZCODE -> store.activeSlotAccount(provider)?.toCredential()?.let { cred ->
-                        runCatching { zupstream.fetchModels(cred).map { it.id } }.getOrNull()
+                        runCatching { zupstream.fetchModels(cred) }.getOrNull()
                     }
                     Provider.ZEN -> runCatching { zenUpstream.fetchModels().map { it.id } }.getOrNull()
                     Provider.WORKBUDDY -> store.active()?.let { cred ->
