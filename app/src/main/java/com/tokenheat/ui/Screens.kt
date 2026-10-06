@@ -91,7 +91,21 @@ fun CredentialScreen(
     onLoginQoder: (QLogin.QRegion) -> Unit,
     onSwitchSlotAccount: (Provider, String) -> Unit,
     onDeleteSlotAccount: (Provider, String) -> Unit,
+    onLoginAG: () -> Unit,
 ) {
+    if (state.provider == Provider.ANTIGRAVITY) {
+        AGCredentialScreen(
+            state = state,
+            onSwitchProvider = onSwitchProvider,
+            onLogin = onLoginAG,
+            onSwitchAccount = { onSwitchSlotAccount(state.provider, it) },
+            onDeleteAccount = { onDeleteSlotAccount(state.provider, it) },
+            onToggleAccount = onToggleAccount,
+            onLogout = onLogout,
+            onOpenDetails = onOpenDetails,
+        )
+        return
+    }
     if (state.provider == Provider.QODER_CN || state.provider == Provider.QODER_GLOBAL) {
         val qoderRegion = if (state.provider == Provider.QODER_CN) QLogin.QRegion.CN else QLogin.QRegion.GLOBAL
         QoderCredentialScreen(
@@ -251,6 +265,111 @@ private fun ProviderSwitch(selected: Provider, onSwitch: (Provider) -> Unit) {
                     Text(item.label)
                 }
             }
+        }
+    }
+}
+
+/** Antigravity accounts: Google OAuth via loopback callback. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AGCredentialScreen(
+    state: HubState,
+    onSwitchProvider: (Provider) -> Unit,
+    onLogin: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
+    onLogout: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    val active = state.credential
+    val saved = state.slotAccounts[Provider.ANTIGRAVITY].orEmpty()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            ProviderSwitch(selected = state.provider, onSwitch = onSwitchProvider)
+        }
+        item {
+            Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "当前账号 · Antigravity",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "查看详情",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    when {
+                        active == null -> Text(
+                            "Antigravity 还没有账号，点下面的按钮登录。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> {
+                            Text("账号：${active.nickname.ifBlank { active.uid.take(16) }}")
+                            Text("有效期：${state.expiryText.ifBlank { "未知" }}")
+                            Text(
+                                "点本卡片查看 Token 等完整信息",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (saved.isNotEmpty()) {
+            item {
+                Text(
+                    "Antigravity 账号",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items(saved, key = { it.id }) { account ->
+                val isActive = account.id == state.slotActiveId[Provider.ANTIGRAVITY]
+                AccountRow(
+                    label = account.label,
+                    uid = account.uid,
+                    isActive = isActive,
+                    enabled = !account.disabled,
+                    onSelect = { onSwitchAccount(account.id) },
+                    onToggleEnabled = { onToggleAccount(account) },
+                    onDelete = { onDeleteAccount(account.id) },
+                )
+            }
+        }
+
+        item {
+            Button(onClick = onLogin, modifier = Modifier.fillMaxWidth()) {
+                Text(if (active == null) "登录 Antigravity" else "添加 Antigravity 账号")
+            }
+        }
+
+        if (state.hasAnyCredential) {
+            item {
+                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Text("退出登录（清除全部账号）")
+                }
+            }
+        }
+
+        item {
+            Text(
+                "说明：走 Google 官方 OAuth（与社区 Antigravity 插件同款流程），浏览器确认后自动回填。" +
+                    "非官方调用存在封号与随时失效风险；可以添加多个 Google 账号参与轮训。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -754,6 +873,13 @@ fun CredentialDetailDrawer(
                 item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
                 item { detailRow("Access Token", cred.accessToken.ifBlank { "(无)" }, onCopy) }
                 item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
+            } else if (cred.provider == Provider.ANTIGRAVITY) {
+                item { detailRow("账号体系", "Antigravity", onCopy) }
+                item { detailRow("邮箱", cred.nickname.ifBlank { cred.uid.ifBlank { "(无)" } }, onCopy) }
+                item { detailRow("Cloud 项目", cred.projectId.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
+                item { detailRow("Access Token", cred.accessToken.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
             } else {
                 item { detailRow("版本", realmName(Wire.regionOf(cred.domain)), onCopy) }
                 item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
@@ -1040,6 +1166,17 @@ fun RewardsScreen(
             quota = state.quotas[state.provider].orEmpty(),
             title = "剩余额度",
             note = "说明：Qoder 没有每日签到，剩余额度来自账号订阅；用完可切换账号继续。",
+            onRefreshBalance = onRefreshBalance,
+        )
+        return
+    }
+    // Antigravity quota buckets share the same display shape.
+    if (state.provider == Provider.ANTIGRAVITY) {
+        QuotaRewardsScreen(
+            state = state,
+            quota = state.quotas[state.provider].orEmpty(),
+            title = "剩余额度",
+            note = "说明：Antigravity 按账号配额计费；429 越多越要加号轮训。",
             onRefreshBalance = onRefreshBalance,
         )
         return

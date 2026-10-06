@@ -59,6 +59,7 @@ fun HubApp(
     onLoginQoder: (QLogin.QRegion) -> Unit,
     onSwitchSlotAccount: (Provider, String) -> Unit,
     onDeleteSlotAccount: (Provider, String) -> Unit,
+    onLoginAG: () -> Unit,
     onOpenCredentialDetails: () -> Unit,
     onDismissCredentialDetails: () -> Unit,
     onCopyField: (String, String) -> Unit,
@@ -139,6 +140,7 @@ fun HubApp(
                             onLoginQoder = onLoginQoder,
                             onSwitchSlotAccount = onSwitchSlotAccount,
                             onDeleteSlotAccount = onDeleteSlotAccount,
+                            onLoginAG = onLoginAG,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

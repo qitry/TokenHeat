@@ -6,6 +6,7 @@ import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.Wire
 import com.tokenheat.proto.ZUpstreamClient
 import com.tokenheat.proto.QUpstreamClient
+import com.tokenheat.proto.AGUpstreamClient
 import com.tokenheat.proto.ZenUpstreamClient
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -59,6 +60,7 @@ class BridgeServer(
     private val zclient = ZUpstreamClient()
     private val zenClient = ZenUpstreamClient()
     private val qoderClient = QUpstreamClient()
+    private val agClient = AGUpstreamClient()
     private var server: ServerSocket? = null
 
     fun start() {
@@ -243,9 +245,8 @@ class BridgeServer(
             Provider.ZCODE -> zclient.chatStream(cred, body)
             Provider.ZEN -> zenClient.chatStream(cred, body)
             Provider.QODER_CN, Provider.QODER_GLOBAL -> qoderClient.chatStream(cred, body)
+            Provider.ANTIGRAVITY -> agClient.chatStream(cred, body)
             Provider.WORKBUDDY -> client.chatStream(cred, body)
-            Provider.ANTIGRAVITY ->
-                UpstreamClient.ChatResult.Failed(0, Wire.ErrorKind.CLIENT, "provider not wired yet")
         }
 
     /** Splits `provider/id`; unknown heads fall back to the active provider. */

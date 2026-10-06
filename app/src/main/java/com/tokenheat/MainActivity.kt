@@ -22,6 +22,7 @@ import com.tokenheat.bridge.BridgeSettings
 import com.tokenheat.bridge.CallLogStore
 import com.tokenheat.bridge.Notifications
 import com.tokenheat.data.CheckinItem
+import com.tokenheat.data.AGLogin
 import com.tokenheat.data.Login
 import com.tokenheat.data.QLogin
 import com.tokenheat.data.ZLogin
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private val zupstream = ZUpstreamClient()
     private val zenUpstream = ZenUpstreamClient()
     private val qoderUpstream = QUpstreamClient()
+    private val agUpstream = AGUpstreamClient()
 
     /**
      * Sign-in polling must survive the app leaving the foreground, because the
@@ -159,6 +161,7 @@ class MainActivity : ComponentActivity() {
                 onLoginQoder = { region -> startQoderLogin(region) },
                 onSwitchSlotAccount = { provider, id -> switchSlotAccount(provider, id) },
                 onDeleteSlotAccount = { provider, id -> deleteSlotAccount(provider, id) },
+                onLoginAG = { startAGLogin() },
                 onRequestOverlay = { requestOverlayPermission() },
                 onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
                 onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
@@ -406,6 +409,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Antigravity Google OAuth via a loopback callback server. The wait runs
+     * in [loginScope] (not `lifecycleScope`) because the user finishes in the
+     * browser while this activity is stopped.
+     */
+    private fun startAGLogin() {
+        pollJob?.cancel()
+        pollJob = loginScope.launch {
+            val server = withContext(Dispatchers.IO) {
+                runCatching { AGLogin.CallbackServer() }.getOrNull()
+            }
+            if (server == null) {
+                state = state.copy(status = "无法在本机监听回调端口，请重试")
+                return@launch
+            }
+            val request = AGLogin.authRequest()
+            state = state.copy(status = "请在浏览器完成 Google 登录：${request.authUrl}")
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(request.authUrl)))
+            val callback = withContext(Dispatchers.IO) { server.awaitCode(LOGIN_TIMEOUT_MS) }
+            server.close()
+            if (callback == null) {
+                state = state.copy(status = "登录超时，请重试")
+                return@launch
+            }
+            state = state.copy(status = "登录成功，正在兑换 Token…")
+            val credential = withContext(Dispatchers.IO) {
+                runCatching {
+                    val tokens = AGLogin.exchange(callback.first, request.verifier)
+                    val projectId = AGLogin.fetchProjectId(tokens.accessToken)
+                    AGLogin.toCredential(tokens, projectId)
+                }.getOrNull()
+            }
+            if (credential == null) {
+                state = state.copy(status = "兑换 Token 失败，请重试")
+                return@launch
+            }
+            store.saveSlot(Provider.ANTIGRAVITY, credential)
+            store.setActiveProvider(Provider.ANTIGRAVITY)
+            refreshCredential()
+            loadModels()
+            loadBalance()
+            Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+            toast("凭证已保存")
+        }
+    }
+
     /** Switches to another saved account of one generic provider slot. */
     private fun switchSlotAccount(provider: Provider, accountId: String) {
         store.selectSlot(provider, accountId)
@@ -567,8 +616,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }.getOrDefault(emptyList())
             }
-            // Wired in a later batch (Antigravity client).
-            Provider.ANTIGRAVITY -> emptyList()
+            Provider.ANTIGRAVITY -> {
+                val cred = store.activeSlotAccount(provider)?.toCredential() ?: return emptyList()
+                runCatching {
+                    agUpstream.fetchModels(cred).map {
+                        HubModel(id = prefix + it, name = prefix + it, vendor = "Antigravity")
+                    }
+                }.getOrDefault(emptyList())
+            }
         }
     }
 
@@ -782,6 +837,10 @@ class MainActivity : ComponentActivity() {
         }
         if (cred.provider == Provider.QODER_CN || cred.provider == Provider.QODER_GLOBAL) {
             loadSlotQuota(cred, upstream = { c -> qoderUpstream.fetchQuota(c) })
+            return
+        }
+        if (cred.provider == Provider.ANTIGRAVITY) {
+            loadSlotQuota(cred, upstream = { c -> agUpstream.fetchQuota(c) })
             return
         }
         lifecycleScope.launch {

@@ -10,6 +10,7 @@ import com.tokenheat.proto.Provider
 import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.ZUpstreamClient
 import com.tokenheat.proto.QUpstreamClient
+import com.tokenheat.proto.AGUpstreamClient
 import com.tokenheat.proto.ZenUpstreamClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,7 @@ class BridgeService : Service() {
     private val zupstream = ZUpstreamClient()
     private val zenUpstream = ZenUpstreamClient()
     private val qoderUpstream = QUpstreamClient()
+    private val agUpstream = AGUpstreamClient()
 
     /**
      * One rotation pool per provider. Candidates follow the provider's slot
@@ -58,6 +60,8 @@ class BridgeService : Service() {
                     Provider.WORKBUDDY -> store.resolveAccount(account) { c -> upstream.refreshToken(c) }
                     Provider.QODER_CN, Provider.QODER_GLOBAL ->
                         store.resolveAccount(account) { c -> qoderUpstream.refreshToken(c) }
+                    Provider.ANTIGRAVITY ->
+                        store.resolveAccount(account) { c -> agUpstream.refreshToken(c) }
                     else -> account.toCredential()
                 }
             },
@@ -102,8 +106,8 @@ class BridgeService : Service() {
             bridge = BridgeServer(
                 port = port,
                 secret = secret,
-                // Device tokens and pasted keys are long-lived; Qoder and
-                // WorkBuddy refresh through their own endpoints.
+                // Qoder, WorkBuddy and Antigravity refresh through their own
+                // endpoints; ZCode and Zen keys are used as-is.
                 credential = {
                     when (store.activeProvider()) {
                         Provider.ZCODE -> store.activeZcode()
@@ -111,8 +115,10 @@ class BridgeService : Service() {
                         Provider.QODER_CN, Provider.QODER_GLOBAL ->
                             store.activeSlotAccount(store.activeProvider())
                                 ?.let { store.resolveAccount(it) { c -> qoderUpstream.refreshToken(c) } }
+                        Provider.ANTIGRAVITY ->
+                            store.activeSlotAccount(store.activeProvider())
+                                ?.let { store.resolveAccount(it) { c -> agUpstream.refreshToken(c) } }
                         Provider.WORKBUDDY -> store.resolve { c -> upstream.refreshToken(c) }
-                        Provider.ANTIGRAVITY -> store.activeSlotAccount(store.activeProvider())?.toCredential()
                     }
                 },
                 models = {
@@ -200,8 +206,10 @@ class BridgeService : Service() {
                         store.activeSlotAccount(provider)?.toCredential()?.let { cred ->
                             runCatching { qoderUpstream.fetchModels(cred) }.getOrNull()
                         }
-                    // Wired in a later batch (Antigravity client).
-                    Provider.ANTIGRAVITY -> null
+                    Provider.ANTIGRAVITY ->
+                        store.activeSlotAccount(provider)?.toCredential()?.let { cred ->
+                            runCatching { agUpstream.fetchModels(cred) }.getOrNull()
+                        }
                 }
                 if (!fetched.isNullOrEmpty()) modelMap = modelMap + (provider to fetched)
             }
