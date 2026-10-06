@@ -33,6 +33,7 @@ import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.Wire
 import com.tokenheat.proto.ZUpstreamClient
+import com.tokenheat.proto.ZenUpstreamClient
 import com.tokenheat.proto.toHubModel
 import com.tokenheat.ui.CheckinDialog
 import com.tokenheat.ui.HubApp
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private var askedForNotifications = false
     private val upstream = UpstreamClient()
     private val zupstream = ZUpstreamClient()
+    private val zenUpstream = ZenUpstreamClient()
 
     /**
      * Sign-in polling must survive the app leaving the foreground, because the
@@ -145,6 +147,11 @@ class MainActivity : ComponentActivity() {
                 onSwitchZcodeAccount = { id -> switchZcodeAccount(id) },
                 onDeleteZcodeAccount = { id -> deleteZcodeAccount(id) },
                 onToggleAccount = { account -> toggleAccount(account) },
+                onSwitchZenAccount = { id -> switchZenAccount(id) },
+                onDeleteZenAccount = { id -> deleteZenAccount(id) },
+                onShowZenKeyDialog = { state = state.copy(showZenKeyDialog = true) },
+                onDismissZenKeyDialog = { state = state.copy(showZenKeyDialog = false) },
+                onConfirmZenKey = { key, label -> addZenKey(key, label) },
                 onRequestOverlay = { requestOverlayPermission() },
                 onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
                 onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
@@ -224,7 +231,12 @@ class MainActivity : ComponentActivity() {
         val provider = store.activeProvider()
         val wbAccount = store.activeAccount()
         val zcodeAccount = store.activeZcodeAccount()
-        val account = if (provider == Provider.ZCODE) zcodeAccount else wbAccount
+        val zenAccount = store.activeZenAccount()
+        val account = when (provider) {
+            Provider.ZCODE -> zcodeAccount
+            Provider.ZEN -> zenAccount
+            Provider.WORKBUDDY -> wbAccount
+        }
         state = state.copy(
             provider = provider,
             realm = store.activeRegion(),
@@ -234,7 +246,56 @@ class MainActivity : ComponentActivity() {
             activeAccountId = wbAccount?.id,
             zcodeAccounts = store.zcodeAccounts(),
             zcodeActiveId = zcodeAccount?.id,
+            zenAccounts = store.zenAccounts(),
+            zenActiveId = zenAccount?.id,
         )
+    }
+
+    /** Switches to another saved Zen account. */
+    private fun switchZenAccount(accountId: String) {
+        store.selectZenAccount(accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已切换账号")
+    }
+
+    /** Removes one saved Zen account. */
+    private fun deleteZenAccount(accountId: String) {
+        store.deleteZen(accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已删除账号")
+    }
+
+    /**
+     * Saves a pasted Zen API key. The label is only a display nickname; the
+     * account id still derives from the key digest, so pasting the same key
+     * twice renews the label instead of duplicating.
+     */
+    private fun addZenKey(key: String, label: String) {
+        val trimmed = key.trim()
+        if (trimmed.isEmpty()) {
+            state = state.copy(showZenKeyDialog = false)
+            return
+        }
+        store.saveZen(
+            Credential(
+                provider = Provider.ZEN,
+                accessToken = "",
+                apiKey = trimmed,
+                nickname = label.trim().ifEmpty { "Zen" },
+                domain = ZenUpstreamClient.CHAT_BASE,
+                source = "manual-zen",
+            ),
+        )
+        store.setActiveProvider(Provider.ZEN)
+        state = state.copy(showZenKeyDialog = false)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        toast("Zen API Key 已保存")
     }
 
     /**
@@ -362,7 +423,12 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val models = withContext(Dispatchers.IO) {
                 withLoading(Loading.MODELS) {
-                    if (cred.provider == Provider.ZCODE) {
+                    if (cred.provider == Provider.ZEN) {
+                        runCatching {
+                            zenUpstream.fetchModels().map { it.toZenHubModel() }
+                                .sortedByDescending { it.badges.isNotEmpty() }
+                        }.getOrDefault(emptyList())
+                    } else if (cred.provider == Provider.ZCODE) {
                         runCatching { zupstream.fetchModels(cred).map { it.toZcodeHubModel() } }
                             .getOrDefault(emptyList())
                     } else {
@@ -379,6 +445,14 @@ class MainActivity : ComponentActivity() {
         id = this,
         name = this,
         vendor = if (startsWith("glm", ignoreCase = true)) "智谱" else "",
+    )
+
+    /** Free models sort first; the 免费 badge is rendered by the model list. */
+    private fun ZenUpstreamClient.ZenModel.toZenHubModel(): HubModel = HubModel(
+        id = id,
+        name = id,
+        vendor = "Zen",
+        badges = if (free) listOf("免费") else emptyList(),
     )
 
     private fun startLogin(region: Wire.Region) {
@@ -566,6 +640,14 @@ class MainActivity : ComponentActivity() {
             loadQuota(cred)
             return
         }
+        if (cred.provider == Provider.ZEN) {
+            // Zen exposes no quota endpoint; billing guidance is static text.
+            state = state.copy(
+                zenQuota = "按量计费 · 免费模型 $0 · 余额以 opencode.ai 控制台为准",
+                status = "",
+            )
+            return
+        }
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 withLoading(Loading.BALANCE) { runCatching { upstream.fetchCredits(cred) } }
@@ -662,8 +744,16 @@ class MainActivity : ComponentActivity() {
     private fun logout() {
         Wire.Region.entries.forEach { store.clear(it) }
         store.clearZcode()
+        store.clearZen()
         refreshCredential()
-        state = state.copy(models = emptyList(), balance = null, zcodeQuota = "", status = "已退出登录")
+        state = state.copy(
+            models = emptyList(),
+            balance = null,
+            zcodeQuota = "",
+            zenQuota = "",
+            showZenKeyDialog = false,
+            status = "已退出登录",
+        )
         toast("已退出登录")
     }
 

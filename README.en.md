@@ -34,6 +34,8 @@ Phone
 - **Account rotation**: several accounts under one system share requests
   round-robin, with automatic failover on exhausted credit, rate limits, or
   dead sessions; any account can be paused manually
+- **Zen access**: paste a Zen API key from opencode.ai to call free
+  (limited-time $0) and metered models, with multi-key rotation
 - **Check-in and balance**: view remaining credit and claim the daily check-in
 
 ## Build

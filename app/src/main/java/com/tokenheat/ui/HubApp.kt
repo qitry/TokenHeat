@@ -50,6 +50,11 @@ fun HubApp(
     onSwitchZcodeAccount: (String) -> Unit,
     onDeleteZcodeAccount: (String) -> Unit,
     onToggleAccount: (SavedAccount) -> Unit,
+    onSwitchZenAccount: (String) -> Unit,
+    onDeleteZenAccount: (String) -> Unit,
+    onShowZenKeyDialog: () -> Unit,
+    onDismissZenKeyDialog: () -> Unit,
+    onConfirmZenKey: (key: String, label: String) -> Unit,
     onOpenCredentialDetails: () -> Unit,
     onDismissCredentialDetails: () -> Unit,
     onCopyField: (String, String) -> Unit,
@@ -122,6 +127,11 @@ fun HubApp(
                             onSwitchZcodeAccount = onSwitchZcodeAccount,
                             onDeleteZcodeAccount = onDeleteZcodeAccount,
                             onToggleAccount = onToggleAccount,
+                            onSwitchZenAccount = onSwitchZenAccount,
+                            onDeleteZenAccount = onDeleteZenAccount,
+                            onShowZenKeyDialog = onShowZenKeyDialog,
+                            onDismissZenKeyDialog = onDismissZenKeyDialog,
+                            onConfirmZenKey = onConfirmZenKey,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

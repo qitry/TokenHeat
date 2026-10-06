@@ -5,6 +5,7 @@ import com.tokenheat.proto.Provider
 import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.Wire
 import com.tokenheat.proto.ZUpstreamClient
+import com.tokenheat.proto.ZenUpstreamClient
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -49,6 +50,7 @@ class BridgeServer(
     private val workers = Executors.newCachedThreadPool()
     private val client = UpstreamClient()
     private val zclient = ZUpstreamClient()
+    private val zenClient = ZenUpstreamClient()
     private var server: ServerSocket? = null
 
     fun start() {
@@ -230,6 +232,7 @@ class BridgeServer(
     private fun dispatch(cred: Credential, body: String): UpstreamClient.ChatResult =
         when (cred.provider) {
             Provider.ZCODE -> zclient.chatStream(cred, body)
+            Provider.ZEN -> zenClient.chatStream(cred, body)
             Provider.WORKBUDDY -> client.chatStream(cred, body)
         }
 

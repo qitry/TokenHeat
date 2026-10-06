@@ -82,7 +82,27 @@ fun CredentialScreen(
     onSwitchZcodeAccount: (String) -> Unit,
     onDeleteZcodeAccount: (String) -> Unit,
     onToggleAccount: (SavedAccount) -> Unit,
+    onSwitchZenAccount: (String) -> Unit,
+    onDeleteZenAccount: (String) -> Unit,
+    onShowZenKeyDialog: () -> Unit,
+    onDismissZenKeyDialog: () -> Unit,
+    onConfirmZenKey: (key: String, label: String) -> Unit,
 ) {
+    if (state.provider == Provider.ZEN) {
+        ZenCredentialScreen(
+            state = state,
+            onSwitchProvider = onSwitchProvider,
+            onAddKey = onShowZenKeyDialog,
+            onSwitchAccount = onSwitchZenAccount,
+            onDeleteAccount = onDeleteZenAccount,
+            onToggleAccount = onToggleAccount,
+            onLogout = onLogout,
+            onOpenDetails = onOpenDetails,
+            onDismissKeyDialog = onDismissZenKeyDialog,
+            onConfirmKey = onConfirmZenKey,
+        )
+        return
+    }
     if (state.provider == Provider.ZCODE) {
         ZcodeCredentialScreen(
             state = state,
@@ -229,6 +249,165 @@ private fun ProviderSwitch(selected: Provider, onSwitch: (Provider) -> Unit) {
             }
         }
     }
+}
+
+/** Zen accounts: API keys pasted from the dashboard, no OAuth. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ZenCredentialScreen(
+    state: HubState,
+    onSwitchProvider: (Provider) -> Unit,
+    onAddKey: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
+    onLogout: () -> Unit,
+    onOpenDetails: () -> Unit,
+    onDismissKeyDialog: () -> Unit,
+    onConfirmKey: (key: String, label: String) -> Unit,
+) {
+    val active = state.credential
+    val saved = state.zenAccounts
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            ProviderSwitch(selected = state.provider, onSwitch = onSwitchProvider)
+        }
+        item {
+            Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "当前账号 · Zen",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "查看详情",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    when {
+                        active == null -> Text(
+                            "Zen 还没有 API Key，点下面的按钮添加。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> {
+                            Text("账号：${active.nickname.ifBlank { "Zen" }}")
+                            Text("有效期：长期有效（API Key）")
+                            Text(
+                                "点本卡片查看 API Key 等完整信息",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (saved.isNotEmpty()) {
+            item {
+                Text(
+                    "Zen 账号",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items(saved, key = { it.id }) { account ->
+                val isActive = account.id == state.zenActiveId
+                AccountRow(
+                    label = account.label,
+                    uid = account.uid,
+                    isActive = isActive,
+                    enabled = !account.disabled,
+                    onSelect = { onSwitchAccount(account.id) },
+                    onToggleEnabled = { onToggleAccount(account) },
+                    onDelete = { onDeleteAccount(account.id) },
+                )
+            }
+        }
+
+        item {
+            Button(onClick = onAddKey, modifier = Modifier.fillMaxWidth()) {
+                Text(if (active == null) "添加 Zen API Key" else "添加新的 Key")
+            }
+        }
+
+        if (state.hasAnyCredential) {
+            item {
+                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Text("退出登录（清除全部账号）")
+                }
+            }
+        }
+
+        item {
+            Text(
+                "说明：在 opencode.ai 控制台复制 Zen API Key 后粘贴到这里（免费模型调用 $0，" +
+                    "按量模型从余额扣费）。可以添加多个 Key 参与轮训。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    if (state.showZenKeyDialog) {
+        ZenKeyDialog(
+            onDismiss = onDismissKeyDialog,
+            onConfirm = onConfirmKey,
+        )
+    }
+}
+
+/** Paste-a-key dialog: Zen has no in-app OAuth, the key comes from the dashboard. */
+@Composable
+private fun ZenKeyDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (key: String, label: String) -> Unit,
+) {
+    var key by remember { mutableStateOf("") }
+    var label by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("添加 Zen API Key") },
+        text = {
+            Column(Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "在 opencode.ai 控制台复制 Key 后粘贴。Key 只存本机，不上传任何地方。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { key = it.trim() },
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("备注（可选）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(key, label) },
+                enabled = key.isNotBlank(),
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 /** ZCode accounts: same list mechanics as WorkBuddy, no build switch. */
@@ -444,7 +623,13 @@ fun CredentialDetailDrawer(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            if (cred.provider == Provider.ZCODE) {
+            if (cred.provider == Provider.ZEN) {
+                item { detailRow("账号体系", "Zen", onCopy) }
+                item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("来源", cred.source, onCopy) }
+                item { detailRow("有效期", "长期有效（API Key）", onCopy) }
+                item { detailRow("API Key", cred.apiKey.ifBlank { "(无)" }, onCopy) }
+            } else if (cred.provider == Provider.ZCODE) {
                 item { detailRow("账号体系", "ZCode", onCopy) }
                 item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
                 item { detailRow("UID", cred.uid.ifBlank { "(无)" }, onCopy) }
@@ -710,7 +895,24 @@ fun RewardsScreen(
 ) {
     // ZCode has no check-in; its Coding Plan quota is shown instead.
     if (state.provider == Provider.ZCODE) {
-        ZcodeRewardsScreen(state, onRefreshBalance)
+        QuotaRewardsScreen(
+            state = state,
+            quota = state.zcodeQuota,
+            title = "剩余额度",
+            note = "说明：ZCode 没有每日签到，额度来自 Coding Plan 订阅，用完需等待周期重置或更换账号。",
+            onRefreshBalance = onRefreshBalance,
+        )
+        return
+    }
+    // Zen has no quota endpoint; billing guidance is static text.
+    if (state.provider == Provider.ZEN) {
+        QuotaRewardsScreen(
+            state = state,
+            quota = state.zenQuota,
+            title = "计费",
+            note = "说明：Zen 按量计费，免费模型 $0；余额与用量以 opencode.ai 网页控制台为准。",
+            onRefreshBalance = onRefreshBalance,
+        )
         return
     }
     LazyColumn(
@@ -802,10 +1004,16 @@ fun RewardsScreen(
     }
 }
 
-/** ZCode quota view: no sign-in bonus here, just the plan remainder. */
+/** Quota/billing view for providers without check-in or structured balance. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ZcodeRewardsScreen(state: HubState, onRefreshBalance: () -> Unit) {
+private fun QuotaRewardsScreen(
+    state: HubState,
+    quota: String,
+    title: String,
+    note: String,
+    onRefreshBalance: () -> Unit,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -816,7 +1024,7 @@ private fun ZcodeRewardsScreen(state: HubState, onRefreshBalance: () -> Unit) {
                 Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "剩余额度",
+                            title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f),
@@ -835,18 +1043,18 @@ private fun ZcodeRewardsScreen(state: HubState, onRefreshBalance: () -> Unit) {
                         }
                     }
                     when {
-                        state.loading == Loading.BALANCE && state.zcodeQuota.isBlank() -> {
+                        state.loading == Loading.BALANCE && quota.isBlank() -> {
                             CircularWavyProgressIndicator()
                         }
-                        state.zcodeQuota.isBlank() -> Text("点“刷新”查询剩余额度")
-                        else -> Text(state.zcodeQuota)
+                        quota.isBlank() -> Text("点“刷新”查询")
+                        else -> Text(quota)
                     }
                 }
             }
         }
         item {
             Text(
-                "说明：ZCode 没有每日签到，额度来自 Coding Plan 订阅，用完需等待周期重置或更换账号。",
+                note,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

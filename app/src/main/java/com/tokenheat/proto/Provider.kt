@@ -10,4 +10,5 @@ package com.tokenheat.proto
 enum class Provider(val label: String) {
     WORKBUDDY("WorkBuddy"),
     ZCODE("ZCode"),
+    ZEN("Zen"),
 }

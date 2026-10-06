@@ -73,6 +73,10 @@ class CredentialStore(context: Context) {
     fun zcodeAccounts(): List<SavedAccount> =
         accountsIn(fileForProvider(Provider.ZCODE), Wire.Region.CN, Provider.ZCODE)
 
+    /** Every Zen account. Its `region` is always CN and unused for routing. */
+    fun zenAccounts(): List<SavedAccount> =
+        accountsIn(fileForProvider(Provider.ZEN), Wire.Region.CN, Provider.ZEN)
+
     private fun accountsIn(file: File, region: Wire.Region, provider: Provider): List<SavedAccount> {
         if (!file.exists()) return emptyList()
         val text = runCatching { file.readText() }.getOrNull() ?: return emptyList()
@@ -171,6 +175,10 @@ class CredentialStore(context: Context) {
     fun saveZcode(credential: Credential): SavedAccount =
         saveIn(Wire.Region.CN, Provider.ZCODE, credential)
 
+    /** Adds a Zen API key to its own slot. */
+    fun saveZen(credential: Credential): SavedAccount =
+        saveIn(Wire.Region.CN, Provider.ZEN, credential)
+
     private fun saveIn(region: Wire.Region, provider: Provider, credential: Credential): SavedAccount {
         val seed = credential.accessToken.ifEmpty { credential.apiKey }
         // The id slot matches the selection slot, so re-signing replaces the
@@ -222,6 +230,17 @@ class CredentialStore(context: Context) {
         }
     }
 
+    /** Removes one Zen account; the selection falls back to another one. */
+    fun deleteZen(accountId: String) {
+        val remaining = zenAccounts().filterNot { it.id == accountId }
+        writeAccounts(Wire.Region.CN, Provider.ZEN, remaining)
+        val slot = activeSlot(Provider.ZEN, Wire.Region.CN)
+        if (activeSlotId(slot) == accountId) {
+            remaining.firstOrNull()?.let { setActiveSlot(slot, it.id) }
+                ?: clearActiveSlot(slot)
+        }
+    }
+
     fun clear(region: Wire.Region) {
         fileFor(region).delete()
         clearActive(region)
@@ -231,6 +250,12 @@ class CredentialStore(context: Context) {
     fun clearZcode() {
         fileForProvider(Provider.ZCODE).delete()
         clearActiveSlot(activeSlot(Provider.ZCODE, Wire.Region.CN))
+    }
+
+    /** Drops every Zen account and its selection. */
+    fun clearZen() {
+        fileForProvider(Provider.ZEN).delete()
+        clearActiveSlot(activeSlot(Provider.ZEN, Wire.Region.CN))
     }
 
     /**
@@ -283,7 +308,11 @@ class CredentialStore(context: Context) {
 
     /** Prefs slot holding one provider's (or build's) selected account. */
     private fun activeSlot(provider: Provider, region: Wire.Region): String =
-        if (provider == Provider.ZCODE) "ZCODE" else region.name
+        when (provider) {
+            Provider.ZCODE -> "ZCODE"
+            Provider.ZEN -> "ZEN"
+            Provider.WORKBUDDY -> region.name
+        }
 
     private fun activeSlotId(slot: String): String? = prefs.getString("$KEY_ACTIVE_ID$slot", null)
 
@@ -313,7 +342,15 @@ class CredentialStore(context: Context) {
         setActiveSlot(activeSlot(Provider.ZCODE, Wire.Region.CN), accountId)
     }
 
+    /** Selects the Zen account in use; unknown ids are ignored. */
+    fun selectZenAccount(accountId: String) {
+        if (zenAccounts().none { it.id == accountId }) return
+        setActiveSlot(activeSlot(Provider.ZEN, Wire.Region.CN), accountId)
+    }
+
     fun zcodeActiveId(): String? = activeSlotId(activeSlot(Provider.ZCODE, Wire.Region.CN))
+
+    fun zenActiveId(): String? = activeSlotId(activeSlot(Provider.ZEN, Wire.Region.CN))
 
     /** The ZCode account in use, or null when none is stored. */
     fun activeZcodeAccount(): SavedAccount? {
@@ -325,9 +362,20 @@ class CredentialStore(context: Context) {
 
     fun activeZcode(): Credential? = activeZcodeAccount()?.toCredential()
 
+    /** The Zen account in use, or null when none is stored. */
+    fun activeZenAccount(): SavedAccount? {
+        val list = zenAccounts()
+        if (list.isEmpty()) return null
+        val selected = zenActiveId()
+        return list.firstOrNull { it.id == selected } ?: list.first()
+    }
+
+    fun activeZen(): Credential? = activeZenAccount()?.toCredential()
+
     /** The credential the bridge should serve under the current provider. */
     fun effectiveActive(): Credential? = when (activeProvider()) {
         Provider.ZCODE -> activeZcode()
+        Provider.ZEN -> activeZen()
         Provider.WORKBUDDY -> active()
     }
 
@@ -345,7 +393,8 @@ class CredentialStore(context: Context) {
     /** Whether a build has at least one saved account. */
     fun has(region: Wire.Region): Boolean = accounts(region).isNotEmpty()
 
-    fun hasAny(): Boolean = Wire.Region.entries.any { has(it) } || zcodeAccounts().isNotEmpty()
+    fun hasAny(): Boolean =
+        Wire.Region.entries.any { has(it) } || zcodeAccounts().isNotEmpty() || zenAccounts().isNotEmpty()
 
     // ------------------------------------------------------------------ //
     // Refresh

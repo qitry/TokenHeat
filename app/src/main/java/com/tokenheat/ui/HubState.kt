@@ -51,6 +51,11 @@ data class HubState(
     val zcodeActiveId: String? = null,
     /** ZCode quota summary text; WorkBuddy uses [balance] instead. */
     val zcodeQuota: String = "",
+    val zenAccounts: List<SavedAccount> = emptyList(),
+    val zenActiveId: String? = null,
+    /** Zen has no quota endpoint; this is static billing guidance. */
+    val zenQuota: String = "",
+    val showZenKeyDialog: Boolean = false,
 )
 
 /** Which operation is in flight, so each control can show its own indicator. */
@@ -58,4 +63,4 @@ enum class Loading { CHECKIN, BALANCE, MODELS }
 
 /** Whether any provider holds at least one saved account. */
 val HubState.hasAnyCredential: Boolean
-    get() = accounts.values.any { it.isNotEmpty() } || zcodeAccounts.isNotEmpty()
+    get() = accounts.values.any { it.isNotEmpty() } || zcodeAccounts.isNotEmpty() || zenAccounts.isNotEmpty()

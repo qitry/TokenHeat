@@ -9,6 +9,7 @@ import com.tokenheat.proto.CredentialStore
 import com.tokenheat.proto.Provider
 import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.ZUpstreamClient
+import com.tokenheat.proto.ZenUpstreamClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +36,7 @@ class BridgeService : Service() {
     private var models: List<String> = emptyList()
     private val upstream = UpstreamClient()
     private val zupstream = ZUpstreamClient()
+    private val zenUpstream = ZenUpstreamClient()
 
     /**
      * Rotation pool shared by all requests. Candidates follow the current
@@ -46,12 +48,14 @@ class BridgeService : Service() {
         candidates = {
             when (store.activeProvider()) {
                 Provider.ZCODE -> store.zcodeAccounts()
+                Provider.ZEN -> store.zenAccounts()
                 Provider.WORKBUDDY -> store.accounts(store.activeRegion())
             }
         },
         refresher = { account ->
             when (account.provider) {
                 Provider.ZCODE -> account.toCredential()
+                Provider.ZEN -> account.toCredential()
                 Provider.WORKBUDDY -> store.resolveAccount(account) { c -> upstream.refreshToken(c) }
             }
         },
@@ -90,15 +94,22 @@ class BridgeService : Service() {
             bridge = BridgeServer(
                 port = port,
                 secret = secret,
-                // ZCode keys are long-lived, so no refresh applies to them.
+                // ZCode keys and Zen keys are long-lived, so no refresh applies.
                 credential = {
                     when (store.activeProvider()) {
                         Provider.ZCODE -> store.activeZcode()
+                        Provider.ZEN -> store.activeZen()
                         Provider.WORKBUDDY -> store.resolve { c -> upstream.refreshToken(c) }
                     }
                 },
                 models = { models },
-                modelOwner = { if (store.activeProvider() == Provider.ZCODE) "zcode" else "workbuddy" },
+                modelOwner = {
+                    when (store.activeProvider()) {
+                        Provider.ZCODE -> "zcode"
+                        Provider.ZEN -> "zen"
+                        Provider.WORKBUDDY -> "workbuddy"
+                    }
+                },
                 pool = { pool },
                 onCall = { record -> callLog.append(record) },
             ).also { it.start() }
@@ -168,6 +179,7 @@ class BridgeService : Service() {
                 Provider.ZCODE -> store.activeZcode()?.let { cred ->
                     runCatching { zupstream.fetchModels(cred) }.getOrNull()
                 }
+                Provider.ZEN -> runCatching { zenUpstream.fetchModels().map { it.id } }.getOrNull()
                 Provider.WORKBUDDY -> store.active()?.let { cred ->
                     runCatching { upstream.fetchModels(cred).map { it.id } }.getOrNull()
                 }
