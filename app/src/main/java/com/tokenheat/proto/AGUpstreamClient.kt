@@ -43,9 +43,10 @@ class AGUpstreamClient {
                 geminiBody,
                 readTimeoutMs = 0,
             ) ?: continue
-            val status = runCatching { conn.responseCode }.getOrElse {
+            val status = runCatching { conn.responseCode }.getOrNull()
+            if (status == null) {
                 conn.disconnect()
-                lastTransport = it.message
+                lastTransport = "transport error"
                 continue
             }
             if (status in 200..299) {
@@ -153,10 +154,13 @@ class AGUpstreamClient {
             else -> false
         }
         if (!suppressTools) {
-            obj.optJSONArray("tools")?.let { tools ->
+            val tools = obj.optJSONArray("tools")
+            if (tools != null) {
                 for (i in 0 until tools.length()) {
-                    val fn = tools.optJSONObject(i)?.optJSONObject("function") ?: continue
-                    val name = fn.optString("name").ifEmpty { continue }
+                    val toolObj = tools.optJSONObject(i) ?: continue
+                    val fn = toolObj.optJSONObject("function") ?: continue
+                    val name = fn.optString("name")
+                    if (name.isEmpty()) continue
                     declarations.put(
                         JSONObject()
                             .put("name", name)
@@ -166,7 +170,8 @@ class AGUpstreamClient {
                 }
             }
         }
-        obj.optJSONArray("messages")?.let { messages ->
+        val messages = obj.optJSONArray("messages")
+        if (messages != null) {
             for (i in 0 until messages.length()) {
                 val message = messages.optJSONObject(i) ?: continue
                 when (message.optString("role")) {
@@ -181,14 +186,16 @@ class AGUpstreamClient {
                         val parts = JSONArray()
                         val text = contentText(message.opt("content"))
                         if (text.isNotEmpty()) parts.put(JSONObject().put("text", text))
-                        message.optJSONArray("tool_calls")?.let { calls ->
+                        val calls = message.optJSONArray("tool_calls")
+                        if (calls != null) {
                             for (j in 0 until calls.length()) {
                                 val call = calls.optJSONObject(j) ?: continue
-                                val fn = call.optJSONObject("function") ?: continue
-                                val name = fn.optString("name").ifEmpty { continue }
-                                val args = runCatching { JSONObject(fn.optString("args", fn.optString("arguments"))) }
-                                    .getOrElse { JSONObject().put("raw", fn.optString("arguments")) }
-                                parts.put(JSONObject().put("functionCall", JSONObject().put("name", name).put("args", args)))
+                                val callFn = call.optJSONObject("function") ?: continue
+                                val callName = callFn.optString("name")
+                                if (callName.isEmpty()) continue
+                                val args = runCatching { JSONObject(callFn.optString("args", callFn.optString("arguments"))) }
+                                    .getOrElse { JSONObject().put("raw", callFn.optString("arguments")) }
+                                parts.put(JSONObject().put("functionCall", JSONObject().put("name", callName).put("args", args)))
                             }
                         }
                         if (parts.length() > 0) {
@@ -311,24 +318,25 @@ class AGUpstreamClient {
                     val payload = trimmed.removePrefix("data:").trim()
                     if (payload == "[DONE]" || payload.isEmpty()) return@forEachLine
                     val event = runCatching { JSONObject(payload) }.getOrNull() ?: return@forEachLine
-                    event.optJSONArray("candidates")?.optJSONObject(0)
-                        ?.optJSONObject("content")?.optJSONArray("parts")?.let { parts ->
-                            for (i in 0 until parts.length()) {
-                                val part = parts.optJSONObject(i) ?: continue
-                                // Thought parts carry no text and are skipped.
-                                val text = part.optString("text")
-                                if (text.isNotEmpty()) {
-                                    emit(JSONObject().put("content", text), null)
-                                }
-                                part.optJSONObject("functionCall")?.let { call ->
-                                    toolCalls += Triple(
-                                        "call_${toolCalls.size}",
-                                        call.optString("name"),
-                                        call.optJSONObject("args")?.toString().orEmpty(),
-                                    )
-                                }
+                    val partsArr = event.optJSONArray("candidates")?.optJSONObject(0)
+                        ?.optJSONObject("content")?.optJSONArray("parts")
+                    if (partsArr != null) {
+                        for (i in 0 until partsArr.length()) {
+                            val part = partsArr.optJSONObject(i) ?: continue
+                            // Thought parts carry no text and are skipped.
+                            val text = part.optString("text")
+                            if (text.isNotEmpty()) {
+                                emit(JSONObject().put("content", text), null)
+                            }
+                            part.optJSONObject("functionCall")?.let { call ->
+                                toolCalls += Triple(
+                                    "call_${toolCalls.size}",
+                                    call.optString("name"),
+                                    call.optJSONObject("args")?.toString().orEmpty(),
+                                )
                             }
                         }
+                    }
                     event.optJSONObject("usageMetadata")?.let { usage ->
                         promptTokens = usage.optInt("promptTokenCount", promptTokens)
                         completionTokens = usage.optInt("candidatesTokenCount", completionTokens)

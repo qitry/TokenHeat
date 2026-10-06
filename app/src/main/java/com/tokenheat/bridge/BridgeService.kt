@@ -35,7 +35,6 @@ class BridgeService : Service() {
 
     private val binder = LocalBinder()
     private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var modelMap: Map<Provider, List<String>> = emptyMap()
     private val upstream = UpstreamClient()
     private val zupstream = ZUpstreamClient()
     private val zenUpstream = ZenUpstreamClient()

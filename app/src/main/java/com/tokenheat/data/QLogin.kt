@@ -199,12 +199,13 @@ object QLogin {
         }
     }
 
-    companion object {
-        /**
-         * OAuth client id from the official CLI bundle (`Nac`, prod). The
-         * alternate `Lac` (`e93fe488-5778-4c35-a6fc-0f54ed7b3139`) is kept
-         * here in case a build rejects this one with `invalid_client`.
-         */
-        const val CLIENT_ID = "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb"
-    }
+    /**
+     * OAuth client id from the official CLI bundle (`Nac`, prod). The
+     * alternate `Lac` (`e93fe488-5778-4c35-a6fc-0f54ed7b3139`) is kept
+     * here in case a build rejects this one with `invalid_client`.
+     */
+    const val CLIENT_ID = "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb"
+}
+
+
 }

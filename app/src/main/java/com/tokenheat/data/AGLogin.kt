@@ -316,8 +316,7 @@ object AGLogin {
         }
     }
 
-    companion object {
-        /** Google OAuth client extracted from the community plugin. */
+    /** Google OAuth client extracted from the community plugin. */
         const val CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
         val SCOPES = listOf(
             "https://www.googleapis.com/auth/cloud-platform",

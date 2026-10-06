@@ -35,6 +35,8 @@ import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.UpstreamClient
 import com.tokenheat.proto.Wire
 import com.tokenheat.proto.ZUpstreamClient
+import com.tokenheat.proto.QUpstreamClient
+import com.tokenheat.proto.AGUpstreamClient
 import com.tokenheat.proto.ZenUpstreamClient
 import com.tokenheat.proto.toHubModel
 import com.tokenheat.ui.CheckinDialog
@@ -242,11 +244,7 @@ class MainActivity : ComponentActivity() {
         val wbAccount = store.activeAccount()
         val zcodeAccount = store.activeZcodeAccount()
         val zenAccount = store.activeZenAccount()
-        val account = when (provider) {
-            Provider.ZCODE -> zcodeAccount
-            Provider.ZEN -> zenAccount
-            Provider.WORKBUDDY -> wbAccount
-        }
+        val account = store.effectiveActive()
         state = state.copy(
             provider = provider,
             realm = store.activeRegion(),
