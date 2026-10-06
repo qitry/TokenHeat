@@ -94,7 +94,7 @@ class CredentialStore(context: Context) {
         val uid = obj.optString("uid")
         val stored = obj.optLong("expiresAt", 0L)
         return SavedAccount(
-            id = obj.optString("id").ifEmpty { accountId(provider.name, uid, domain, token.ifEmpty { apiKey }) },
+            id = obj.optString("id").ifEmpty { accountId(activeSlot(provider, region), uid, domain, token.ifEmpty { apiKey }) },
             provider = provider,
             region = region,
             nickname = obj.optString("nickname"),
@@ -173,7 +173,9 @@ class CredentialStore(context: Context) {
 
     private fun saveIn(region: Wire.Region, provider: Provider, credential: Credential): SavedAccount {
         val seed = credential.accessToken.ifEmpty { credential.apiKey }
-        val id = accountId(provider.name, credential.uid, credential.domain, seed)
+        // The id slot matches the selection slot, so re-signing replaces the
+        // old entry instead of orphaning it (WorkBuddy ids stay "CN:…").
+        val id = accountId(activeSlot(provider, region), credential.uid, credential.domain, seed)
         val current = (if (provider == Provider.ZCODE) zcodeAccounts() else accounts(region)).toMutableList()
         // Re-signing renews the token but keeps a manual rotation opt-out.
         val keepDisabled = current.firstOrNull { it.id == id }?.disabled ?: false

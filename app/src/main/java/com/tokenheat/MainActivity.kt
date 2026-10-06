@@ -446,6 +446,7 @@ class MainActivity : ComponentActivity() {
             pollZcodeForToken(session)
         }
     }
+    }
 
     /**
      * Polls the ZCode OAuth flow, then exchanges the token for an API key.
@@ -482,7 +483,17 @@ class MainActivity : ComponentActivity() {
                         state = state.copy(status = "登录失败：${result.message}")
                         return@launch
                     }
-                    else -> delay(POLL_INTERVAL_MS)
+                    else -> {
+                        // Visible heartbeat: the user must approve the grant in
+                        // the browser (a bare login is not enough), so the
+                        // remaining time shows the wait is alive, not stuck.
+                        val remain = ((deadline - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+                        state = state.copy(
+                            status = "请在浏览器完成登录并确认授权（等待中，还剩约${remain / 60}分${remain % 60}秒）：" +
+                                session.authUrl,
+                        )
+                        delay(POLL_INTERVAL_MS)
+                    }
                 }
             }
             state = state.copy(status = "登录超时，请重试")

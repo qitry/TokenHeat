@@ -66,9 +66,13 @@ object ZLogin {
     }
 
     /**
-     * Polls one flow. The upstream envelope carries `code != 0` on hard
-     * failure; a zero code without any token field means the user has not
-     * finished in the browser yet, so every known token spelling is accepted.
+     * Polls one flow. The real envelope (see zcode2api `main.py cmd_login`)
+     * is `data.status`: `pending` while the user has not approved, `ready`
+     * with `data.zai.access_token` (the OAuth token to exchange) plus
+     * `data.token` (the Coding Plan JWT, unused here) once approved, and
+     * `failed` on refusal. `data.token` alone is NOT the exchange token —
+     * grabbing it was the bug that left the app hanging or exchanging the
+     * wrong credential.
      */
     fun poll(session: Session): Poll {
         val conn = open("$OAUTH_BASE/oauth/cli/poll/${session.flowId}").apply {
@@ -83,20 +87,34 @@ object ZLogin {
             conn.disconnect()
         }
         val payload = runCatching { JSONObject(text) }.getOrNull() ?: return Poll.Pending
-        val code = payload.optInt("code", 0)
         val data = payload.optJSONObject("data")
-        // Prefer an explicit token wherever the gateway puts it.
-        val token = data?.let {
-            it.optString("access_token").ifEmpty {
-                it.optString("accessToken").ifEmpty { it.optString("token") }
+        if (data != null) {
+            when (data.optString("status")) {
+                "failed" -> return Poll.Failed(
+                    data.optString("message").ifEmpty {
+                        data.optString("msg").ifEmpty { "授权失败或被拒绝" }
+                    },
+                )
+                "ready" -> {
+                    val token = data.optJSONObject("zai")?.optString("access_token").orEmpty()
+                        .ifEmpty { data.optString("access_token") }
+                        .ifEmpty { data.optString("accessToken") }
+                    if (token.isNotEmpty()) return Poll.Done(token)
+                    return Poll.Failed("上游未返回可兑换的凭证")
+                }
             }
-        }.orEmpty()
-        if (token.isNotEmpty()) return Poll.Done(token)
+            // No status field (older shape): any known token spelling counts.
+            val token = data.optString("access_token").ifEmpty {
+                data.optString("accessToken")
+            }
+            if (token.isNotEmpty()) return Poll.Done(token)
+        }
         // A token can also sit at the top level of some gateway answers.
         val topToken = payload.optString("access_token").ifEmpty {
-            payload.optString("accessToken").ifEmpty { payload.optString("token") }
+            payload.optString("accessToken")
         }
         if (topToken.isNotEmpty()) return Poll.Done(topToken)
+        val code = payload.optInt("code", 0)
         if (code != 0) return Poll.Failed(payload.optString("msg", "code=$code"))
         return Poll.Pending
     }
