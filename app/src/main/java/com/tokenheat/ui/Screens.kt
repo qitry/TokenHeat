@@ -63,6 +63,7 @@ import com.tokenheat.bridge.CallRecord
 import com.tokenheat.bridge.UsageSummary
 import java.util.Locale
 import com.tokenheat.data.CheckinItem
+import com.tokenheat.data.QLogin
 import com.tokenheat.proto.Provider
 import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.Wire
@@ -87,19 +88,22 @@ fun CredentialScreen(
     onShowZenKeyDialog: () -> Unit,
     onDismissZenKeyDialog: () -> Unit,
     onConfirmZenKey: (key: String, label: String) -> Unit,
+    onLoginQoder: (QLogin.QRegion) -> Unit,
+    onSwitchSlotAccount: (Provider, String) -> Unit,
+    onDeleteSlotAccount: (Provider, String) -> Unit,
 ) {
-    if (state.provider == Provider.ZEN) {
-        ZenCredentialScreen(
+    if (state.provider == Provider.QODER_CN || state.provider == Provider.QODER_GLOBAL) {
+        val qoderRegion = if (state.provider == Provider.QODER_CN) QLogin.QRegion.CN else QLogin.QRegion.GLOBAL
+        QoderCredentialScreen(
             state = state,
+            region = qoderRegion,
             onSwitchProvider = onSwitchProvider,
-            onAddKey = onShowZenKeyDialog,
-            onSwitchAccount = onSwitchZenAccount,
-            onDeleteAccount = onDeleteZenAccount,
+            onLogin = { onLoginQoder(qoderRegion) },
+            onSwitchAccount = { onSwitchSlotAccount(state.provider, it) },
+            onDeleteAccount = { onDeleteSlotAccount(state.provider, it) },
             onToggleAccount = onToggleAccount,
             onLogout = onLogout,
             onOpenDetails = onOpenDetails,
-            onDismissKeyDialog = onDismissZenKeyDialog,
-            onConfirmKey = onConfirmZenKey,
         )
         return
     }
@@ -247,6 +251,113 @@ private fun ProviderSwitch(selected: Provider, onSwitch: (Provider) -> Unit) {
                     Text(item.label)
                 }
             }
+        }
+    }
+}
+
+/** Qoder accounts: device-flow OAuth per region (CN / Global). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun QoderCredentialScreen(
+    state: HubState,
+    region: QLogin.QRegion,
+    onSwitchProvider: (Provider) -> Unit,
+    onLogin: () -> Unit,
+    onSwitchAccount: (String) -> Unit,
+    onDeleteAccount: (String) -> Unit,
+    onToggleAccount: (SavedAccount) -> Unit,
+    onLogout: () -> Unit,
+    onOpenDetails: () -> Unit,
+) {
+    val active = state.credential
+    val saved = state.slotAccounts[region.provider].orEmpty()
+    val label = region.provider.label
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            ProviderSwitch(selected = state.provider, onSwitch = onSwitchProvider)
+        }
+        item {
+            Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "当前账号 · $label",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "查看详情",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    when {
+                        active == null -> Text(
+                            "$label 还没有账号，点下面的按钮登录。",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> {
+                            Text("账号：${active.nickname.ifBlank { active.uid.take(8) }}")
+                            Text("有效期：${state.expiryText.ifBlank { "未知" }}")
+                            Text(
+                                "点本卡片查看 Token 等完整信息",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (saved.isNotEmpty()) {
+            item {
+                Text(
+                    "$label 账号",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            items(saved, key = { it.id }) { account ->
+                val isActive = account.id == state.slotActiveId[region.provider]
+                AccountRow(
+                    label = account.label,
+                    uid = account.uid,
+                    isActive = isActive,
+                    enabled = !account.disabled,
+                    onSelect = { onSwitchAccount(account.id) },
+                    onToggleEnabled = { onToggleAccount(account) },
+                    onDelete = { onDeleteAccount(account.id) },
+                )
+            }
+        }
+
+        item {
+            Button(onClick = onLogin, modifier = Modifier.fillMaxWidth()) {
+                Text(if (active == null) "登录 $label" else "添加 $label 账号")
+            }
+        }
+
+        if (state.hasAnyCredential) {
+            item {
+                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Text("退出登录（清除全部账号）")
+                }
+            }
+        }
+
+        item {
+            Text(
+                "说明：走 Qoder 官方 CLI 的设备码流程，浏览器确认授权后自动完成登录。" +
+                    "国内版与国际版是两套独立账号体系，各自可以添加多个账号参与轮训。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -636,6 +747,13 @@ fun CredentialDetailDrawer(
                 item { detailRow("来源", cred.source, onCopy) }
                 item { detailRow("有效期", "长期有效（API Key）", onCopy) }
                 item { detailRow("API Key", cred.apiKey.ifBlank { "(无)" }, onCopy) }
+            } else if (cred.provider == Provider.QODER_CN || cred.provider == Provider.QODER_GLOBAL) {
+                item { detailRow("账号体系", cred.provider.label, onCopy) }
+                item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("UID", cred.uid.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
+                item { detailRow("Access Token", cred.accessToken.ifBlank { "(无)" }, onCopy) }
+                item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
             } else {
                 item { detailRow("版本", realmName(Wire.regionOf(cred.domain)), onCopy) }
                 item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
@@ -897,7 +1015,7 @@ fun RewardsScreen(
     if (state.provider == Provider.ZCODE) {
         QuotaRewardsScreen(
             state = state,
-            quota = state.zcodeQuota,
+            quota = state.quotas[Provider.ZCODE].orEmpty(),
             title = "剩余额度",
             note = "说明：ZCode 没有每日签到，额度来自 Coding Plan 订阅，用完需等待周期重置或更换账号。",
             onRefreshBalance = onRefreshBalance,
@@ -908,9 +1026,20 @@ fun RewardsScreen(
     if (state.provider == Provider.ZEN) {
         QuotaRewardsScreen(
             state = state,
-            quota = state.zenQuota,
+            quota = state.quotas[Provider.ZEN].orEmpty(),
             title = "计费",
             note = "说明：Zen 按量计费，免费模型 $0；余额与用量以 opencode.ai 网页控制台为准。",
+            onRefreshBalance = onRefreshBalance,
+        )
+        return
+    }
+    // Qoder quota comes from its own usage endpoint, same display shape.
+    if (state.provider == Provider.QODER_CN || state.provider == Provider.QODER_GLOBAL) {
+        QuotaRewardsScreen(
+            state = state,
+            quota = state.quotas[state.provider].orEmpty(),
+            title = "剩余额度",
+            note = "说明：Qoder 没有每日签到，剩余额度来自账号订阅；用完可切换账号继续。",
             onRefreshBalance = onRefreshBalance,
         )
         return

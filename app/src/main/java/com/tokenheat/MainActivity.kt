@@ -23,6 +23,7 @@ import com.tokenheat.bridge.CallLogStore
 import com.tokenheat.bridge.Notifications
 import com.tokenheat.data.CheckinItem
 import com.tokenheat.data.Login
+import com.tokenheat.data.QLogin
 import com.tokenheat.data.ZLogin
 import com.tokenheat.proto.CheckinOutcome
 import com.tokenheat.proto.Credential
@@ -67,6 +68,7 @@ class MainActivity : ComponentActivity() {
     private val upstream = UpstreamClient()
     private val zupstream = ZUpstreamClient()
     private val zenUpstream = ZenUpstreamClient()
+    private val qoderUpstream = QUpstreamClient()
 
     /**
      * Sign-in polling must survive the app leaving the foreground, because the
@@ -154,6 +156,9 @@ class MainActivity : ComponentActivity() {
                 onShowZenKeyDialog = { state = state.copy(showZenKeyDialog = true) },
                 onDismissZenKeyDialog = { state = state.copy(showZenKeyDialog = false) },
                 onConfirmZenKey = { key, label -> addZenKey(key, label) },
+                onLoginQoder = { region -> startQoderLogin(region) },
+                onSwitchSlotAccount = { provider, id -> switchSlotAccount(provider, id) },
+                onDeleteSlotAccount = { provider, id -> deleteSlotAccount(provider, id) },
                 onRequestOverlay = { requestOverlayPermission() },
                 onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
                 onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
@@ -250,6 +255,12 @@ class MainActivity : ComponentActivity() {
             zcodeActiveId = zcodeAccount?.id,
             zenAccounts = store.zenAccounts(),
             zenActiveId = zenAccount?.id,
+            slotAccounts = Provider.entries
+                .filter { it != Provider.WORKBUDDY }
+                .associateWith { store.slotAccounts(it) },
+            slotActiveId = Provider.entries.mapNotNull { p ->
+                store.activeSlotAccount(p)?.id?.let { p to it }
+            }.toMap(),
         )
     }
 
@@ -324,6 +335,89 @@ class MainActivity : ComponentActivity() {
     /** Removes one saved ZCode account. */
     private fun deleteZcodeAccount(accountId: String) {
         store.deleteZcode(accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已删除账号")
+    }
+
+    private fun startQoderLogin(region: QLogin.QRegion) {
+        lifecycleScope.launch {
+            val session = withContext(Dispatchers.IO) {
+                runCatching { QLogin.start(region, store.qoderMachineId()) }.getOrNull()
+            }
+            if (session == null) {
+                toast("获取登录链接失败")
+                return@launch
+            }
+            state = state.copy(status = "请在浏览器完成登录：${session.authUrl}")
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl)))
+            pollQoderForToken(session)
+        }
+    }
+
+    /**
+     * Polls the Qoder device flow, then reads the user info and saves the
+     * account. Same countdown-heartbeat shape as the ZCode poll loop.
+     */
+    private fun pollQoderForToken(session: QLogin.Session) {
+        pollJob?.cancel()
+        pollJob = loginScope.launch {
+            val deadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+            while (isActive && System.currentTimeMillis() < deadline) {
+                val result = withContext(Dispatchers.IO) { runCatching { QLogin.poll(session) }.getOrNull() }
+                when (result) {
+                    is QLogin.Poll.Done -> {
+                        state = state.copy(status = "登录成功，正在读取账号信息…")
+                        val credential = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val (uid, name) = QLogin.userinfo(session.region, result.auth.token)
+                                QLogin.toCredential(session.region, result.auth, uid, name)
+                            }.getOrNull()
+                        }
+                        if (credential == null) {
+                            state = state.copy(status = "读取账号信息失败，请重试")
+                            return@launch
+                        }
+                        store.saveSlot(session.region.provider, credential)
+                        store.setActiveProvider(session.region.provider)
+                        refreshCredential()
+                        loadModels()
+                        loadBalance()
+                        Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+                        toast("凭证已保存")
+                        return@launch
+                    }
+                    is QLogin.Poll.Failed -> {
+                        state = state.copy(status = "登录失败：${result.message}")
+                        return@launch
+                    }
+                    else -> {
+                        val remain = ((deadline - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+                        state = state.copy(
+                            status = "请在浏览器完成登录并确认授权（等待中，还剩约${remain / 60}分${remain % 60}秒）：" +
+                                session.authUrl,
+                        )
+                        delay(POLL_INTERVAL_MS)
+                    }
+                }
+            }
+            state = state.copy(status = "登录超时，请重试")
+        }
+    }
+
+    /** Switches to another saved account of one generic provider slot. */
+    private fun switchSlotAccount(provider: Provider, accountId: String) {
+        store.selectSlot(provider, accountId)
+        refreshCredential()
+        loadModels()
+        loadBalance()
+        state = state.copy(status = "已切换账号")
+    }
+
+    /** Removes one saved account of a generic provider slot. */
+    private fun deleteSlotAccount(provider: Provider, accountId: String) {
+        store.deleteSlot(provider, accountId)
         refreshCredential()
         loadModels()
         loadBalance()
@@ -465,8 +559,16 @@ class MainActivity : ComponentActivity() {
                     it.toZenHubModel().copy(id = prefix + it.id, name = prefix + it.id)
                 }.sortedByDescending { it.badges.isNotEmpty() }
             }.getOrDefault(emptyList())
-            // Wired in later batches (Qoder, Antigravity clients).
-            Provider.QODER_CN, Provider.QODER_GLOBAL, Provider.ANTIGRAVITY -> emptyList()
+            Provider.QODER_CN, Provider.QODER_GLOBAL -> {
+                val cred = store.activeSlotAccount(provider)?.toCredential() ?: return emptyList()
+                runCatching {
+                    qoderUpstream.fetchModels(cred).map {
+                        HubModel(id = prefix + it, name = prefix + it, vendor = "Qoder")
+                    }
+                }.getOrDefault(emptyList())
+            }
+            // Wired in a later batch (Antigravity client).
+            Provider.ANTIGRAVITY -> emptyList()
         }
     }
 
@@ -673,9 +775,13 @@ class MainActivity : ComponentActivity() {
         if (cred.provider == Provider.ZEN) {
             // Zen exposes no quota endpoint; billing guidance is static text.
             state = state.copy(
-                zenQuota = "按量计费 · 免费模型 $0 · 余额以 opencode.ai 控制台为准",
+                quotas = state.quotas + (Provider.ZEN to "按量计费 · 免费模型 $0 · 余额以 opencode.ai 控制台为准"),
                 status = "",
             )
+            return
+        }
+        if (cred.provider == Provider.QODER_CN || cred.provider == Provider.QODER_GLOBAL) {
+            loadSlotQuota(cred, upstream = { c -> qoderUpstream.fetchQuota(c) })
             return
         }
         lifecycleScope.launch {
@@ -696,13 +802,18 @@ class MainActivity : ComponentActivity() {
 
     /** ZCode quota is a display string, not a structured balance. */
     private fun loadQuota(cred: Credential) {
+        loadSlotQuota(cred, upstream = { c -> zupstream.fetchQuota(c) })
+    }
+
+    /** Fetches a display-string quota for any provider holding one. */
+    private fun loadSlotQuota(cred: Credential, upstream: (Credential) -> String?) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                withLoading(Loading.BALANCE) { runCatching { zupstream.fetchQuota(cred) } }
+                withLoading(Loading.BALANCE) { runCatching { upstream(cred) } }
             }
             val quota = result.getOrNull()
             state = state.copy(
-                zcodeQuota = quota.orEmpty(),
+                quotas = state.quotas + (cred.provider to quota.orEmpty()),
                 status = if (quota.isNullOrBlank()) {
                     "额度查询失败：${result.exceptionOrNull()?.message?.take(80)}"
                 } else {
@@ -775,12 +886,14 @@ class MainActivity : ComponentActivity() {
         Wire.Region.entries.forEach { store.clear(it) }
         store.clearZcode()
         store.clearZen()
+        store.clearSlot(Provider.QODER_CN)
+        store.clearSlot(Provider.QODER_GLOBAL)
+        store.clearSlot(Provider.ANTIGRAVITY)
         refreshCredential()
         state = state.copy(
             models = emptyList(),
             balance = null,
-            zcodeQuota = "",
-            zenQuota = "",
+            quotas = emptyMap(),
             showZenKeyDialog = false,
             status = "已退出登录",
         )

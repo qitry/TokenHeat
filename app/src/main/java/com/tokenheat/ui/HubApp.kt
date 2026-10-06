@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.tokenheat.data.Login
+import com.tokenheat.data.QLogin
 import com.tokenheat.proto.Provider
 import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.Wire
@@ -55,6 +56,9 @@ fun HubApp(
     onShowZenKeyDialog: () -> Unit,
     onDismissZenKeyDialog: () -> Unit,
     onConfirmZenKey: (key: String, label: String) -> Unit,
+    onLoginQoder: (QLogin.QRegion) -> Unit,
+    onSwitchSlotAccount: (Provider, String) -> Unit,
+    onDeleteSlotAccount: (Provider, String) -> Unit,
     onOpenCredentialDetails: () -> Unit,
     onDismissCredentialDetails: () -> Unit,
     onCopyField: (String, String) -> Unit,
@@ -132,6 +136,9 @@ fun HubApp(
                             onShowZenKeyDialog = onShowZenKeyDialog,
                             onDismissZenKeyDialog = onDismissZenKeyDialog,
                             onConfirmZenKey = onConfirmZenKey,
+                            onLoginQoder = onLoginQoder,
+                            onSwitchSlotAccount = onSwitchSlotAccount,
+                            onDeleteSlotAccount = onDeleteSlotAccount,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

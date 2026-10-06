@@ -49,12 +49,13 @@ data class HubState(
     val provider: Provider = Provider.WORKBUDDY,
     val zcodeAccounts: List<SavedAccount> = emptyList(),
     val zcodeActiveId: String? = null,
-    /** ZCode quota summary text; WorkBuddy uses [balance] instead. */
-    val zcodeQuota: String = "",
     val zenAccounts: List<SavedAccount> = emptyList(),
     val zenActiveId: String? = null,
-    /** Zen has no quota endpoint; this is static billing guidance. */
-    val zenQuota: String = "",
+    /** Generic per-slot accounts for newer providers (Qoder, Antigravity). */
+    val slotAccounts: Map<Provider, List<SavedAccount>> = emptyMap(),
+    val slotActiveId: Map<Provider, String> = emptyMap(),
+    /** Per-provider quota/billing text; WorkBuddy uses [balance] instead. */
+    val quotas: Map<Provider, String> = emptyMap(),
     val showZenKeyDialog: Boolean = false,
 )
 

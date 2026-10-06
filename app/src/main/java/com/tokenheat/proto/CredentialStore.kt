@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 
 /**
  * One saved account. A build can hold several of these, so identity is carried
@@ -376,6 +377,16 @@ class CredentialStore(context: Context) {
         prefs.edit().remove("$KEY_ACTIVE_ID${region.name}").apply()
     }
 
+    /**
+     * Stable per-install machine id for device flows (Qoder), mirroring the
+     * CLI's persisted one. Random UUID, generated once and kept in prefs.
+     */
+    fun qoderMachineId(): String {
+        prefs.getString(KEY_MACHINE_ID, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val id = UUID.randomUUID().toString()
+        prefs.edit().putString(KEY_MACHINE_ID, id).apply()
+        return id
+    }
     /** Prefs slot holding one provider's (or build's) selected account. */
     private fun activeSlot(provider: Provider, region: Wire.Region): String =
         when (provider) {
@@ -627,6 +638,7 @@ class CredentialStore(context: Context) {
         private const val KEY_ACTIVE_REGION = "active_region"
         private const val KEY_ACTIVE_PROVIDER = "active_provider"
         private const val KEY_ACTIVE_ID = "active_account_"
+        private const val KEY_MACHINE_ID = "qoder_machine_id"
 
         /** Renew this long before the token actually expires. */
         private const val REFRESH_MARGIN_SECONDS = 5 * 60L
