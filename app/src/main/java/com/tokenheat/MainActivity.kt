@@ -446,7 +446,6 @@ class MainActivity : ComponentActivity() {
             pollZcodeForToken(session)
         }
     }
-    }
 
     /**
      * Polls the ZCode OAuth flow, then exchanges the token for an API key.
