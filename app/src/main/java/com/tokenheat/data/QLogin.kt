@@ -206,6 +206,3 @@ object QLogin {
      */
     const val CLIENT_ID = "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb"
 }
-
-
-}

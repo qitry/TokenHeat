@@ -248,8 +248,8 @@ class MainActivity : ComponentActivity() {
         state = state.copy(
             provider = provider,
             realm = store.activeRegion(),
-            credential = account?.toCredential(),
-            expiryText = account?.let { formatExpiry(it.toCredential()) } ?: "",
+            credential = account,
+            expiryText = account?.let { formatExpiry(it) } ?: "",
             accounts = Wire.Region.entries.associateWith { store.accounts(it) },
             activeAccountId = wbAccount?.id,
             zcodeAccounts = store.zcodeAccounts(),

@@ -345,5 +345,4 @@ object AGLogin {
             "https://daily-cloudcode-pa.sandbox.googleapis.com",
             "https://autopush-cloudcode-pa.sandbox.googleapis.com",
         )
-    }
 }

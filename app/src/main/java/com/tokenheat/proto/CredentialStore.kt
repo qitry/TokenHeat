@@ -87,9 +87,8 @@ class CredentialStore(context: Context) {
      * keys once ended up in the WorkBuddy file.
      */
     private fun accountsOf(provider: Provider, region: Wire.Region): List<SavedAccount> = when (provider) {
-        Provider.ZCODE -> zcodeAccounts()
-        Provider.ZEN -> zenAccounts()
         Provider.WORKBUDDY -> accounts(region)
+        else -> accountsIn(fileForProvider(provider), Wire.Region.CN, provider)
     }
 
     private fun accountsIn(file: File, region: Wire.Region, provider: Provider): List<SavedAccount> {
@@ -390,9 +389,8 @@ class CredentialStore(context: Context) {
     /** Prefs slot holding one provider's (or build's) selected account. */
     private fun activeSlot(provider: Provider, region: Wire.Region): String =
         when (provider) {
-            Provider.ZCODE -> "ZCODE"
-            Provider.ZEN -> "ZEN"
             Provider.WORKBUDDY -> region.name
+            else -> provider.name
         }
 
     private fun activeSlotId(slot: String): String? = prefs.getString("$KEY_ACTIVE_ID$slot", null)
@@ -499,7 +497,7 @@ class CredentialStore(context: Context) {
     /** The credential the bridge should serve under the current provider. */
     fun effectiveActive(): Credential? = when (activeProvider()) {
         Provider.WORKBUDDY -> active()
-        else -> activeSlotAccount(activeProvider())
+        else -> activeSlotAccount(activeProvider())?.toCredential()
     }
 
     /** The account in use, or null when that build holds none. */
