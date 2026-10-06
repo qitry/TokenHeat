@@ -376,7 +376,7 @@ private fun ZenKeyDialog(
         onDismissRequest = onDismiss,
         title = { Text("添加 Zen API Key") },
         text = {
-            Column(Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
                 Text(
                     "在 opencode.ai 控制台复制 Key 后粘贴。Key 只存本机，不上传任何地方。",
                     style = MaterialTheme.typography.bodySmall,
