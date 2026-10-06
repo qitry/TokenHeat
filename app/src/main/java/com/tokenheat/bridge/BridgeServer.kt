@@ -46,7 +46,7 @@ class BridgeServer(
     private val requestBodyLimit = 64 * 1024 * 1024
 
     private val running = AtomicBoolean(false)
-    private val pool = Executors.newCachedThreadPool()
+    private val workers = Executors.newCachedThreadPool()
     private val client = UpstreamClient()
     private val zclient = ZUpstreamClient()
     private var server: ServerSocket? = null
@@ -72,7 +72,7 @@ class BridgeServer(
                     if (running.get()) android.util.Log.w(TAG, "accept failed", e)
                     continue
                 }
-                pool.submit { handle(accepted) }
+                workers.submit { handle(accepted) }
             }
         }.apply { isDaemon = true; start() }
     }
@@ -80,7 +80,7 @@ class BridgeServer(
     fun stop() {
         running.set(false)
         runCatching { server?.close() }
-        pool.shutdownNow()
+        workers.shutdownNow()
     }
 
     private fun handle(socket: Socket) {
