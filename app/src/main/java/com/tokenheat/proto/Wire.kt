@@ -444,6 +444,8 @@ data class Credential(
     val accessToken: String,
     val refreshToken: String = "",
     val apiKey: String = "",
+    /** Antigravity Cloud project; empty for everyone else. */
+    val projectId: String = "",
     val expiresAt: Long = 0L,
     val domain: String = Wire.CN_CHAT_BASE,
     val uid: String = "",

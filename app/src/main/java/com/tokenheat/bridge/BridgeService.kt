@@ -33,33 +33,35 @@ class BridgeService : Service() {
 
     private val binder = LocalBinder()
     private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var models: List<String> = emptyList()
+    private var modelMap: Map<Provider, List<String>> = emptyMap()
     private val upstream = UpstreamClient()
     private val zupstream = ZUpstreamClient()
     private val zenUpstream = ZenUpstreamClient()
 
     /**
-     * Rotation pool shared by all requests. Candidates follow the current
-     * slot (active provider + WorkBuddy build); marks are keyed by account
-     * id, so a slot switch never confuses them. The lambdas run per request,
-     * so `store` being late-initialized is fine.
+     * One rotation pool per provider. Candidates follow the provider's slot
+     * (WorkBuddy additionally follows the active build); marks are keyed by
+     * account id, so slots never confuse each other.
      */
-    private val pool = AccountPool(
-        candidates = {
-            when (store.activeProvider()) {
-                Provider.ZCODE -> store.zcodeAccounts()
-                Provider.ZEN -> store.zenAccounts()
-                Provider.WORKBUDDY -> store.accounts(store.activeRegion())
-            }
-        },
-        refresher = { account ->
-            when (account.provider) {
-                Provider.ZCODE -> account.toCredential()
-                Provider.ZEN -> account.toCredential()
-                Provider.WORKBUDDY -> store.resolveAccount(account) { c -> upstream.refreshToken(c) }
-            }
-        },
-    )
+    private val pools: Map<Provider, AccountPool> = Provider.entries.associateWith { provider ->
+        AccountPool(
+            candidates = {
+                when (provider) {
+                    Provider.WORKBUDDY -> store.accounts(store.activeRegion())
+                    else -> store.slotAccounts(provider)
+                }
+            },
+            refresher = { account ->
+                when (account.provider) {
+                    Provider.WORKBUDDY -> store.resolveAccount(account) { c -> upstream.refreshToken(c) }
+                    else -> account.toCredential()
+                }
+            },
+        )
+    }
+
+    /** Latest known model ids per provider; failures keep the last good set. */
+    private var modelMap: Map<Provider, List<String>> = emptyMap()
     private lateinit var store: CredentialStore
     private var bridge: BridgeServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -104,15 +106,14 @@ class BridgeService : Service() {
                         Provider.WORKBUDDY -> store.resolve { c -> upstream.refreshToken(c) }
                     }
                 },
-                models = { models },
-                modelOwner = {
-                    when (store.activeProvider()) {
-                        Provider.ZCODE -> "zcode"
-                        Provider.ZEN -> "zen"
-                        Provider.WORKBUDDY -> "workbuddy"
-                    }
+                models = {
+                    val active = store.activeProvider()
+                    modelMap.flatMap { (provider, ids) ->
+                        ids.map { BridgeModel("${provider.routeKey}/$it", provider.routeKey) }
+                    } + modelMap[active].orEmpty().map { BridgeModel(it, active.routeKey) }
                 },
-                pool = { pool },
+                pools = { pools },
+                defaultProvider = { store.activeProvider() },
                 onCall = { record -> callLog.append(record) },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
@@ -177,16 +178,20 @@ class BridgeService : Service() {
 
     private suspend fun refreshModelsLoop() {
         while (true) {
-            val fetched = when (store.activeProvider()) {
-                Provider.ZCODE -> store.activeZcode()?.let { cred ->
-                    runCatching { zupstream.fetchModels(cred) }.getOrNull()
+            Provider.entries.forEach { provider ->
+                val fetched = when (provider) {
+                    Provider.ZCODE -> store.activeSlotAccount(provider)?.toCredential()?.let { cred ->
+                        runCatching { zupstream.fetchModels(cred).map { it.id } }.getOrNull()
+                    }
+                    Provider.ZEN -> runCatching { zenUpstream.fetchModels().map { it.id } }.getOrNull()
+                    Provider.WORKBUDDY -> store.active()?.let { cred ->
+                        runCatching { upstream.fetchModels(cred).map { it.id } }.getOrNull()
+                    }
+                    // Wired in later batches (Qoder, Antigravity clients).
+                    Provider.QODER_CN, Provider.QODER_GLOBAL, Provider.ANTIGRAVITY -> null
                 }
-                Provider.ZEN -> runCatching { zenUpstream.fetchModels().map { it.id } }.getOrNull()
-                Provider.WORKBUDDY -> store.active()?.let { cred ->
-                    runCatching { upstream.fetchModels(cred).map { it.id } }.getOrNull()
-                }
+                if (!fetched.isNullOrEmpty()) modelMap = modelMap + (provider to fetched)
             }
-            if (!fetched.isNullOrEmpty()) models = fetched
             delay(MODEL_REFRESH_MS)
         }
     }

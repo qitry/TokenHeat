@@ -21,6 +21,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
+ * One servable model: the id clients send (usually `provider/id`) plus the
+ * owner reported in the roster.
+ */
+data class BridgeModel(val id: String, val owner: String)
+
+/**
  * A small OpenAI-compatible endpoint on loopback.
  *
  * Requests and responses are handled as raw bytes: a request body is declared
@@ -34,9 +40,9 @@ class BridgeServer(
     private val port: Int,
     private val secret: String,
     private val credential: () -> Credential?,
-    private val pool: () -> AccountPool,
-    private val models: () -> List<String>,
-    private val modelOwner: () -> String = { "workbuddy" },
+    private val pools: () -> Map<Provider, AccountPool>,
+    private val defaultProvider: () -> Provider,
+    private val models: () -> List<BridgeModel>,
     private val onCall: (CallRecord) -> Unit = {},
 ) {
 
@@ -144,14 +150,13 @@ class BridgeServer(
                     val cred = credential()
                     val region = cred?.region?.name ?: "none"
                     val provider = cred?.provider?.name?.lowercase() ?: "none"
-                    val rotation = pool().eligibleCount()
+                    val rotation = pools()[defaultProvider()]?.eligibleCount() ?: 0
                     BridgeStatus.region = region
                     sendJson(output, 200, """{"ok":true,"region":"$region","provider":"$provider","rotation":$rotation}""")
                 }
                 requestLine.startsWith("GET /v1/models") -> {
-                    val owner = modelOwner()
                     val list = models().joinToString(",") {
-                        """{"id":"$it","object":"model","owned_by":"$owner"}"""
+                        """{"id":"${it.id}","object":"model","owned_by":"${it.owner}"}"""
                     }
                     sendJson(output, 200, """{"object":"list","data":[$list]}""")
                 }
@@ -191,11 +196,13 @@ class BridgeServer(
         val model = runCatching { JSONObject(body).optString("model") }.getOrDefault("")
         val started = System.currentTimeMillis()
 
-        // Rotation: each request starts at the next account, and a retriable
-        // failure moves to another account inside the same request. `tried`
-        // bounds the loop: a single-account pool answers with its own failure
-        // instead of spinning.
-        var pick: AccountPool.Pick? = pool().pick()
+        // Mixed pools: `provider/id` routes to that provider's pool, a bare
+        // id keeps the legacy behavior (active provider's pool). The upstream
+        // only ever sees the bare id.
+        val (provider, bareModel) = splitRoute(model)
+        val wireBody = if (bareModel != model) setModel(body, bareModel) else body
+        val rotation = pools()[provider]
+        var pick: AccountPool.Pick? = rotation?.pick()
         if (pick == null) {
             sendJson(output, 401, """{"error":{"message":"no credential","type":"not_signed_in"}}""")
             return
@@ -206,12 +213,12 @@ class BridgeServer(
         while (true) {
             val current = pick ?: break
             if (!tried.add(current.account.id)) break
-            when (val result = dispatch(current.credential, body)) {
+            when (val result = dispatch(current.credential, wireBody)) {
                 is UpstreamClient.ChatResult.Failed -> {
-                    pool().report(current.account.id, result.kind, result.status)
+                    rotation?.report(current.account.id, result.kind, result.status)
                     pending = result
                     pendingCred = current.credential
-                    pick = if (pool().shouldFailover(result.kind)) pool().pick() else null
+                    pick = if (rotation?.shouldFailover(result.kind) == true) rotation.pick() else null
                 }
                 is UpstreamClient.ChatResult.Ok -> {
                     serveOk(output, started, model, current.account.label, result)
@@ -234,7 +241,25 @@ class BridgeServer(
             Provider.ZCODE -> zclient.chatStream(cred, body)
             Provider.ZEN -> zenClient.chatStream(cred, body)
             Provider.WORKBUDDY -> client.chatStream(cred, body)
+            Provider.QODER_CN, Provider.QODER_GLOBAL, Provider.ANTIGRAVITY ->
+                UpstreamClient.ChatResult.Failed(0, Wire.ErrorKind.CLIENT, "provider not wired yet")
         }
+
+    /** Splits `provider/id`; unknown heads fall back to the active provider. */
+    private fun splitRoute(model: String): Pair<Provider, String> {
+        val slash = model.indexOf('/')
+        if (slash > 0) {
+            Provider.byRouteKey(model.substring(0, slash))?.let { return it to model.substring(slash + 1) }
+        }
+        return defaultProvider() to model
+    }
+
+    /** Rewrites the model field so the upstream never sees our prefix. */
+    private fun setModel(body: String, id: String): String {
+        val obj = runCatching { JSONObject(body) }.getOrNull() ?: return body
+        obj.put("model", id)
+        return obj.toString()
+    }
 
     private fun fail(
         output: OutputStream,

@@ -19,6 +19,8 @@ data class SavedAccount(
     val accessToken: String,
     val refreshToken: String,
     val apiKey: String = "",
+    /** Antigravity Cloud project; empty for everyone else. */
+    val projectId: String = "",
     /** Manual opt-out from rotation; the row stays usable by hand. */
     val disabled: Boolean = false,
     val expiresAt: Long,
@@ -33,6 +35,7 @@ data class SavedAccount(
         accessToken = accessToken,
         refreshToken = refreshToken,
         apiKey = apiKey,
+        projectId = projectId,
         expiresAt = expiresAt,
         domain = domain,
         uid = uid,
@@ -121,6 +124,7 @@ class CredentialStore(context: Context) {
             accessToken = token,
             refreshToken = obj.optString("refreshToken"),
             apiKey = apiKey,
+            projectId = obj.optString("projectId"),
             disabled = obj.optBoolean("disabled", false),
             expiresAt = if (stored > 0) stored else expiryFromJwt(token),
             enterpriseId = obj.optString("enterpriseId").ifEmpty { null },
@@ -164,6 +168,7 @@ class CredentialStore(context: Context) {
                     put("accessToken", account.accessToken)
                     put("refreshToken", account.refreshToken)
                     put("apiKey", account.apiKey)
+                    put("projectId", account.projectId)
                     put("disabled", account.disabled)
                     put("expiresAt", account.expiresAt)
                     put("domain", account.domain)
@@ -211,6 +216,7 @@ class CredentialStore(context: Context) {
             accessToken = credential.accessToken,
             refreshToken = credential.refreshToken,
             apiKey = credential.apiKey,
+            projectId = credential.projectId,
             disabled = keepDisabled,
             expiresAt = credential.expiresAt,
             enterpriseId = credential.enterpriseId,
@@ -416,6 +422,49 @@ class CredentialStore(context: Context) {
 
     fun zenActiveId(): String? = activeSlotId(activeSlot(Provider.ZEN, Wire.Region.CN))
 
+    // ------------------------------------------------------------------ //
+    // Generic slot API (new providers use this; older wrappers delegate).
+    // ------------------------------------------------------------------ //
+
+    /** Every account of one provider slot; WORKBUDDY follows the given build. */
+    fun slotAccounts(provider: Provider, region: Wire.Region = Wire.Region.CN): List<SavedAccount> =
+        accountsOf(provider, region)
+
+    /** Saves into one provider slot and selects the entry. */
+    fun saveSlot(provider: Provider, credential: Credential, region: Wire.Region = Wire.Region.CN): SavedAccount =
+        saveIn(region, provider, credential)
+
+    /** Removes one entry of a provider slot, selection falls back. */
+    fun deleteSlot(provider: Provider, accountId: String, region: Wire.Region = Wire.Region.CN) {
+        val remaining = accountsOf(provider, region).filterNot { it.id == accountId }
+        writeAccounts(region, provider, remaining)
+        val slot = activeSlot(provider, region)
+        if (activeSlotId(slot) == accountId) {
+            remaining.firstOrNull()?.let { setActiveSlot(slot, it.id) }
+                ?: clearActiveSlot(slot)
+        }
+    }
+
+    /** Selects one entry of a provider slot; unknown ids are ignored. */
+    fun selectSlot(provider: Provider, accountId: String, region: Wire.Region = Wire.Region.CN) {
+        if (accountsOf(provider, region).none { it.id == accountId }) return
+        setActiveSlot(activeSlot(provider, region), accountId)
+    }
+
+    /** The selected entry of a provider slot, if any. */
+    fun activeSlotAccount(provider: Provider, region: Wire.Region = Wire.Region.CN): SavedAccount? {
+        val list = accountsOf(provider, region)
+        if (list.isEmpty()) return null
+        val selected = activeSlotId(activeSlot(provider, region))
+        return list.firstOrNull { it.id == selected } ?: list.first()
+    }
+
+    /** Drops a whole provider slot. */
+    fun clearSlot(provider: Provider, region: Wire.Region = Wire.Region.CN) {
+        (if (provider == Provider.WORKBUDDY) fileFor(region) else fileForProvider(provider)).delete()
+        clearActiveSlot(activeSlot(provider, region))
+    }
+
     /** The ZCode account in use, or null when none is stored. */
     fun activeZcodeAccount(): SavedAccount? {
         val list = zcodeAccounts()
@@ -438,9 +487,8 @@ class CredentialStore(context: Context) {
 
     /** The credential the bridge should serve under the current provider. */
     fun effectiveActive(): Credential? = when (activeProvider()) {
-        Provider.ZCODE -> activeZcode()
-        Provider.ZEN -> activeZen()
         Provider.WORKBUDDY -> active()
+        else -> activeSlotAccount(activeProvider())
     }
 
     /** The account in use, or null when that build holds none. */
@@ -458,7 +506,8 @@ class CredentialStore(context: Context) {
     fun has(region: Wire.Region): Boolean = accounts(region).isNotEmpty()
 
     fun hasAny(): Boolean =
-        Wire.Region.entries.any { has(it) } || zcodeAccounts().isNotEmpty() || zenAccounts().isNotEmpty()
+        Wire.Region.entries.any { has(it) } ||
+            Provider.entries.any { it != Provider.WORKBUDDY && slotAccounts(it).isNotEmpty() }
 
     // ------------------------------------------------------------------ //
     // Refresh
@@ -542,6 +591,7 @@ class CredentialStore(context: Context) {
                 put("accessToken", credential.accessToken)
                 put("refreshToken", credential.refreshToken)
                 put("apiKey", credential.apiKey)
+                put("projectId", credential.projectId)
                 put("expiresAt", credential.expiresAt)
                 put("domain", credential.domain)
                 put("uid", credential.uid)

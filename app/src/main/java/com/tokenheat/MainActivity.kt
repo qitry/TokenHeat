@@ -420,25 +420,53 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Merged roster across every provider holding an account: prefixed ids
+     * (`provider/id`) for mixed-pool routing, plus bare ids of the active
+     * provider so existing client configs keep working.
+     */
     private fun loadModels() {
-        val cred = state.credential ?: return
+        if (!store.hasAny()) return
+        val active = state.provider
         lifecycleScope.launch {
-            val models = withContext(Dispatchers.IO) {
+            val merged = withContext(Dispatchers.IO) {
                 withLoading(Loading.MODELS) {
-                    if (cred.provider == Provider.ZEN) {
-                        runCatching {
-                            zenUpstream.fetchModels().map { it.toZenHubModel() }
-                                .sortedByDescending { it.badges.isNotEmpty() }
-                        }.getOrDefault(emptyList())
-                    } else if (cred.provider == Provider.ZCODE) {
-                        runCatching { zupstream.fetchModels(cred).map { it.toZcodeHubModel() } }
-                            .getOrDefault(emptyList())
-                    } else {
-                        runCatching { upstream.fetchModels(cred).map { it.toHubModel() } }.getOrDefault(emptyList())
-                    }
+                    val out = mutableListOf<HubModel>()
+                    out += modelsFor(active, bare = true)
+                    Provider.entries.filter { it != active }.forEach { out += modelsFor(it, bare = false) }
+                    out
                 }
             }
-            state = state.copy(models = models)
+            state = state.copy(models = merged)
+        }
+    }
+
+    private fun modelsFor(provider: Provider, bare: Boolean): List<HubModel> {
+        val prefix = if (bare) "" else "${provider.routeKey}/"
+        return when (provider) {
+            Provider.WORKBUDDY -> {
+                val cred = store.active() ?: return emptyList()
+                runCatching {
+                    upstream.fetchModels(cred).map {
+                        it.toHubModel().copy(id = prefix + it.id, name = prefix + it.name)
+                    }
+                }.getOrDefault(emptyList())
+            }
+            Provider.ZCODE -> {
+                val cred = store.activeZcode() ?: return emptyList()
+                runCatching {
+                    zupstream.fetchModels(cred).map {
+                        it.toZcodeHubModel().copy(id = prefix + it, name = prefix + it)
+                    }
+                }.getOrDefault(emptyList())
+            }
+            Provider.ZEN -> runCatching {
+                zenUpstream.fetchModels().map {
+                    it.toZenHubModel().copy(id = prefix + it.id, name = prefix + it.id)
+                }.sortedByDescending { it.badges.isNotEmpty() }
+            }.getOrDefault(emptyList())
+            // Wired in later batches (Qoder, Antigravity clients).
+            Provider.QODER_CN, Provider.QODER_GLOBAL, Provider.ANTIGRAVITY -> emptyList()
         }
     }
 
