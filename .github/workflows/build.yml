@@ -17,7 +17,11 @@ jobs:
       # ubuntu-latest runners already ship an Android SDK (ANDROID_SDK_ROOT
       # preset); only the exact platform / build-tools are missing.
       - name: Install SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          TOOLS=$(ls -d "$SDK"/cmdline-tools/* | head -1)
+          yes | "$TOOLS/bin/sdkmanager" --licenses > /dev/null
+          "$TOOLS/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
