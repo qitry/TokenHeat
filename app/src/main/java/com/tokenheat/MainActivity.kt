@@ -21,6 +21,7 @@ import com.tokenheat.bridge.BridgeService
 import com.tokenheat.bridge.BridgeSettings
 import com.tokenheat.bridge.CallLogStore
 import com.tokenheat.bridge.Notifications
+import com.tokenheat.data.AccountBackup
 import com.tokenheat.data.CheckinItem
 import com.tokenheat.data.AGLogin
 import com.tokenheat.data.Login
@@ -104,6 +105,14 @@ class MainActivity : ComponentActivity() {
             notificationsAllowed = granted,
             status = if (granted) "" else "未授予通知权限，转发服务可能被系统回收",
         )
+    }
+
+    private val importLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            handleImportBackup(uri)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -194,12 +203,14 @@ class MainActivity : ComponentActivity() {
                 },
                 onCancelLogin = { cancelLogin() },
                 onDismissLoginDialog = { state = state.copy(loginFlow = null) },
+                onExportBackup = { handleExportBackup() },
+                onImportBackup = { pickBackupFile() },
                 onTabShown = { tab ->
                     // Reload on entry: the service writes records without the
                     // UI knowing, so a snapshot taken at startup goes stale.
                     when (tab) {
                         HubTab.Calls -> loadCalls()
-                        HubTab.Rewards -> loadBalance()
+                        HubTab.Credential -> loadBalance()
                         else -> Unit
                     }
                 },
@@ -207,6 +218,39 @@ class MainActivity : ComponentActivity() {
         }
 
         requestNotificationPermissionIfNeeded()
+    }
+
+    private fun handleExportBackup() {
+        runCatching {
+            val (_, shareIntent) = AccountBackup.exportToFileAndGetIntent(this, store)
+            startActivity(Intent.createChooser(shareIntent, "导出并备份账号"))
+        }.onFailure { e ->
+            toast("导出备份失败：${e.message}")
+        }
+    }
+
+    private fun pickBackupFile() {
+        importLauncher.launch(arrayOf("application/gzip", "application/x-gzip", "application/octet-stream", "*/*"))
+    }
+
+    private fun handleImportBackup(uri: android.net.Uri) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        AccountBackup.importFromGzipStream(stream, store)
+                    }
+                }.getOrNull()
+            }
+            if (result != null && result.success) {
+                refreshCredential()
+                loadModels()
+                loadBalance()
+                toast(result.message)
+            } else {
+                toast(result?.message ?: "导入备份失败")
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -709,6 +753,8 @@ class MainActivity : ComponentActivity() {
     private fun ZenUpstreamClient.ZenModel.toZenHubModel(): HubModel = HubModel(
         id = id,
         name = id,
+        multiplier = if (free) 0.0 else -1.0,
+        rate = if (free) "免费 $0" else "",
         vendor = "Zen",
         badges = if (free) listOf("免费") else emptyList(),
     )

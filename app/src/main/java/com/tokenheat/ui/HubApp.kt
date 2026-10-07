@@ -98,6 +98,8 @@ fun HubApp(
     onOpenAuthUrl: (String) -> Unit = {},
     onCancelLogin: () -> Unit = {},
     onDismissLoginDialog: () -> Unit = {},
+    onExportBackup: () -> Unit = {},
+    onImportBackup: () -> Unit = {},
     onTabShown: (HubTab) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
@@ -124,6 +126,7 @@ fun HubApp(
                                 PillBadge(
                                     text = if (state.bridgeRunning) "运行中 :${state.port}" else "已停用",
                                     variant = if (state.bridgeRunning) BadgeVariant.Success else BadgeVariant.Neutral,
+                                    hasDot = true,
                                 )
                             }
                         },
@@ -190,6 +193,16 @@ fun HubApp(
                         .padding(padding),
                 ) {
                     when (HubTab.entries[tab]) {
+                        HubTab.Dashboard -> DashboardScreen(
+                            state = state,
+                            onStartBridge = { onStartBridge(state.port) },
+                            onStopBridge = onStopBridge,
+                            onCopyEndpoint = onCopyEndpoint,
+                            onExportBackup = onExportBackup,
+                            onImportBackup = onImportBackup,
+                            onShowHelp = onShowHelp,
+                            onNavigateToCalls = { tab = HubTab.Calls.ordinal },
+                        )
                         HubTab.Credential -> CredentialScreen(
                             state = state,
                             onSwitchRealm = onSwitchRealm,
@@ -215,6 +228,11 @@ fun HubApp(
                             onOpenAuthUrl = onOpenAuthUrl,
                             onCancelLogin = onCancelLogin,
                             onCopyField = onCopyField,
+                            onCheckin = onCheckin,
+                            onCheckinAll = onCheckinAll,
+                            onRefreshBalance = onRefreshBalance,
+                            onExportBackup = onExportBackup,
+                            onImportBackup = onImportBackup,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,
@@ -231,7 +249,6 @@ fun HubApp(
                             onOverlayLocked = onOverlayLocked,
                         )
                         HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
-                        HubTab.Rewards -> RewardsScreen(state, onCheckin, onCheckinAll, onRefreshBalance)
                     }
                 }
             }

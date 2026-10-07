@@ -49,26 +49,13 @@ import androidx.compose.ui.unit.dp
 import com.tokenheat.proto.HubModel
 
 /**
- * Minimalist, low-saturation vendor mark in Shadcn style.
+ * Square vendor brand logo in Shadcn low-saturation style.
+ * Displays recognizable geometric brand marks (OpenAI, Anthropic, Gemini, DeepSeek, GLM, etc.)
+ * and falls back to a sleek Bot icon for unknown vendors.
  */
 @Composable
 fun VendorBadge(model: HubModel, modifier: Modifier = Modifier) {
-    val initial = model.vendor.take(1).ifEmpty { model.name.take(1) }.uppercase()
-    Box(
-        modifier = modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = initial,
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-    }
+    ModelBrandBadge(model = model, modifier = modifier, size = 36.dp)
 }
 
 /**

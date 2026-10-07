@@ -1,10 +1,9 @@
 package com.tokenheat.ui
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.tokenheat.bridge.CallRecord
 import com.tokenheat.data.CheckinItem
@@ -16,10 +15,10 @@ import com.tokenheat.proto.HubModel
 import com.tokenheat.proto.Wire
 
 enum class HubTab(val label: String, val icon: ImageVector) {
-    Credential("凭证", Icons.Default.Key),
-    Bridge("API 平台", Icons.Default.Hub),
-    Calls("调用记录", Icons.Default.ReceiptLong),
-    Rewards("积分", Icons.Default.CardGiftcard),
+    Dashboard("概览", Icons.Outlined.Dashboard),
+    Credential("账号", Icons.Outlined.Key),
+    Bridge("服务", Icons.Outlined.Hub),
+    Calls("记录", Icons.Outlined.History),
 }
 
 /** Everything the screens render; owned by the activity and backed by the service. */

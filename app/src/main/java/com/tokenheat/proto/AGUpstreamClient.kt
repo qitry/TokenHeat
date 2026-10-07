@@ -91,23 +91,50 @@ class AGUpstreamClient {
      */
     fun fetchModels(credential: Credential): List<String> {
         val live = runCatching {
-            val text = postJson(
-                "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
-                AGLogin.agHeaders(credential.accessToken),
-                JSONObject().put("project", credential.projectId).toString(),
-            )
+            var text: String? = null
+            for (endpoint in AGLogin.ENDPOINTS_LOAD) {
+                text = runCatching {
+                    postJson(
+                        "$endpoint/v1internal:fetchAvailableModels",
+                        AGLogin.agHeaders(credential.accessToken),
+                        JSONObject().put("project", credential.projectId).toString(),
+                    )
+                }.getOrNull()
+                if (!text.isNullOrEmpty()) break
+            }
+            if (text == null) return@runCatching emptyList<String>()
             val root = JSONObject(text)
+            val parsed = mutableListOf<String>()
+
+            val modelsObj = root.optJSONObject("models") ?: root.optJSONObject("data")?.optJSONObject("models")
+            if (modelsObj != null) {
+                modelsObj.keys().forEach { k ->
+                    val clean = k.removePrefix("models/").trim()
+                    if (clean.isNotEmpty()) parsed.add(clean)
+                }
+            }
+
             val array = root.optJSONArray("models")
                 ?: root.optJSONArray("list")
                 ?: root.optJSONObject("data")?.optJSONArray("models")
-                ?: return emptyList<String>()
-            (0 until array.length()).mapNotNull { i ->
-                val row = array.optJSONObject(i) ?: return@mapNotNull null
-                row.optString("id").ifEmpty { row.optString("name") }.ifEmpty { null }
+            if (array != null) {
+                for (i in 0 until array.length()) {
+                    val item = array.opt(i)
+                    val id = when (item) {
+                        is String -> item
+                        is JSONObject -> item.optString("id")
+                            .ifEmpty { item.optString("name") }
+                            .ifEmpty { item.optString("modelId") }
+                        else -> ""
+                    }
+                    val clean = id.removePrefix("models/").trim()
+                    if (clean.isNotEmpty()) parsed.add(clean)
+                }
             }
+            parsed.distinct()
         }.getOrDefault(emptyList())
-        val known = live.filter { it in GEMINI_IDS }
-        return if (known.isNotEmpty()) known else GEMINI_IDS.toList()
+
+        return if (live.isNotEmpty()) live else GEMINI_IDS
     }
 
     /**
@@ -450,6 +477,12 @@ class AGUpstreamClient {
          * needs thought-signature machinery this bridge does not implement.
          */
         val GEMINI_IDS = listOf(
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-exp-1206",
             "gemini-3-pro",
             "gemini-3-pro-high",
             "gemini-3-pro-low",
@@ -461,8 +494,6 @@ class AGUpstreamClient {
             "gemini-3-flash-high",
             "gemini-3-flash-low",
             "gemini-3-flash-medium",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
             "gemini-3",
             "gemini-flash",
             "gemini-pro",

@@ -16,6 +16,9 @@ object BridgeStatus {
     @Volatile
     var port: Int = 0
 
+    @Volatile
+    var startedAt: Long = 0L
+
     /** Requests served since the bridge started. */
     val requestCount = AtomicInteger(0)
 
@@ -31,6 +34,7 @@ object BridgeStatus {
     fun reset(port: Int) {
         running = true
         this.port = port
+        startedAt = System.currentTimeMillis()
         requestCount.set(0)
         lastRequest = ""
         lastError = ""
@@ -47,6 +51,7 @@ object BridgeStatus {
 
     fun stopped() {
         running = false
+        startedAt = 0L
         lastRequest = ""
     }
 }

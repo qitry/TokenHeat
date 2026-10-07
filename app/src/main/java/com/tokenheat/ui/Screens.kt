@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,8 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -128,6 +131,11 @@ fun CredentialScreen(
     onOpenAuthUrl: (String) -> Unit = {},
     onCancelLogin: () -> Unit = {},
     onCopyField: (String, String) -> Unit = { _, _ -> },
+    onCheckin: () -> Unit = {},
+    onCheckinAll: () -> Unit = {},
+    onRefreshBalance: () -> Unit = {},
+    onExportBackup: () -> Unit = {},
+    onImportBackup: () -> Unit = {},
 ) {
     val currentProvider = state.provider
 
@@ -278,7 +286,40 @@ fun CredentialScreen(
             )
         }
 
-        // 6. Saved Accounts Pool Section
+        // 6. Embedded Rewards / Balance Cards (only for providers supporting balances or credits)
+        if (currentProvider == Provider.WORKBUDDY) {
+            item {
+                WorkBuddyDailyCheckinCard(
+                    state = state,
+                    onCheckin = onCheckin,
+                    onCheckinAll = onCheckinAll,
+                )
+            }
+            item {
+                WorkBuddyBalanceCard(
+                    state = state,
+                    onRefreshBalance = onRefreshBalance,
+                )
+            }
+        } else if (currentProvider == Provider.ZCODE) {
+            item {
+                ZCodeQuotaCard(
+                    state = state,
+                    quota = state.quotas[Provider.ZCODE].orEmpty(),
+                    onRefreshBalance = onRefreshBalance,
+                )
+            }
+        }
+
+        // 7. Account Backup & Restore (.json.gz)
+        item {
+            AccountBackupCard(
+                onExport = onExportBackup,
+                onImport = onImportBackup,
+            )
+        }
+
+        // 8. Saved Accounts Pool Section
         item {
             SectionHeader(
                 title = "轮训账号池",
@@ -1049,220 +1090,171 @@ fun BridgeScreen(
 }
 
 // -----------------------------------------------------------------------------
-// Rewards & Quota Screens
+// Embedded Rewards, Quota & Backup Cards
 // -----------------------------------------------------------------------------
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun RewardsScreen(
+fun WorkBuddyDailyCheckinCard(
     state: HubState,
     onCheckin: () -> Unit,
     onCheckinAll: () -> Unit,
-    onRefreshBalance: () -> Unit,
 ) {
-    if (state.provider == Provider.ZCODE) {
-        QuotaRewardsScreen(
-            state = state,
-            quota = state.quotas[Provider.ZCODE].orEmpty(),
-            title = "Coding Plan 订阅额度",
-            note = "说明：ZCode 配额源自 Coding Plan 订阅，按订阅周期重置。用尽后可添加新账号轮训。",
-            onRefreshBalance = onRefreshBalance,
-        )
-        return
-    }
-    if (state.provider == Provider.ZEN) {
-        QuotaRewardsScreen(
-            state = state,
-            quota = state.quotas[Provider.ZEN].orEmpty(),
-            title = "Zen 账单与配额",
-            note = "说明：Zen 按量计费，所有标记免费模型为 $0；具体余额与调用账单以 opencode.ai 网页控制台为准。",
-            onRefreshBalance = onRefreshBalance,
-        )
-        return
-    }
-    if (state.provider == Provider.QODER_CN || state.provider == Provider.QODER_GLOBAL) {
-        QuotaRewardsScreen(
-            state = state,
-            quota = state.quotas[state.provider].orEmpty(),
-            title = "Qoder 订阅与配额",
-            note = "说明：Qoder 剩余配额源自订阅周期，用尽后可添加多账号参与轮训与调用互备。",
-            onRefreshBalance = onRefreshBalance,
-        )
-        return
-    }
-    if (state.provider == Provider.ANTIGRAVITY) {
-        QuotaRewardsScreen(
-            state = state,
-            quota = state.quotas[state.provider].orEmpty(),
-            title = "Antigravity CLI 账号配额",
-            note = "说明：Antigravity CLI 按 Google 账号模型配额计费，建议添加多账号降低触发 429 速率限制的概率。",
-            onRefreshBalance = onRefreshBalance,
-        )
-        return
-    }
-
-    // WorkBuddy Rewards & Balance
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // Daily Checkin Card
-        item {
-            ShadcnCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    SectionHeader(
-                        title = "每日签到领积分",
-                        subtitle = "点击签到当前账号，长按可对该版本下全部账号批量签到",
-                    )
-                    Button(
+    ShadcnCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SectionHeader(
+                title = "每日签到领积分",
+                subtitle = "点击签到当前账号，长按可对该版本下全部账号批量签到",
+            )
+            Button(
+                onClick = onCheckin,
+                enabled = state.loading != Loading.CHECKIN,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
                         onClick = onCheckin,
-                        enabled = state.loading != Loading.CHECKIN,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .combinedClickable(
-                                onClick = onCheckin,
-                                onLongClick = onCheckinAll,
-                            ),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    ) {
-                        if (state.loading == Loading.CHECKIN) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("签到进行中…")
-                        } else {
-                            Text("立即签到 (长按全部)", fontWeight = FontWeight.Medium)
-                        }
-                    }
+                        onLongClick = onCheckinAll,
+                    ),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            ) {
+                if (state.loading == Loading.CHECKIN) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("签到进行中…")
+                } else {
+                    Text("立即签到 (长按全部)", fontWeight = FontWeight.Medium)
                 }
             }
         }
+    }
+}
 
-        // Balance Card
-        item {
-            ShadcnCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+@Composable
+fun WorkBuddyBalanceCard(
+    state: HubState,
+    onRefreshBalance: () -> Unit,
+) {
+    ShadcnCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "账户余额",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = onRefreshBalance,
+                    enabled = state.loading != Loading.BALANCE,
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
+                    if (state.loading == Loading.BALANCE) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("刷新中", style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("刷新", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            val balance = state.balance
+            when {
+                state.loading == Loading.BALANCE && balance == null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "账户余额",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedButton(
-                            onClick = onRefreshBalance,
-                            enabled = state.loading != Loading.BALANCE,
-                            shape = RoundedCornerShape(6.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        ) {
-                            if (state.loading == Loading.BALANCE) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(6.dp))
-                                Text("刷新中", style = MaterialTheme.typography.labelSmall)
-                            } else {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("刷新", style = MaterialTheme.typography.labelSmall)
-                            }
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                }
+                balance == null -> {
+                    Text(
+                        "点击“刷新”查询可用积分余额",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                balance.accounts.isEmpty() -> {
+                    Text(
+                        "当前账号未查询到套餐积分数据",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp)),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "可用积分合计",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = balance.total.toLong().toString(),
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
                         }
                     }
 
-                    val balance = state.balance
-                    when {
-                        state.loading == Loading.BALANCE && balance == null -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
-                                contentAlignment = Alignment.Center,
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        balance.accounts.forEach { acc ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            }
-                        }
-                        balance == null -> {
-                            Text(
-                                "点击“刷新”查询可用积分余额",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        balance.accounts.isEmpty() -> {
-                            Text(
-                                "当前账号未查询到套餐积分数据",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        else -> {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp)),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Text(
-                                        text = "可用积分合计",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        text = balance.total.toLong().toString(),
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                balance.accounts.forEach { acc ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Text(
-                                            text = acc.name,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        Text(
-                                            text = "${acc.remain.toLong()} / ${acc.size.toLong()}",
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (balance.cycleEnd.isNotBlank()) {
                                 Text(
-                                    text = "结算周期截止：${balance.cycleEnd}",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = acc.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    text = "${acc.remain.toLong()} / ${acc.size.toLong()}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                     }
+
+                    if (balance.cycleEnd.isNotBlank()) {
+                        Text(
+                            text = "结算周期截止：${balance.cycleEnd}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -1270,104 +1262,123 @@ fun RewardsScreen(
 }
 
 @Composable
-private fun QuotaRewardsScreen(
+fun ZCodeQuotaCard(
     state: HubState,
     quota: String,
-    title: String,
-    note: String,
     onRefreshBalance: () -> Unit,
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item {
-            ShadcnCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+    ShadcnCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Coding Plan 订阅额度",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = onRefreshBalance,
+                    enabled = state.loading != Loading.BALANCE,
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedButton(
-                            onClick = onRefreshBalance,
-                            enabled = state.loading != Loading.BALANCE,
-                            shape = RoundedCornerShape(6.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        ) {
-                            if (state.loading == Loading.BALANCE) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(6.dp))
-                                Text("刷新中", style = MaterialTheme.typography.labelSmall)
-                            } else {
-                                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("刷新", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-
-                    if (state.loading == Loading.BALANCE && quota.isBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        }
-                    } else if (quota.isBlank()) {
-                        Text(
-                            text = "点击“刷新”拉取额度信息",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    if (state.loading == Loading.BALANCE) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("刷新中", style = MaterialTheme.typography.labelSmall)
                     } else {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp)),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                        ) {
-                            Text(
-                                text = quota,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(12.dp),
-                            )
-                        }
+                        Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("刷新", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
-        }
 
-        item {
-            ShadcnCard(
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            ) {
+            if (state.loading == Loading.BALANCE && quota.isBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            } else if (quota.isBlank()) {
                 Text(
-                    text = note,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "点击“刷新”拉取额度信息",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(14.dp),
                 )
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp)),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Text(
+                        text = quota,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AccountBackupCard(
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+) {
+    ShadcnCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SectionHeader(
+                title = "账号备份与迁移",
+                subtitle = "导出为压缩包 (.json.gz) 分享备份，或导入已有包合并至本机",
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onExport,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("导出备份", style = MaterialTheme.typography.bodyMedium)
+                }
+                OutlinedButton(
+                    onClick = onImport,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("导入备份", style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
 }
 
 // -----------------------------------------------------------------------------
-// Calls Screen & Usage Statistics
+// Calls Screen & Enhanced Usage Statistics
 // -----------------------------------------------------------------------------
 
 @Composable
@@ -1379,7 +1390,35 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
         }
     }
 
-    val summary = UsageSummary.of(state.calls)
+    val calls = state.calls
+    val summary = UsageSummary.of(calls)
+
+    var filter by remember { mutableStateOf("ALL") } // "ALL", "OK", "FAIL"
+
+    val filteredCalls = remember(calls, filter) {
+        when (filter) {
+            "OK" -> calls.filter { it.outcome == CallRecord.Outcome.OK }
+            "FAIL" -> calls.filter { it.outcome == CallRecord.Outcome.FAILED }
+            else -> calls
+        }
+    }
+
+    // Top 5 models by total token throughput
+    val topModels = remember(calls) {
+        calls.groupBy { it.model.ifEmpty { "unknown" } }
+            .map { (model, list) ->
+                val count = list.size
+                val tokens = list.sumOf { (it.promptTokens + it.completionTokens).toLong() }
+                Triple(model, count, tokens)
+            }
+            .sortedByDescending { it.third }
+            .take(5)
+    }
+
+    val totalReqs = calls.size
+    val successReqs = calls.count { it.outcome == CallRecord.Outcome.OK }
+    val failReqs = calls.count { it.outcome == CallRecord.Outcome.FAILED }
+    val successPct = if (totalReqs > 0) (successReqs * 100f / totalReqs).toInt() else 100
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1403,7 +1442,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f),
                         )
-                        if (state.calls.isNotEmpty()) {
+                        if (calls.isNotEmpty()) {
                             TextButton(
                                 onClick = onClear,
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
@@ -1453,8 +1492,181 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
             }
         }
 
-        // 2. Call Stream List
-        if (state.calls.isEmpty()) {
+        // 2. Status Code & Health Distribution
+        if (calls.isNotEmpty()) {
+            item {
+                ShadcnCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "请求状态与健康度",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            PillBadge(
+                                text = "成功率 $successPct%",
+                                variant = if (successPct >= 95) BadgeVariant.Success else if (successPct >= 80) BadgeVariant.Neutral else BadgeVariant.Danger,
+                            )
+                        }
+
+                        // Low-saturation Zinc segmented bar
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                if (totalReqs > 0 && successReqs > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .weight(successReqs.toFloat())
+                                            .background(Color(0xFF10B981)), // Emerald 500
+                                    )
+                                }
+                                if (totalReqs > 0 && failReqs > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .weight(failReqs.toFloat())
+                                            .background(Color(0xFFEF4444)), // Red 500
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "200 OK: $successReqs 次",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = "异常失败: $failReqs 次",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (failReqs > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Top Model Consumption Ranking (with square Brand Logos)
+        if (topModels.isNotEmpty()) {
+            item {
+                ShadcnCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = "模型消耗排行 Top 5",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        val maxTokens = topModels.maxOf { it.third }.coerceAtLeast(1L)
+                        topModels.forEach { (model, count, tokens) ->
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    ModelBrandBadge(modelId = model, size = 20.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = model,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "$count 次 · ${tokens} tok",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                ) {
+                                    val ratio = (tokens.toFloat() / maxTokens).coerceIn(0.02f, 1f)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxHeight()
+                                            .fillMaxWidth(ratio)
+                                            .background(MaterialTheme.colorScheme.primary),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Filter chips
+        if (calls.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilterChip(
+                        selected = filter == "ALL",
+                        onClick = { filter = "ALL" },
+                        label = { Text("全部 (${calls.size})", style = MaterialTheme.typography.labelSmall) },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                    FilterChip(
+                        selected = filter == "OK",
+                        onClick = { filter = "OK" },
+                        label = { Text("仅成功 ($successReqs)", style = MaterialTheme.typography.labelSmall) },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                    FilterChip(
+                        selected = filter == "FAIL",
+                        onClick = { filter = "FAIL" },
+                        label = { Text("仅失败 ($failReqs)", style = MaterialTheme.typography.labelSmall) },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                }
+            }
+        }
+
+        // 5. Call Stream List
+        if (filteredCalls.isEmpty()) {
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -1469,7 +1681,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "暂无调用日志。当客户端通过本地代理发起请求后，记录将实时显示在此处。",
+                            text = if (calls.isEmpty()) "暂无调用日志。当客户端通过本地代理发起请求后，记录将实时显示在此处。" else "未找到符合条件的调用记录。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1480,11 +1692,11 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
             item {
                 SectionHeader(
                     title = "调用流水历史",
-                    subtitle = "最近 ${state.calls.size} 次请求（倒序）",
+                    subtitle = "显示 ${filteredCalls.size} 次请求（倒序）",
                 )
             }
 
-            items(state.calls.reversed(), key = { it.timestamp.toString() + it.model }) { record ->
+            items(filteredCalls.reversed(), key = { it.timestamp.toString() + it.model }) { record ->
                 UnifiedCallRow(record)
             }
         }
@@ -1532,6 +1744,8 @@ private fun UnifiedCallRow(record: CallRecord) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                ModelBrandBadge(modelId = record.model, size = 18.dp)
+                Spacer(Modifier.width(8.dp))
                 PillBadge(
                     text = if (isFailed) "FAIL" else "200 OK",
                     variant = if (isFailed) BadgeVariant.Danger else BadgeVariant.Success,

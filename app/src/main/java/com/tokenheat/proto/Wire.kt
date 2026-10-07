@@ -424,10 +424,12 @@ data class HubModel(
     val contextWindow: Int = 0,
     val badges: List<String> = emptyList(),
 ) {
-    val isFree: Boolean get() = multiplier == 0.0
+    val isFree: Boolean
+        get() = multiplier == 0.0 || badges.any { it.contains("免费") || it.contains("free", ignoreCase = true) } ||
+            rate.contains("免费") || rate.contains("$0") || id.endsWith("-free", ignoreCase = true)
 
     /** Sort key: free first, then cheapest. */
-    val sortKey: Double get() = if (multiplier < 0) 999.0 else multiplier
+    val sortKey: Double get() = if (isFree) 0.0 else if (multiplier < 0) 999.0 else multiplier
 }
 
 /**
