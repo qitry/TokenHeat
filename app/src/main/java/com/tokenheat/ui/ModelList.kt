@@ -223,11 +223,11 @@ fun ModelList(
                 )
             }
         } else {
-            LazyColumn(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(filtered, key = { it.id }) { model ->
+                filtered.forEach { model ->
                     ModelRow(model, onCopy = { onCopyModel(model.id) })
                 }
             }

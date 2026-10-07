@@ -490,17 +490,19 @@ class MainActivity : ComponentActivity() {
                 status = "登录成功，正在兑换 Token…",
                 loginFlow = state.loginFlow?.copy(statusText = "登录成功，正在兑换 Token…"),
             )
-            val credential = withContext(Dispatchers.IO) {
+            val exchangeResult = withContext(Dispatchers.IO) {
                 runCatching {
                     val tokens = AGLogin.exchange(callback.first, request.verifier)
                     val projectId = AGLogin.fetchProjectId(tokens.accessToken)
                     AGLogin.toCredential(tokens, projectId)
-                }.getOrNull()
+                }
             }
+            val credential = exchangeResult.getOrNull()
             if (credential == null) {
+                val errorMsg = exchangeResult.exceptionOrNull()?.message?.take(80) ?: "兑换 Token 失败"
                 state = state.copy(
-                    status = "兑换 Token 失败，请重试",
-                    loginFlow = state.loginFlow?.copy(inProgress = false, error = "兑换 Token 失败"),
+                    status = "兑换 Token 失败：$errorMsg",
+                    loginFlow = state.loginFlow?.copy(inProgress = false, error = errorMsg),
                 )
                 return@launch
             }

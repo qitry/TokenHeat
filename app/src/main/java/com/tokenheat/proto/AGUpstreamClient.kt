@@ -68,6 +68,7 @@ class AGUpstreamClient {
     fun refreshToken(credential: Credential): Credential {
         val body = "grant_type=refresh_token" +
             "&client_id=${urlEncode(AGLogin.CLIENT_ID)}" +
+            "&client_secret=${urlEncode(AGLogin.CLIENT_SECRET)}" +
             "&refresh_token=${urlEncode(credential.refreshToken)}"
         val text = postForm("https://oauth2.googleapis.com/token", body)
         val payload = runCatching { JSONObject(text) }.getOrNull()

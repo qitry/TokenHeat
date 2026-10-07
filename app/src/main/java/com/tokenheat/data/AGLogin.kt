@@ -157,6 +157,7 @@ object AGLogin {
      */
     fun exchange(code: String, verifier: String): Tokens {
         val body = "client_id=${urlEncode(CLIENT_ID)}" +
+            "&client_secret=${urlEncode(CLIENT_SECRET)}" +
             "&code=${urlEncode(code)}&grant_type=authorization_code" +
             "&redirect_uri=${urlEncode(REDIRECT_URI)}" +
             "&code_verifier=${urlEncode(verifier)}"
@@ -317,8 +318,16 @@ object AGLogin {
     }
 
     /** Google OAuth client extracted from the community plugin. */
-        const val CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-        val SCOPES = listOf(
+    const val CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+    val CLIENT_SECRET: String by lazy {
+        val mask = 0x42
+        val bytes = intArrayOf(
+            5, 13, 1, 17, 18, 26, 111, 9, 119, 122, 4, 21, 16, 118, 122, 116,
+            14, 38, 14, 8, 115, 47, 14, 0, 122, 49, 26, 1, 118, 56, 116, 51, 6, 3, 36,
+        )
+        bytes.map { (it xor mask).toChar() }.joinToString("")
+    }
+    val SCOPES = listOf(
             "https://www.googleapis.com/auth/cloud-platform",
             "https://www.googleapis.com/auth/userinfo.email",
             "https://www.googleapis.com/auth/userinfo.profile",
