@@ -57,6 +57,17 @@ data class HubState(
     /** Per-provider quota/billing text; WorkBuddy uses [balance] instead. */
     val quotas: Map<Provider, String> = emptyMap(),
     val showZenKeyDialog: Boolean = false,
+    val loginFlow: LoginFlowState? = null,
+)
+
+/** Real-time OAuth/CLI login session state for dialog and status rendering. */
+data class LoginFlowState(
+    val inProgress: Boolean = false,
+    val provider: Provider = Provider.WORKBUDDY,
+    val title: String = "",
+    val authUrl: String = "",
+    val statusText: String = "",
+    val error: String? = null,
 )
 
 /** Which operation is in flight, so each control can show its own indicator. */

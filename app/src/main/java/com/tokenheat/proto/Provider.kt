@@ -13,7 +13,7 @@ enum class Provider(val label: String, val routeKey: String) {
     ZEN("Zen", "zen"),
     QODER_CN("Qoder 国内版", "qoder-cn"),
     QODER_GLOBAL("Qoder 国际版", "qoder-global"),
-    ANTIGRAVITY("Antigravity", "antigravity"),
+    ANTIGRAVITY("Antigravity CLI", "antigravity"),
     ;
 
     companion object {

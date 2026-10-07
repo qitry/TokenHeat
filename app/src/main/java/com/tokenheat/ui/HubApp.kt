@@ -95,6 +95,9 @@ fun HubApp(
     onDismissHelp: () -> Unit,
     onConfirmLogout: () -> Unit = {},
     onDismissLogout: () -> Unit = {},
+    onOpenAuthUrl: (String) -> Unit = {},
+    onCancelLogin: () -> Unit = {},
+    onDismissLoginDialog: () -> Unit = {},
     onTabShown: (HubTab) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
@@ -209,6 +212,9 @@ fun HubApp(
                             onSwitchSlotAccount = onSwitchSlotAccount,
                             onDeleteSlotAccount = onDeleteSlotAccount,
                             onLoginAG = onLoginAG,
+                            onOpenAuthUrl = onOpenAuthUrl,
+                            onCancelLogin = onCancelLogin,
+                            onCopyField = onCopyField,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,
@@ -256,6 +262,15 @@ fun HubApp(
             LogoutDialog(
                 onConfirm = onConfirmLogout,
                 onDismiss = onDismissLogout,
+            )
+        }
+        if (state.loginFlow != null) {
+            LoginProgressDialog(
+                flow = state.loginFlow,
+                onCopyUrl = { onCopyField("授权链接", it) },
+                onOpenBrowser = onOpenAuthUrl,
+                onCancel = onCancelLogin,
+                onDismiss = onDismissLoginDialog,
             )
         }
     }

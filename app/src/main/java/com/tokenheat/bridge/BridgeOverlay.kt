@@ -74,29 +74,30 @@ class BridgeOverlay(
 
         root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(9), dp(12), dp(9))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setStroke(dp(1), Color.parseColor("#3A4A63"))
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.parseColor("#3F3F46"))
             }
         }
 
         titleView = TextView(context).apply {
-            setTextColor(Color.parseColor("#7FE3A0"))
+            setTextColor(Color.parseColor("#10B981"))
             textSize = 12f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
         detailView = TextView(context).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#FAFAFA"))
             textSize = 11f
         }
         logView = TextView(context).apply {
-            setTextColor(Color.parseColor("#B9C4D4"))
+            setTextColor(Color.parseColor("#A1A1AA"))
             textSize = 10f
             maxLines = 2
         }
         val close = TextView(context).apply {
             text = "✕"
-            setTextColor(Color.parseColor("#FF8A80"))
+            setTextColor(Color.parseColor("#A1A1AA"))
             textSize = 12f
             setPadding(dp(10), dp(2), 0, 0)
             setOnClickListener { onClose() }
@@ -217,14 +218,14 @@ class BridgeOverlay(
 
     private fun refresh() {
         val running = BridgeStatus.running
-        titleView.text = if (running) "● 转发中" else "○ 已停止"
+        titleView.text = if (running) "● TokenHeat 运行中" else "○ TokenHeat 已停用"
         titleView.setTextColor(
-            if (running) Color.parseColor("#7FE3A0") else Color.parseColor("#FF8A80"),
+            if (running) Color.parseColor("#10B981") else Color.parseColor("#71717A"),
         )
         if (!expanded) return
 
         detailView.text = if (running) {
-            "端口 ${BridgeStatus.port} · 已服务 ${BridgeStatus.requestCount.get()} 次"
+            "127.0.0.1:${BridgeStatus.port} · 请求 ${BridgeStatus.requestCount.get()} 次"
         } else {
             "服务未运行"
         }
@@ -235,9 +236,9 @@ class BridgeOverlay(
         }
         logView.setTextColor(
             if (BridgeStatus.lastError.isNotEmpty()) {
-                Color.parseColor("#FFB4A9")
+                Color.parseColor("#F87171")
             } else {
-                Color.parseColor("#B9C4D4")
+                Color.parseColor("#A1A1AA")
             },
         )
     }
@@ -245,7 +246,7 @@ class BridgeOverlay(
     /** Paints the panel background at the current opacity. */
     private fun applyBackground() {
         val drawable = (root.background as? GradientDrawable) ?: return
-        drawable.setColor(withAlpha(Color.parseColor("#1A2233"), panelOpacity))
+        drawable.setColor(withAlpha(Color.parseColor("#18181B"), panelOpacity))
         root.invalidate()
     }
 

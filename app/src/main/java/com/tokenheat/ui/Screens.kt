@@ -33,6 +33,9 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
@@ -41,6 +44,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -88,6 +93,14 @@ import java.util.Locale
 // Credential Screen & Unified Provider Management
 // -----------------------------------------------------------------------------
 
+enum class ProviderGroup(val label: String) {
+    WORKBUDDY("WorkBuddy"),
+    ZCODE("ZCode"),
+    ZEN("Zen"),
+    QODER("Qoder"),
+    ANTIGRAVITY("Antigravity CLI"),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CredentialScreen(
@@ -112,8 +125,19 @@ fun CredentialScreen(
     onSwitchSlotAccount: (Provider, String) -> Unit,
     onDeleteSlotAccount: (Provider, String) -> Unit,
     onLoginAG: () -> Unit,
+    onOpenAuthUrl: (String) -> Unit = {},
+    onCancelLogin: () -> Unit = {},
+    onCopyField: (String, String) -> Unit = { _, _ -> },
 ) {
     val currentProvider = state.provider
+
+    val currentGroup = when (currentProvider) {
+        Provider.WORKBUDDY -> ProviderGroup.WORKBUDDY
+        Provider.ZCODE -> ProviderGroup.ZCODE
+        Provider.ZEN -> ProviderGroup.ZEN
+        Provider.QODER_CN, Provider.QODER_GLOBAL -> ProviderGroup.QODER
+        Provider.ANTIGRAVITY -> ProviderGroup.ANTIGRAVITY
+    }
 
     // Resolve accounts and selection based on provider
     val (savedAccounts, activeId) = when (currentProvider) {
@@ -133,17 +157,29 @@ fun CredentialScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // 1. Horizontal Scrollable Provider Pill Selector
+        // 1. Dropdown Provider Selector
         item {
-            ProviderSelectorRow(
-                selected = currentProvider,
+            ProviderDropdownSelector(
+                selectedGroup = currentGroup,
                 state = state,
-                onSelect = onSwitchProvider,
+                onSelectGroup = { group ->
+                    when (group) {
+                        ProviderGroup.WORKBUDDY -> onSwitchProvider(Provider.WORKBUDDY)
+                        ProviderGroup.ZCODE -> onSwitchProvider(Provider.ZCODE)
+                        ProviderGroup.ZEN -> onSwitchProvider(Provider.ZEN)
+                        ProviderGroup.QODER -> {
+                            if (currentProvider != Provider.QODER_CN && currentProvider != Provider.QODER_GLOBAL) {
+                                onSwitchProvider(Provider.QODER_CN)
+                            }
+                        }
+                        ProviderGroup.ANTIGRAVITY -> onSwitchProvider(Provider.ANTIGRAVITY)
+                    }
+                },
             )
         }
 
         // 2. Sub-realm selector for WorkBuddy
-        if (currentProvider == Provider.WORKBUDDY) {
+        if (currentGroup == ProviderGroup.WORKBUDDY) {
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -173,7 +209,65 @@ fun CredentialScreen(
             }
         }
 
-        // 3. Active Credential Hero Card
+        // 3. Sub-realm selector for Qoder (matches WorkBuddy pattern)
+        if (currentGroup == ProviderGroup.QODER) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val cnCount = state.slotAccounts[Provider.QODER_CN].orEmpty().size
+                    val globalCount = state.slotAccounts[Provider.QODER_GLOBAL].orEmpty().size
+                    val isCn = currentProvider == Provider.QODER_CN
+
+                    FilterChip(
+                        selected = isCn,
+                        onClick = { onSwitchProvider(Provider.QODER_CN) },
+                        label = {
+                            Text(
+                                if (cnCount > 0) "国内版 ($cnCount)" else "国内版",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                    FilterChip(
+                        selected = !isCn,
+                        onClick = { onSwitchProvider(Provider.QODER_GLOBAL) },
+                        label = {
+                            Text(
+                                if (globalCount > 0) "国际版 ($globalCount)" else "国际版",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    )
+                }
+            }
+        }
+
+        // 4. In-progress login status & action card
+        if (state.loginFlow != null && state.loginFlow.inProgress) {
+            item {
+                ActiveLoginCard(
+                    flow = state.loginFlow,
+                    onCopyUrl = { onCopyField("授权链接", it) },
+                    onOpenBrowser = onOpenAuthUrl,
+                    onCancel = onCancelLogin,
+                )
+            }
+        }
+
+        // 5. Active Credential Hero Card
         item {
             ActiveCredentialCard(
                 provider = currentProvider,
@@ -184,7 +278,7 @@ fun CredentialScreen(
             )
         }
 
-        // 4. Saved Accounts Pool Section
+        // 6. Saved Accounts Pool Section
         item {
             SectionHeader(
                 title = "轮训账号池",
@@ -223,7 +317,7 @@ fun CredentialScreen(
             }
         }
 
-        // 5. Action Buttons (Login / Add Key / Logout)
+        // 7. Action Buttons (Login / Add Key / Logout)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
@@ -250,7 +344,7 @@ fun CredentialScreen(
                         Provider.ZEN -> if (active == null) "添加 Zen API Key" else "添加新的 Key"
                         Provider.QODER_CN -> if (active == null) "登录 Qoder 国内版" else "添加 Qoder 国内版账号"
                         Provider.QODER_GLOBAL -> if (active == null) "登录 Qoder 国际版" else "添加 Qoder 国际版账号"
-                        Provider.ANTIGRAVITY -> if (active == null) "登录 Antigravity" else "添加 Antigravity 账号"
+                        Provider.ANTIGRAVITY -> if (active == null) "登录 Antigravity CLI" else "添加 Antigravity CLI 账号"
                     }
                     Text(btnText, fontWeight = FontWeight.Medium)
                 }
@@ -272,14 +366,14 @@ fun CredentialScreen(
             }
         }
 
-        // 6. Subdued Note Card
+        // 8. Subdued Note Card
         item {
             val noteText = when (currentProvider) {
                 Provider.WORKBUDDY -> "走官方 CLI 的 OAuth 流程，登录后可获取接口调用的 API Token。国内版与国际版是两套独立账号体系，各自支持多账号参与轮训。"
                 Provider.ZCODE -> "走 ZCode 官方 CLI 的 OAuth 流程，登录后自动兑换长期有效的 API Key，调用走 api.z.ai 标准 OpenAI 接口，支持多账号轮训。"
                 Provider.ZEN -> "在 opencode.ai 控制台复制 Zen API Key 粘贴即可（免费模型调用 $0，按量模型扣除余额）。Key 仅存储于本地，支持多 Key 轮训。"
-                Provider.QODER_CN, Provider.QODER_GLOBAL -> "走 Qoder 官方设备码授权流程，浏览器确认后自动完成登录。支持添加多账号参与轮训与用量互补。"
-                Provider.ANTIGRAVITY -> "走 Google 官方 OAuth 授权（与 Antigravity 插件同款流程），浏览器授权后自动回调回填。支持多账号轮训。"
+                Provider.QODER_CN, Provider.QODER_GLOBAL -> "走 Qoder 官方设备码授权流程，浏览器确认后自动完成登录。国内版与国际版独立管理，支持添加多账号参与轮训与用量互补。"
+                Provider.ANTIGRAVITY -> "走 Google 官方 OAuth 授权（与 Antigravity CLI 工具同款流程），浏览器授权后自动回调回填。支持多账号轮训。"
             }
 
             ShadcnCard(
@@ -305,50 +399,117 @@ fun CredentialScreen(
 }
 
 @Composable
-private fun ProviderSelectorRow(
-    selected: Provider,
+fun ProviderDropdownSelector(
+    selectedGroup: ProviderGroup,
     state: HubState,
-    onSelect: (Provider) -> Unit,
+    onSelectGroup: (ProviderGroup) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberScrollState()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(scrollState),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Provider.entries.forEach { provider ->
-            val count = when (provider) {
-                Provider.WORKBUDDY -> state.accounts.values.sumOf { it.size }
-                Provider.ZCODE -> state.zcodeAccounts.size
-                Provider.ZEN -> state.zenAccounts.size
-                Provider.QODER_CN, Provider.QODER_GLOBAL, Provider.ANTIGRAVITY ->
-                    state.slotAccounts[provider]?.size ?: 0
-            }
-            val isSelected = selected == provider
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelect(provider) },
-                label = {
-                    Text(
-                        if (count > 0) "${provider.label} ($count)" else provider.label,
-                        style = MaterialTheme.typography.labelSmall,
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "供应商平台",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(8.dp))
+                    .clickable { expanded = true },
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = selectedGroup.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        val totalAccounts = when (selectedGroup) {
+                            ProviderGroup.WORKBUDDY -> state.accounts.values.sumOf { it.size }
+                            ProviderGroup.ZCODE -> state.zcodeAccounts.size
+                            ProviderGroup.ZEN -> state.zenAccounts.size
+                            ProviderGroup.QODER -> (state.slotAccounts[Provider.QODER_CN]?.size ?: 0) +
+                                (state.slotAccounts[Provider.QODER_GLOBAL]?.size ?: 0)
+                            ProviderGroup.ANTIGRAVITY -> state.slotAccounts[Provider.ANTIGRAVITY]?.size ?: 0
+                        }
+                        Text(
+                            text = if (totalAccounts > 0) "已配置 $totalAccounts 个账号" else "暂无已配置账号",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = "选择供应商",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                },
-                shape = RoundedCornerShape(6.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    labelColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = isSelected,
-                    borderColor = MaterialTheme.colorScheme.outlineVariant,
-                    selectedBorderColor = Color.Transparent,
-                ),
-            )
+                }
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .background(MaterialTheme.colorScheme.surface),
+            ) {
+                ProviderGroup.entries.forEach { group ->
+                    val isSelected = group == selectedGroup
+                    val count = when (group) {
+                        ProviderGroup.WORKBUDDY -> state.accounts.values.sumOf { it.size }
+                        ProviderGroup.ZCODE -> state.zcodeAccounts.size
+                        ProviderGroup.ZEN -> state.zenAccounts.size
+                        ProviderGroup.QODER -> (state.slotAccounts[Provider.QODER_CN]?.size ?: 0) +
+                            (state.slotAccounts[Provider.QODER_GLOBAL]?.size ?: 0)
+                        ProviderGroup.ANTIGRAVITY -> state.slotAccounts[Provider.ANTIGRAVITY]?.size ?: 0
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = group.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                                PillBadge(
+                                    text = "$count 账号",
+                                    variant = if (isSelected) BadgeVariant.Primary else BadgeVariant.Neutral,
+                                )
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelectGroup(group)
+                        },
+                        leadingIcon = if (isSelected) {
+                            {
+                                Icon(
+                                    Icons.Outlined.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        } else null,
+                    )
+                }
+            }
         }
     }
 }
@@ -933,8 +1094,8 @@ fun RewardsScreen(
         QuotaRewardsScreen(
             state = state,
             quota = state.quotas[state.provider].orEmpty(),
-            title = "Antigravity 账号配额",
-            note = "说明：Antigravity 按 Google 账号模型配额计费，建议添加多账号降低触发 429 速率限制的概率。",
+            title = "Antigravity CLI 账号配额",
+            note = "说明：Antigravity CLI 按 Google 账号模型配额计费，建议添加多账号降低触发 429 速率限制的概率。",
             onRefreshBalance = onRefreshBalance,
         )
         return
@@ -1508,7 +1669,7 @@ fun CredentialDetailDrawer(
                     item { DetailItem("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
                 }
                 Provider.ANTIGRAVITY -> {
-                    item { DetailItem("账号体系", "Antigravity", onCopy) }
+                    item { DetailItem("账号体系", "Antigravity CLI", onCopy) }
                     item { DetailItem("邮箱/UID", cred.nickname.ifBlank { cred.uid.ifBlank { "(无)" } }, onCopy) }
                     item { DetailItem("Cloud 项目", cred.projectId.ifBlank { "(无)" }, onCopy) }
                     item { DetailItem("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
@@ -1788,3 +1949,213 @@ fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 
 internal fun realmName(region: Wire.Region): String =
     if (region == Wire.Region.GLOBAL) "国际版" else "国内版"
+
+@Composable
+fun ActiveLoginCard(
+    flow: LoginFlowState,
+    onCopyUrl: (String) -> Unit,
+    onOpenBrowser: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    ShadcnCard(
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusDot(active = true)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "${flow.title} 授权登录进行中",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                PillBadge("等待授权", variant = BadgeVariant.Success)
+            }
+
+            Text(
+                text = flow.statusText.ifBlank { "等待浏览器授权确认…" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            if (flow.authUrl.isNotBlank()) {
+                CodeField(
+                    label = "授权链接 (点击复制)",
+                    value = flow.authUrl,
+                    onCopy = { onCopyUrl(flow.authUrl) },
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (flow.authUrl.isNotBlank()) {
+                    Button(
+                        onClick = { onOpenBrowser(flow.authUrl) },
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Outlined.OpenInBrowser,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("打开浏览器")
+                    }
+                }
+                OutlinedButton(
+                    onClick = onCancel,
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                ) {
+                    Text("取消", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LoginProgressDialog(
+    flow: LoginFlowState,
+    onCopyUrl: (String) -> Unit,
+    onOpenBrowser: (String) -> Unit,
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {
+            if (!flow.inProgress) onDismiss()
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(active = flow.inProgress)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "${flow.title} 授权登录",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (flow.error != null) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)), RoundedCornerShape(8.dp)),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = flow.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (flow.inProgress) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = flow.statusText.ifBlank { "正在等待浏览器授权…" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+
+                if (flow.authUrl.isNotBlank()) {
+                    CodeField(
+                        label = "授权链接（支持复制后在任意浏览器打开）",
+                        value = flow.authUrl,
+                        onCopy = { onCopyUrl(flow.authUrl) },
+                    )
+                }
+
+                Text(
+                    text = "提示：若系统未自动唤起浏览器，可点击“复制链接”手动打开。在浏览器中授权同意后，应用将自动捕获凭证并保存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            if (flow.inProgress && flow.authUrl.isNotBlank()) {
+                Button(
+                    onClick = { onOpenBrowser(flow.authUrl) },
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Outlined.OpenInBrowser,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("在浏览器打开")
+                }
+            } else if (!flow.inProgress) {
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Text("确定")
+                }
+            }
+        },
+        dismissButton = {
+            if (flow.inProgress) {
+                TextButton(onClick = onCancel) {
+                    Text("取消登录", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+    )
+}

@@ -42,6 +42,7 @@ import com.tokenheat.proto.toHubModel
 import com.tokenheat.ui.CheckinDialog
 import com.tokenheat.ui.HubApp
 import com.tokenheat.ui.Loading
+import com.tokenheat.ui.LoginFlowState
 import com.tokenheat.ui.LogoutDialog
 import com.tokenheat.ui.HubState
 import com.tokenheat.ui.HubTab
@@ -187,6 +188,11 @@ class MainActivity : ComponentActivity() {
                 onDismissLogout = {
                     state = state.copy(showLogoutConfirm = false)
                 },
+                onOpenAuthUrl = { url ->
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                },
+                onCancelLogin = { cancelLogin() },
+                onDismissLoginDialog = { state = state.copy(loginFlow = null) },
                 onTabShown = { tab ->
                     // Reload on entry: the service writes records without the
                     // UI knowing, so a snapshot taken at startup goes stale.
@@ -358,8 +364,18 @@ class MainActivity : ComponentActivity() {
                 toast("获取登录链接失败")
                 return@launch
             }
-            state = state.copy(status = "请在浏览器完成登录：${session.authUrl}")
-            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl)))
+            val title = if (region == QLogin.QRegion.CN) "Qoder 国内版" else "Qoder 国际版"
+            state = state.copy(
+                status = "请在浏览器完成登录：${session.authUrl}",
+                loginFlow = LoginFlowState(
+                    inProgress = true,
+                    provider = region.provider,
+                    title = title,
+                    authUrl = session.authUrl,
+                    statusText = "已生成授权链接，等待浏览器确认…",
+                ),
+            )
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl))) }
             pollQoderForToken(session)
         }
     }
@@ -376,7 +392,10 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) { runCatching { QLogin.poll(session) }.getOrNull() }
                 when (result) {
                     is QLogin.Poll.Done -> {
-                        state = state.copy(status = "登录成功，正在读取账号信息…")
+                        state = state.copy(
+                            status = "登录成功，正在读取账号信息…",
+                            loginFlow = state.loginFlow?.copy(statusText = "登录成功，正在读取账号信息…"),
+                        )
                         val credential = withContext(Dispatchers.IO) {
                             runCatching {
                                 val (uid, name) = QLogin.userinfo(session.region, result.auth.token)
@@ -384,7 +403,10 @@ class MainActivity : ComponentActivity() {
                             }.getOrNull()
                         }
                         if (credential == null) {
-                            state = state.copy(status = "读取账号信息失败，请重试")
+                            state = state.copy(
+                                status = "读取账号信息失败，请重试",
+                                loginFlow = state.loginFlow?.copy(inProgress = false, error = "读取账号信息失败"),
+                            )
                             return@launch
                         }
                         store.saveSlot(session.region.provider, credential)
@@ -393,11 +415,15 @@ class MainActivity : ComponentActivity() {
                         loadModels()
                         loadBalance()
                         Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+                        state = state.copy(loginFlow = null)
                         toast("凭证已保存")
                         return@launch
                     }
                     is QLogin.Poll.Failed -> {
-                        state = state.copy(status = "登录失败：${result.message}")
+                        state = state.copy(
+                            status = "登录失败：${result.message}",
+                            loginFlow = state.loginFlow?.copy(inProgress = false, error = result.message),
+                        )
                         return@launch
                     }
                     else -> {
@@ -405,12 +431,18 @@ class MainActivity : ComponentActivity() {
                         state = state.copy(
                             status = "请在浏览器完成登录并确认授权（等待中，还剩约${remain / 60}分${remain % 60}秒）：" +
                                 session.authUrl,
+                            loginFlow = state.loginFlow?.copy(
+                                statusText = "等待浏览器授权确认中，剩余约 ${remain / 60}分${remain % 60}秒…",
+                            ),
                         )
                         delay(POLL_INTERVAL_MS)
                     }
                 }
             }
-            state = state.copy(status = "登录超时，请重试")
+            state = state.copy(
+                status = "登录超时，请重试",
+                loginFlow = state.loginFlow?.copy(inProgress = false, error = "授权轮询超时，请重试"),
+            )
         }
     }
 
@@ -426,19 +458,37 @@ class MainActivity : ComponentActivity() {
                 runCatching { AGLogin.CallbackServer() }.getOrNull()
             }
             if (server == null) {
-                state = state.copy(status = "无法在本机监听回调端口，请重试")
+                state = state.copy(
+                    status = "无法在本机监听回调端口，请重试",
+                    loginFlow = state.loginFlow?.copy(inProgress = false, error = "无法在本机监听回调端口"),
+                )
                 return@launch
             }
             val request = AGLogin.authRequest()
-            state = state.copy(status = "请在浏览器完成 Google 登录：${request.authUrl}")
-            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(request.authUrl)))
+            state = state.copy(
+                status = "请在浏览器完成 Google 登录：${request.authUrl}",
+                loginFlow = LoginFlowState(
+                    inProgress = true,
+                    provider = Provider.ANTIGRAVITY,
+                    title = "Antigravity CLI",
+                    authUrl = request.authUrl,
+                    statusText = "正在监听本地回调端口，等待浏览器完成授权…",
+                ),
+            )
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(request.authUrl))) }
             val callback = withContext(Dispatchers.IO) { server.awaitCode(LOGIN_TIMEOUT_MS) }
             server.close()
             if (callback == null) {
-                state = state.copy(status = "登录超时，请重试")
+                state = state.copy(
+                    status = "登录超时，请重试",
+                    loginFlow = state.loginFlow?.copy(inProgress = false, error = "等待授权回调超时，请重试"),
+                )
                 return@launch
             }
-            state = state.copy(status = "登录成功，正在兑换 Token…")
+            state = state.copy(
+                status = "登录成功，正在兑换 Token…",
+                loginFlow = state.loginFlow?.copy(statusText = "登录成功，正在兑换 Token…"),
+            )
             val credential = withContext(Dispatchers.IO) {
                 runCatching {
                     val tokens = AGLogin.exchange(callback.first, request.verifier)
@@ -447,7 +497,10 @@ class MainActivity : ComponentActivity() {
                 }.getOrNull()
             }
             if (credential == null) {
-                state = state.copy(status = "兑换 Token 失败，请重试")
+                state = state.copy(
+                    status = "兑换 Token 失败，请重试",
+                    loginFlow = state.loginFlow?.copy(inProgress = false, error = "兑换 Token 失败"),
+                )
                 return@launch
             }
             store.saveSlot(Provider.ANTIGRAVITY, credential)
@@ -456,8 +509,18 @@ class MainActivity : ComponentActivity() {
             loadModels()
             loadBalance()
             Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+            state = state.copy(loginFlow = null)
             toast("凭证已保存")
         }
+    }
+
+    private fun cancelLogin() {
+        pollJob?.cancel()
+        pollJob = null
+        state = state.copy(
+            loginFlow = null,
+            status = "已取消登录",
+        )
     }
 
     /** Switches to another saved account of one generic provider slot. */
@@ -656,8 +719,18 @@ class MainActivity : ComponentActivity() {
                 toast("获取登录链接失败")
                 return@launch
             }
-            state = state.copy(status = "请在浏览器完成登录：${session.authUrl}")
-            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl)))
+            val title = "WorkBuddy ${realmName(region)}"
+            state = state.copy(
+                status = "请在浏览器完成登录：${session.authUrl}",
+                loginFlow = LoginFlowState(
+                    inProgress = true,
+                    provider = Provider.WORKBUDDY,
+                    title = title,
+                    authUrl = session.authUrl,
+                    statusText = "已生成授权链接，等待浏览器确认…",
+                ),
+            )
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl))) }
             pollForToken(session.state, region.toLoginRealm())
         }
     }
@@ -670,31 +743,39 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) { runCatching { Login.poll(stateId, realm) }.getOrNull() }
                 when (result) {
                     is Login.Poll.Done -> {
-                        // The slot is the version the user signed in to: it is
-                        // the only reliable statement of which account system
-                        // this credential belongs to, and it is what the
-                        // switcher displays.
                         val target = realm.toRegion()
                         store.save(target, result.credential)
                         store.setActiveRegion(target)
-                        // Re-read from disk so the expiry goes through the same
-                        // normalisation as a cold start: the login response can
-                        // omit expiresAt, leaving the JWT claim as the only source.
                         refreshCredential()
                         loadModels()
                         loadBalance()
                         Notifications.showLoginSuccess(this@MainActivity, result.credential.nickname)
+                        state = state.copy(loginFlow = null)
                         toast("凭证已保存")
                         return@launch
                     }
                     is Login.Poll.Failed -> {
-                        state = state.copy(status = "登录失败：${result.message}")
+                        state = state.copy(
+                            status = "登录失败：${result.message}",
+                            loginFlow = state.loginFlow?.copy(inProgress = false, error = result.message),
+                        )
                         return@launch
                     }
-                    else -> delay(POLL_INTERVAL_MS)
+                    else -> {
+                        val remain = ((deadline - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+                        state = state.copy(
+                            loginFlow = state.loginFlow?.copy(
+                                statusText = "等待浏览器授权确认中，剩余约 ${remain / 60}分${remain % 60}秒…",
+                            ),
+                        )
+                        delay(POLL_INTERVAL_MS)
+                    }
                 }
             }
-            state = state.copy(status = "登录超时，请重试")
+            state = state.copy(
+                status = "登录超时，请重试",
+                loginFlow = state.loginFlow?.copy(inProgress = false, error = "授权轮询超时，请重试"),
+            )
         }
     }
 
@@ -707,17 +788,23 @@ class MainActivity : ComponentActivity() {
                 toast("获取登录链接失败")
                 return@launch
             }
-            state = state.copy(status = "请在浏览器完成登录：${session.authUrl}")
-            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl)))
+            state = state.copy(
+                status = "请在浏览器完成登录：${session.authUrl}",
+                loginFlow = LoginFlowState(
+                    inProgress = true,
+                    provider = Provider.ZCODE,
+                    title = "ZCode",
+                    authUrl = session.authUrl,
+                    statusText = "已生成授权链接，等待浏览器确认…",
+                ),
+            )
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(session.authUrl))) }
             pollZcodeForToken(session)
         }
     }
 
     /**
      * Polls the ZCode OAuth flow, then exchanges the token for an API key.
-     * The exchange walks several gateway calls (business login, org/project,
-     * key ensure, secret copy), so it runs off the main thread with its own
-     * status line instead of reusing the poll loop's.
      */
     private fun pollZcodeForToken(session: ZLogin.Session) {
         pollJob?.cancel()
@@ -727,12 +814,18 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) { runCatching { ZLogin.poll(session) }.getOrNull() }
                 when (result) {
                     is ZLogin.Poll.Done -> {
-                        state = state.copy(status = "登录成功，正在兑换 API Key…")
+                        state = state.copy(
+                            status = "登录成功，正在兑换 API Key…",
+                            loginFlow = state.loginFlow?.copy(statusText = "登录成功，正在兑换 API Key…"),
+                        )
                         val credential = withContext(Dispatchers.IO) {
                             runCatching { ZLogin.exchange(result.oauthToken) }.getOrNull()
                         }
                         if (credential == null) {
-                            state = state.copy(status = "兑换 API Key 失败，请重试")
+                            state = state.copy(
+                                status = "兑换 API Key 失败，请重试",
+                                loginFlow = state.loginFlow?.copy(inProgress = false, error = "兑换 API Key 失败"),
+                            )
                             return@launch
                         }
                         store.saveZcode(credential)
@@ -741,27 +834,33 @@ class MainActivity : ComponentActivity() {
                         loadModels()
                         loadBalance()
                         Notifications.showLoginSuccess(this@MainActivity, credential.nickname)
+                        state = state.copy(loginFlow = null)
                         toast("凭证已保存")
                         return@launch
                     }
                     is ZLogin.Poll.Failed -> {
-                        state = state.copy(status = "登录失败：${result.message}")
+                        state = state.copy(
+                            status = "登录失败：${result.message}",
+                            loginFlow = state.loginFlow?.copy(inProgress = false, error = result.message),
+                        )
                         return@launch
                     }
                     else -> {
-                        // Visible heartbeat: the user must approve the grant in
-                        // the browser (a bare login is not enough), so the
-                        // remaining time shows the wait is alive, not stuck.
                         val remain = ((deadline - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
                         state = state.copy(
-                            status = "请在浏览器完成登录并确认授权（等待中，还剩约${remain / 60}分${remain % 60}秒）：" +
-                                session.authUrl,
+                            status = "请在浏览器完成登录并确认授权（等待中，还剩约${remain / 60}分${remain % 60}秒）：${session.authUrl}",
+                            loginFlow = state.loginFlow?.copy(
+                                statusText = "等待浏览器授权确认中，剩余约 ${remain / 60}分${remain % 60}秒…",
+                            ),
                         )
                         delay(POLL_INTERVAL_MS)
                     }
                 }
             }
-            state = state.copy(status = "登录超时，请重试")
+            state = state.copy(
+                status = "登录超时，请重试",
+                loginFlow = state.loginFlow?.copy(inProgress = false, error = "授权轮询超时，请重试"),
+            )
         }
     }
 
