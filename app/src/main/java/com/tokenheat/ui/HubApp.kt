@@ -126,7 +126,6 @@ fun HubApp(
                                 PillBadge(
                                     text = if (state.bridgeRunning) "运行中 :${state.port}" else "已停用",
                                     variant = if (state.bridgeRunning) BadgeVariant.Success else BadgeVariant.Neutral,
-                                    hasDot = true,
                                 )
                             }
                         },

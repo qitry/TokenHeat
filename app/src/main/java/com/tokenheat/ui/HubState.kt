@@ -1,5 +1,6 @@
 package com.tokenheat.ui
 
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Hub

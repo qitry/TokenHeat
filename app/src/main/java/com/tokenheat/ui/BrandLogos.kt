@@ -51,7 +51,11 @@ enum class ModelBrand {
 
 object BrandResolver {
     fun resolve(model: HubModel): ModelBrand {
-        val raw = "${model.vendor} ${model.name} ${model.id}".lowercase()
+        return resolve("${model.vendor} ${model.name} ${model.id}")
+    }
+
+    fun resolve(modelId: String): ModelBrand {
+        val raw = modelId.lowercase()
         return when {
             raw.contains("deepseek") -> ModelBrand.DEEPSEEK
             raw.contains("claude") || raw.contains("anthropic") -> ModelBrand.ANTHROPIC
@@ -81,7 +85,24 @@ fun ModelBrandBadge(
     modifier: Modifier = Modifier,
     size: Dp = 36.dp,
 ) {
-    val brand = BrandResolver.resolve(model)
+    ModelBrandBadgeContent(BrandResolver.resolve(model), modifier, size)
+}
+
+@Composable
+fun ModelBrandBadge(
+    modelId: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 36.dp,
+) {
+    ModelBrandBadgeContent(BrandResolver.resolve(modelId), modifier, size)
+}
+
+@Composable
+private fun ModelBrandBadgeContent(
+    brand: ModelBrand,
+    modifier: Modifier = Modifier,
+    size: Dp = 36.dp,
+) {
     val shape = RoundedCornerShape(8.dp)
 
     Box(
