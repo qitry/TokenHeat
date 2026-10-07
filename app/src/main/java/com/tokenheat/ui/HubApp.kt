@@ -1,23 +1,35 @@
 package com.tokenheat.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.contentColorFor
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,15 +37,18 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import com.tokenheat.data.Login
+import androidx.compose.ui.unit.dp
 import com.tokenheat.data.QLogin
 import com.tokenheat.proto.Provider
 import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.Wire
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HubApp(
     state: HubState,
@@ -78,37 +93,90 @@ fun HubApp(
     showHelp: Boolean,
     onShowHelp: () -> Unit,
     onDismissHelp: () -> Unit,
+    onConfirmLogout: () -> Unit = {},
+    onDismissLogout: () -> Unit = {},
     onTabShown: (HubTab) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
-    // Reporting the visible tab lets the host reload that page's data on entry,
-    // which is what keeps the call history current without a restart.
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
-    var dark by remember { mutableStateOf(false) }
 
-    MaterialExpressiveTheme(
-        colorScheme = if (dark) darkColorScheme() else expressiveLightColorScheme(),
-        motionScheme = MotionScheme.expressive(),
-    ) {
+    val systemDark = isSystemInDarkTheme()
+    var dark by remember { mutableStateOf(systemDark) }
+
+    TokenHeatTheme(darkTheme = dark) {
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
-                            Text("TokenHeat", fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "TokenHeat",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                PillBadge(
+                                    text = if (state.bridgeRunning) "运行中 :${state.port}" else "已停用",
+                                    variant = if (state.bridgeRunning) BadgeVariant.Success else BadgeVariant.Neutral,
+                                )
+                            }
                         },
+                        actions = {
+                            IconButton(onClick = { dark = !dark }) {
+                                Icon(
+                                    imageVector = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                                    contentDescription = if (dark) "浅色模式" else "深色模式",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
                     )
                 },
                 bottomBar = {
-                    NavigationBar {
-                        HubTab.entries.forEachIndexed { index, item ->
-                            NavigationBarItem(
-                                selected = tab == index,
-                                onClick = { tab = index },
-                                icon = { Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label) },
-                            )
+                    Surface(
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                        ) {
+                            HubTab.entries.forEachIndexed { index, item ->
+                                val isSelected = tab == index
+                                NavigationBarItem(
+                                    selected = isSelected,
+                                    onClick = { tab = index },
+                                    icon = {
+                                        Icon(
+                                            item.icon,
+                                            contentDescription = item.label,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            item.label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    ),
+                                )
+                            }
                         }
                     }
                 },
@@ -182,6 +250,12 @@ fun HubApp(
                 state = state,
                 onDismiss = onDismissHelp,
                 onCopyEndpoint = onCopyEndpoint,
+            )
+        }
+        if (state.showLogoutConfirm) {
+            LogoutDialog(
+                onConfirm = onConfirmLogout,
+                onDismiss = onDismissLogout,
             )
         }
     }

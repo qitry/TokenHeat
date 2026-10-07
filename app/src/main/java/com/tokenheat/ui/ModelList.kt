@@ -14,64 +14,73 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tokenheat.proto.HubModel
 
 /**
- * Vendor mark drawn from the initial rather than fetched artwork: the upstream
- * catalogue carries no logo URL, and a lettered badge stays crisp and available
- * offline.
+ * Minimalist, low-saturation vendor mark in Shadcn style.
  */
 @Composable
 fun VendorBadge(model: HubModel, modifier: Modifier = Modifier) {
-    val colors = vendorColors(model)
+    val initial = model.vendor.take(1).ifEmpty { model.name.take(1) }.uppercase()
     Box(
         modifier = modifier
-            .size(38.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(colors.background)
-            .border(1.dp, colors.border, RoundedCornerShape(10.dp)),
+            .size(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = model.vendor.take(1).ifEmpty { model.name.take(1) },
-            color = colors.foreground,
+            text = initial,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
         )
     }
 }
 
-private data class VendorColors(val background: Color, val foreground: Color, val border: Color)
-
-@Composable
-private fun vendorColors(model: HubModel): VendorColors {
-    val scheme = MaterialTheme.colorScheme
-    return when (model.vendor.lowercase()) {
-        "混元" -> VendorColors(Color(0xFF0052D9), Color.White, Color(0xFF003FB3))
-        "智谱" -> VendorColors(Color(0xFF12B886), Color.White, Color(0xFF0B9A70))
-        "DeepSeek" -> VendorColors(Color(0xFF4D6BFE), Color.White, Color(0xFF3452C9))
-        "kimi" -> VendorColors(Color(0xFF7C3AED), Color.White, Color(0xFF5B21B6))
-        "minimax" -> VendorColors(Color(0xFFE8590C), Color.White, Color(0xFFBF4909))
-        else -> VendorColors(scheme.surfaceVariant, scheme.onSurfaceVariant, scheme.outlineVariant)
-    }
+/**
+ * Filter mode for model catalog.
+ */
+enum class ModelFilter {
+    ALL,
+    FREE,
+    VISION,
 }
 
-/** The catalogue the bridge exposes, cheapest first. */
+/** The catalogue the bridge exposes with search and filter capabilities. */
 @Composable
 fun ModelList(
     models: List<HubModel>,
@@ -79,83 +88,207 @@ fun ModelList(
     modifier: Modifier = Modifier,
 ) {
     if (models.isEmpty()) {
-        Text(
-            "暂无模型数据，启动服务后会自动拉取。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Surface(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp, horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "暂无模型数据，启动服务后将自动拉取",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         return
     }
-    val sorted = models.sortedWith(compareBy({ it.sortKey }, { it.id }))
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            Text(
-                "共 ${sorted.size} 个模型，按倍率从低到高",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+    var searchQuery by remember { mutableStateOf("") }
+    var activeFilter by remember { mutableStateOf(ModelFilter.ALL) }
+
+    val filtered = remember(models, searchQuery, activeFilter) {
+        val query = searchQuery.trim().lowercase()
+        models
+            .filter { model ->
+                val matchesQuery = query.isEmpty() ||
+                    model.name.lowercase().contains(query) ||
+                    model.id.lowercase().contains(query) ||
+                    model.vendor.lowercase().contains(query)
+                val matchesFilter = when (activeFilter) {
+                    ModelFilter.ALL -> true
+                    ModelFilter.FREE -> model.isFree
+                    ModelFilter.VISION -> model.supportsImages
+                }
+                matchesQuery && matchesFilter
+            }
+            .sortedWith(compareBy({ it.sortKey }, { it.id }))
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Search & Filter controls
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("搜索模型名称、ID 或厂商…", style = MaterialTheme.typography.bodySmall) },
+            leadingIcon = {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = "搜索",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            Icons.Outlined.Close,
+                            contentDescription = "清除",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+            ),
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(
+                selected = activeFilter == ModelFilter.ALL,
+                onClick = { activeFilter = ModelFilter.ALL },
+                label = { Text("全部 (${models.size})", style = MaterialTheme.typography.labelSmall) },
+                shape = RoundedCornerShape(6.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            )
+            FilterChip(
+                selected = activeFilter == ModelFilter.FREE,
+                onClick = { activeFilter = ModelFilter.FREE },
+                label = { Text("免费 $0", style = MaterialTheme.typography.labelSmall) },
+                shape = RoundedCornerShape(6.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+            )
+            FilterChip(
+                selected = activeFilter == ModelFilter.VISION,
+                onClick = { activeFilter = ModelFilter.VISION },
+                label = { Text("多模态/视觉", style = MaterialTheme.typography.labelSmall) },
+                shape = RoundedCornerShape(6.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                ),
             )
         }
-        items(sorted, key = { it.id }) { model ->
-            ModelRow(model, onCopy = { onCopyModel(model.id) })
+
+        Spacer(Modifier.height(8.dp))
+
+        if (filtered.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "未找到匹配的模型",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(filtered, key = { it.id }) { model ->
+                    ModelRow(model, onCopy = { onCopyModel(model.id) })
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun ModelRow(model: HubModel, onCopy: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onCopy),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            VendorBadge(model)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = model.name.ifBlank { model.id },
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = model.id,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                RateChip(model)
-                if (model.supportsImages) {
+    ShadcnCard(onClick = onCopy) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                VendorBadge(model)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
-                        "图片",
-                        style = MaterialTheme.typography.labelSmall,
+                        text = model.name.ifBlank { model.id },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = model.id,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (model.isFree) {
+                        PillBadge("免费 x0.00", variant = BadgeVariant.Success)
+                    } else if (model.rate.isNotBlank()) {
+                        PillBadge(model.rate, variant = BadgeVariant.Neutral)
+                    }
+                }
             }
-        }
-        if (model.badges.isNotEmpty()) {
-            Row(
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                model.badges.forEach { badge ->
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = { Text(badge, style = MaterialTheme.typography.labelSmall) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            disabledLabelColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
+
+            val hasCapabilities = model.supportsImages || model.supportsReasoning || model.badges.isNotEmpty()
+            if (hasCapabilities) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (model.supportsImages) {
+                        CapabilityTag("视觉", Icons.Outlined.Image)
+                    }
+                    if (model.supportsReasoning) {
+                        CapabilityTag("深度思考", Icons.Outlined.Psychology)
+                    }
+                    model.badges.take(3).forEach { badge ->
+                        PillBadge(badge, variant = BadgeVariant.Neutral)
+                    }
                 }
             }
         }
@@ -163,35 +296,36 @@ private fun ModelRow(model: HubModel, onCopy: () -> Unit) {
 }
 
 @Composable
-private fun RateChip(model: HubModel) {
-    val label = if (model.isFree) "免费" else model.rate
-    val container = if (model.isFree) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    val content = if (model.isFree) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Box(
+private fun CapabilityTag(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(container)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = content)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Spacer(Modifier.height(4.dp))
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        color = MaterialTheme.colorScheme.onSurface,
         fontWeight = FontWeight.SemiBold,
         modifier = modifier,
     )

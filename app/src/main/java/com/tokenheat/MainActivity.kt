@@ -180,6 +180,13 @@ class MainActivity : ComponentActivity() {
                 showHelp = showHelp,
                 onShowHelp = { showHelp = true },
                 onDismissHelp = { showHelp = false },
+                onConfirmLogout = {
+                    state = state.copy(showLogoutConfirm = false)
+                    logout()
+                },
+                onDismissLogout = {
+                    state = state.copy(showLogoutConfirm = false)
+                },
                 onTabShown = { tab ->
                     // Reload on entry: the service writes records without the
                     // UI knowing, so a snapshot taken at startup goes stale.
