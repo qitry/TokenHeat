@@ -1,12 +1,9 @@
 package com.tokenheat.ui
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Dashboard
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Key
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
+import com.tokenheat.R
 import com.tokenheat.bridge.CallRecord
 import com.tokenheat.data.CheckinItem
 import com.tokenheat.proto.Balance
@@ -17,12 +14,15 @@ import com.tokenheat.proto.HubModel
 import com.tokenheat.proto.Wire
 import com.tokenheat.mcp.McpServerConfig
 
-enum class HubTab(val label: String, val icon: ImageVector) {
-    Dashboard("概览", Icons.Outlined.Dashboard),
-    Credential("账号", Icons.Outlined.Key),
-    Chat("聊天", Icons.Outlined.ChatBubbleOutline),
-    Bridge("服务", Icons.Outlined.Hub),
-    Calls("记录", Icons.Outlined.History),
+enum class HubTab(val label: String, val iconResId: Int) {
+    Dashboard("概览", R.drawable.ic_lucide_layout_dashboard),
+    Credential("账号", R.drawable.ic_lucide_key),
+    Chat("聊天", R.drawable.ic_lucide_message_square),
+    Bridge("服务", R.drawable.ic_lucide_network),
+    Calls("记录", R.drawable.ic_lucide_history);
+
+    val icon: ImageVector
+        @Composable get() = ImageVector.vectorResource(iconResId)
 }
 
 enum class ChatRole { USER, ASSISTANT, SYSTEM, TOOL }

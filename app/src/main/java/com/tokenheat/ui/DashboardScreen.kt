@@ -20,15 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -193,7 +184,7 @@ fun DashboardScreen(
                                 modifier = Modifier.weight(1f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                             ) {
-                                Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                                Icon(Lucide.Square, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                                 Spacer(Modifier.width(6.dp))
                                 Text("停止服务", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                             }
@@ -207,7 +198,7 @@ fun DashboardScreen(
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                 ),
                             ) {
-                                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Lucide.Play, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("启动服务", style = MaterialTheme.typography.labelMedium)
                             }
@@ -218,7 +209,7 @@ fun DashboardScreen(
                             shape = RoundedCornerShape(6.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
-                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("复制端点", style = MaterialTheme.typography.labelMedium)
                         }
@@ -379,7 +370,7 @@ fun DashboardScreen(
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
                             ),
                         ) {
-                            Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("导出账号包", style = MaterialTheme.typography.labelMedium)
                         }
@@ -390,7 +381,7 @@ fun DashboardScreen(
                             modifier = Modifier.weight(1f),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
-                            Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("导入账号包", style = MaterialTheme.typography.labelMedium)
                         }

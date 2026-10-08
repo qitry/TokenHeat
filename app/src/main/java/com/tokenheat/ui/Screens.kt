@@ -26,23 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.OpenInBrowser
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -493,7 +476,7 @@ fun ProviderDropdownSelector(
                         )
                     }
                     Icon(
-                        imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                        imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                         contentDescription = "选择供应商",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -540,7 +523,7 @@ fun ProviderDropdownSelector(
                                     )
                                     if (isSelected) {
                                         Icon(
-                                            Icons.Outlined.Check,
+                                            Lucide.Check,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(16.dp),
@@ -600,7 +583,7 @@ private fun ActiveCredentialCard(
                     Spacer(Modifier.width(6.dp))
                 }
                 Icon(
-                    Icons.Outlined.ChevronRight,
+                    Lucide.ChevronRight,
                     contentDescription = "查看详情",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
@@ -667,7 +650,7 @@ private fun ActiveCredentialCard(
                             modifier = Modifier.weight(1f),
                         )
                         Icon(
-                            Icons.Outlined.Key,
+                            Lucide.Key,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -735,7 +718,7 @@ private fun UnifiedAccountRow(
             }
             IconButton(onClick = onToggleEnabled, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = if (enabled) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                    imageVector = if (enabled) Lucide.Pause else Lucide.Play,
                     contentDescription = if (enabled) "暂停轮训" else "恢复轮训",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -743,7 +726,7 @@ private fun UnifiedAccountRow(
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = Icons.Outlined.DeleteOutline,
+                    imageVector = Lucide.Trash2,
                     contentDescription = "删除账号",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error,
@@ -884,7 +867,7 @@ fun BridgeScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    Icons.Outlined.WarningAmber,
+                                    Lucide.AlertTriangle,
                                     contentDescription = null,
                                     tint = ZincColors.Warning,
                                     modifier = Modifier.size(18.dp),
@@ -920,7 +903,7 @@ fun BridgeScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    Icons.Outlined.WarningAmber,
+                                    Lucide.AlertTriangle,
                                     contentDescription = null,
                                     tint = ZincColors.Danger,
                                     modifier = Modifier.size(18.dp),
@@ -1035,7 +1018,7 @@ fun BridgeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Outlined.HelpOutline,
+                        Lucide.HelpCircle,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
@@ -1054,7 +1037,7 @@ fun BridgeScreen(
                         )
                     }
                     Icon(
-                        Icons.Outlined.ChevronRight,
+                        Lucide.ChevronRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1080,7 +1063,7 @@ fun BridgeScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("获取中", style = MaterialTheme.typography.labelSmall)
                         } else {
-                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("刷新", style = MaterialTheme.typography.labelSmall)
                         }
@@ -1182,7 +1165,7 @@ fun WorkBuddyBalanceCard(
                         Spacer(Modifier.width(6.dp))
                         Text("刷新中", style = MaterialTheme.typography.labelSmall)
                     } else {
-                        Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("刷新", style = MaterialTheme.typography.labelSmall)
                     }
@@ -1304,7 +1287,7 @@ fun ZCodeQuotaCard(
                         Spacer(Modifier.width(6.dp))
                         Text("刷新中", style = MaterialTheme.typography.labelSmall)
                     } else {
-                        Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(Lucide.RefreshCw, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("刷新", style = MaterialTheme.typography.labelSmall)
                     }
@@ -1368,7 +1351,7 @@ fun AccountBackupCard(
                     shape = RoundedCornerShape(8.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Icon(Icons.Outlined.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Lucide.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("导出备份", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -1378,7 +1361,7 @@ fun AccountBackupCard(
                     shape = RoundedCornerShape(8.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
-                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Lucide.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("导入备份", style = MaterialTheme.typography.bodyMedium)
                 }
@@ -1946,7 +1929,7 @@ private fun DetailItem(label: String, value: String, onCopy: (String, String) ->
                 )
             }
             Icon(
-                Icons.Outlined.ContentCopy,
+                Lucide.Copy,
                 contentDescription = "复制",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
@@ -2117,7 +2100,7 @@ fun CheckinDialog(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(
-                                imageVector = if (entry.ok) Icons.Outlined.Check else Icons.Outlined.Close,
+                                imageVector = if (entry.ok) Lucide.Check else Lucide.Close,
                                 contentDescription = null,
                                 tint = if (entry.ok) ZincColors.Success else MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(16.dp),
@@ -2233,7 +2216,7 @@ fun ActiveLoginCard(
                         ),
                     ) {
                         Icon(
-                            Icons.Outlined.OpenInBrowser,
+                            Lucide.ExternalLink,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                         )
@@ -2294,7 +2277,7 @@ fun LoginProgressDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                Icons.Outlined.Close,
+                                Lucide.Close,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(16.dp),
@@ -2354,7 +2337,7 @@ fun LoginProgressDialog(
                     ),
                 ) {
                     Icon(
-                        Icons.Outlined.OpenInBrowser,
+                        Lucide.ExternalLink,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )

@@ -14,9 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -123,7 +120,6 @@ fun HubApp(
     onClearAllConversations: () -> Unit = {},
     onTogglePinConversation: (String) -> Unit = {},
     onToggleArchiveConversation: (String) -> Unit = {},
-    onGenerateTitleWithAI: (String) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -156,7 +152,7 @@ fun HubApp(
                         actions = {
                             IconButton(onClick = { dark = !dark }) {
                                 Icon(
-                                    imageVector = if (dark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                                    imageVector = if (dark) Lucide.Sun else Lucide.Moon,
                                     contentDescription = if (dark) "浅色模式" else "深色模式",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp),
@@ -284,7 +280,6 @@ fun HubApp(
                             onClearAllConversations = onClearAllConversations,
                             onTogglePinConversation = onTogglePinConversation,
                             onToggleArchiveConversation = onToggleArchiveConversation,
-                            onGenerateTitleWithAI = onGenerateTitleWithAI,
                             isDarkTheme = dark,
                             onToggleDarkTheme = { dark = !dark },
                         )

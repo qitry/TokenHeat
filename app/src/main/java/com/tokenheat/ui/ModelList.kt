@@ -17,13 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -127,7 +120,7 @@ fun ModelList(
             placeholder = { Text("搜索模型名称、ID 或厂商…", style = MaterialTheme.typography.bodySmall) },
             leadingIcon = {
                 Icon(
-                    Icons.Outlined.Search,
+                    Lucide.Search,
                     contentDescription = "搜索",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -137,7 +130,7 @@ fun ModelList(
                 if (searchQuery.isNotEmpty()) {
                     IconButton(onClick = { searchQuery = "" }) {
                         Icon(
-                            Icons.Outlined.Close,
+                            Lucide.Close,
                             contentDescription = "清除",
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -268,10 +261,10 @@ private fun ModelRow(model: HubModel, onCopy: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (model.supportsImages) {
-                        CapabilityTag("视觉", Icons.Outlined.Image)
+                        CapabilityTag("视觉", Lucide.Image)
                     }
                     if (model.supportsReasoning) {
-                        CapabilityTag("深度思考", Icons.Outlined.Psychology)
+                        CapabilityTag("深度思考", Lucide.Brain)
                     }
                     model.badges.take(3).forEach { badge ->
                         PillBadge(badge, variant = BadgeVariant.Neutral)

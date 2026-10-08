@@ -31,40 +31,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.CleaningServices
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Handyman
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Send
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.AlertDialog
-import androidx.compose.ui.draw.blur
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -149,7 +126,6 @@ fun ChatScreen(
     onClearAllConversations: () -> Unit = {},
     onTogglePinConversation: (String) -> Unit = {},
     onToggleArchiveConversation: (String) -> Unit = {},
-    onGenerateTitleWithAI: (String) -> Unit = {},
     isDarkTheme: Boolean = true,
     onToggleDarkTheme: () -> Unit = {},
 ) {
@@ -229,7 +205,6 @@ fun ChatScreen(
             },
             onTogglePinConversation = onTogglePinConversation,
             onToggleArchiveConversation = onToggleArchiveConversation,
-            onGenerateTitleWithAI = onGenerateTitleWithAI,
         )
     } else {
         // ==========================================
@@ -251,9 +226,6 @@ fun ChatScreen(
                     renameTargetId = activeConversation?.id ?: ""
                     renameInitialTitle = activeConversationTitle
                     showRenameDialog = true
-                },
-                onGenerateTitleWithAI = {
-                    activeConversation?.let { onGenerateTitleWithAI(it.id) }
                 },
                 onTogglePin = {
                     activeConversation?.let { onTogglePinConversation(it.id) }
@@ -329,7 +301,7 @@ fun ChatScreen(
                 }
             }
 
-            // Floating compound input bar with Gaussian blur & single-line collapse animation
+            // Floating compound input bar with solid surface, focus preservation & spring collapse animation
             ChatInputBar(
                 inputText = inputText,
                 isStreaming = state.isChatStreaming,
@@ -526,7 +498,6 @@ private fun ChatDetailTopBar(
     isArchived: Boolean,
     onBack: () -> Unit,
     onRename: () -> Unit,
-    onGenerateTitleWithAI: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleArchive: () -> Unit,
     onSelectModel: () -> Unit,
@@ -553,7 +524,7 @@ private fun ChatDetailTopBar(
                 modifier = Modifier.size(38.dp),
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    imageVector = Lucide.ArrowBack,
                     contentDescription = "返回",
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurface,
@@ -572,7 +543,7 @@ private fun ChatDetailTopBar(
             ) {
                 if (isPinned) {
                     Icon(
-                        imageVector = Icons.Outlined.PushPin,
+                        imageVector = Lucide.Pin,
                         contentDescription = "已置顶",
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -600,7 +571,7 @@ private fun ChatDetailTopBar(
                     modifier = Modifier.size(38.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Menu,
+                        imageVector = Lucide.Menu,
                         contentDescription = "菜单",
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurface,
@@ -614,7 +585,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text("重命名会话") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -622,19 +593,9 @@ private fun ChatDetailTopBar(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("AI 智能拟定标题") },
-                        leadingIcon = {
-                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        },
-                        onClick = {
-                            showMenu = false
-                            onGenerateTitleWithAI()
-                        },
-                    )
-                    DropdownMenuItem(
                         text = { Text(if (isPinned) "取消置顶" else "置顶会话") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.PushPin, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Pin, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -644,7 +605,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text(if (isArchived) "取消归档" else "归档会话") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -655,7 +616,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text("切换模型") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.SlidersHorizontal, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -665,7 +626,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text("思考强度") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Psychology, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Brain, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -675,7 +636,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text("清空消息") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Lucide.Eraser, contentDescription = null, modifier = Modifier.size(18.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -686,7 +647,7 @@ private fun ChatDetailTopBar(
                     DropdownMenuItem(
                         text = { Text("删除会话", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
-                            Icon(Icons.Outlined.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                            Icon(Lucide.Trash2, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
                         },
                         onClick = {
                             showMenu = false
@@ -718,7 +679,6 @@ private fun ConversationsListScreen(
     onClearAllConversations: () -> Unit,
     onTogglePinConversation: (String) -> Unit,
     onToggleArchiveConversation: (String) -> Unit,
-    onGenerateTitleWithAI: (String) -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -785,7 +745,7 @@ private fun ConversationsListScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Add,
+                                imageVector = Lucide.Plus,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -809,7 +769,7 @@ private fun ConversationsListScreen(
                             modifier = Modifier.size(34.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.MoreVert,
+                                imageVector = Lucide.MoreVertical,
                                 contentDescription = "更多操作",
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -824,7 +784,7 @@ private fun ConversationsListScreen(
                                 text = { Text("清空全部对话", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        imageVector = Lucide.Trash2,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.error,
@@ -861,7 +821,7 @@ private fun ConversationsListScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Search,
+                        imageVector = Lucide.Search,
                         contentDescription = "搜索",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -889,7 +849,7 @@ private fun ConversationsListScreen(
                     )
                     if (searchQuery.isNotEmpty()) {
                         Icon(
-                            imageVector = Icons.Outlined.Close,
+                            imageVector = Lucide.Close,
                             contentDescription = "清除",
                             modifier = Modifier
                                 .size(16.dp)
@@ -920,7 +880,7 @@ private fun ConversationsListScreen(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                imageVector = Lucide.MessageSquare,
                                 contentDescription = null,
                                 modifier = Modifier.size(28.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -945,7 +905,7 @@ private fun ConversationsListScreen(
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
-                            Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("新建对话")
                         }
@@ -967,7 +927,6 @@ private fun ConversationsListScreen(
                         isActive = conv.id == activeConversationId,
                         onClick = { onSelectConversation(conv.id) },
                         onRename = { onRenameConversation(conv.id, conv.title) },
-                        onGenerateTitle = { onGenerateTitleWithAI(conv.id) },
                         onTogglePin = { onTogglePinConversation(conv.id) },
                         onToggleArchive = { onToggleArchiveConversation(conv.id) },
                         onDelete = { onDeleteConversation(conv.id) },
@@ -987,7 +946,6 @@ private fun ConversationCardItem(
     isActive: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
-    onGenerateTitle: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleArchive: () -> Unit,
     onDelete: () -> Unit,
@@ -1004,9 +962,9 @@ private fun ConversationCardItem(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() },
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
             1.dp,
             if (conversation.isPinned) {
@@ -1027,7 +985,7 @@ private fun ConversationCardItem(
         shadowElevation = if (conversation.isPinned) 1.dp else 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Left: Model Brand Badge or fallback icon
@@ -1039,9 +997,9 @@ private fun ConversationCardItem(
                     ModelBrandBadge(modelId = conversation.modelId, size = 26.dp)
                 } else {
                     Icon(
-                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                        imageVector = Lucide.MessageSquare,
                         contentDescription = null,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1063,7 +1021,7 @@ private fun ConversationCardItem(
                     ) {
                         if (conversation.isPinned) {
                             Icon(
-                                imageVector = Icons.Outlined.PushPin,
+                                imageVector = Lucide.Pin,
                                 contentDescription = "置顶",
                                 modifier = Modifier.size(13.dp),
                                 tint = MaterialTheme.colorScheme.primary,
@@ -1142,7 +1100,7 @@ private fun ConversationCardItem(
                     modifier = Modifier.size(28.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.MoreVert,
+                        imageVector = Lucide.MoreVertical,
                         contentDescription = "操作",
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1156,7 +1114,7 @@ private fun ConversationCardItem(
                     DropdownMenuItem(
                         text = { Text("打开对话") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.MessageSquare, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -1166,7 +1124,7 @@ private fun ConversationCardItem(
                     DropdownMenuItem(
                         text = { Text("重命名") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -1174,19 +1132,9 @@ private fun ConversationCardItem(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("AI 智能拟定标题") },
-                        leadingIcon = {
-                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        },
-                        onClick = {
-                            showMenu = false
-                            onGenerateTitle()
-                        },
-                    )
-                    DropdownMenuItem(
                         text = { Text(if (conversation.isPinned) "取消置顶" else "置顶") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.PushPin, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Pin, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -1196,7 +1144,7 @@ private fun ConversationCardItem(
                     DropdownMenuItem(
                         text = { Text(if (conversation.isArchived) "取消归档" else "归档") },
                         leadingIcon = {
-                            Icon(Icons.Outlined.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Lucide.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
                         onClick = {
                             showMenu = false
@@ -1208,7 +1156,7 @@ private fun ConversationCardItem(
                         text = { Text("删除", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
                             Icon(
-                                Icons.Outlined.DeleteOutline,
+                                Lucide.Trash2,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.error,
@@ -1385,7 +1333,7 @@ private fun UserMessageView(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
-                                        imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
+                                        imageVector = if (att.type == AttachmentType.IMAGE) Lucide.Image else Lucide.FileText,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp),
                                         tint = MaterialTheme.colorScheme.primary,
@@ -1432,7 +1380,7 @@ private fun UserMessageView(
                     )
                     Spacer(Modifier.width(6.dp))
                     Icon(
-                        imageVector = Icons.Outlined.ContentCopy,
+                        imageVector = Lucide.Copy,
                         contentDescription = "复制",
                         modifier = Modifier
                             .size(13.dp)
@@ -1532,7 +1480,7 @@ private fun AssistantMessageView(
                     verticalAlignment = Alignment.Top,
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.ErrorOutline,
+                        imageVector = Lucide.AlertCircle,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier
@@ -1572,7 +1520,7 @@ private fun AssistantMessageView(
                         modifier = Modifier.size(26.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.ContentCopy,
+                            imageVector = Lucide.Copy,
                             contentDescription = "复制正文",
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1586,7 +1534,7 @@ private fun AssistantMessageView(
                         modifier = Modifier.size(26.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Refresh,
+                            imageVector = Lucide.RefreshCw,
                             contentDescription = "重新生成",
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1622,7 +1570,7 @@ private fun AttachmentsPreviewStrip(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
+                        imageVector = if (att.type == AttachmentType.IMAGE) Lucide.Image else Lucide.FileText,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -1637,7 +1585,7 @@ private fun AttachmentsPreviewStrip(
                     )
                     Spacer(Modifier.width(4.dp))
                     Icon(
-                        imageVector = Icons.Outlined.Close,
+                        imageVector = Lucide.Close,
                         contentDescription = "移除",
                         modifier = Modifier
                             .size(13.dp)
@@ -1789,7 +1737,7 @@ private fun ThinkingSliderPanel(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Outlined.Psychology,
+                    imageVector = Lucide.Brain,
                     contentDescription = null,
                     modifier = Modifier.size(15.dp),
                     tint = if (currentEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1830,8 +1778,9 @@ private fun ThinkingSliderPanel(
 
 /**
  * Bottom chat input toolbar strictly matching design blueprint (IMG_20261008_141556.jpg):
- * - Gaussian blur & frosted glass translucent material.
- * - Collapses to single-line input bar when unfocused (with + button, placeholder, send button, and smooth transition animation).
+ * - Solid Zinc surface with delicate border and iOS/HarmonyOS spring physics.
+ * - Single persistent BasicTextField node ensuring reliable focus and soft keyboard interactions.
+ * - Collapses to single-line input bar when unfocused (with + button, placeholder, send button).
  * - Expands into compound card with multi-line input, attachments preview, thinking slider, and separated tools when focused.
  */
 @Composable
@@ -1859,6 +1808,7 @@ private fun ChatInputBar(
     var isFocused by remember { mutableStateOf(false) }
     var showThinkingSlider by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
 
     val isCollapsed = !isFocused && inputText.isEmpty() && pendingAttachments.isEmpty() && !showThinkingSlider
 
@@ -1867,166 +1817,132 @@ private fun ChatInputBar(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .imePadding()
-            .animateContentSize(),
-        shape = RoundedCornerShape(if (isCollapsed) 26.dp else 22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
-        shadowElevation = 3.dp,
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = 420f,
+                ),
+            ),
+        shape = RoundedCornerShape(if (isCollapsed) 24.dp else 20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 2.dp,
     ) {
-        if (isCollapsed) {
-            // ==========================================
-            // Collapsed Single-Line Input Mode
-            // ==========================================
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // [+] Add Attachment Button
-                Box {
-                    IconButton(
-                        onClick = { showAttachMenu = true },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Add,
-                            contentDescription = "添加附件",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showAttachMenu,
-                        onDismissRequest = { showAttachMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("添加图片" + if (!supportsImages) " (当前模型不支持视觉)" else "") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Image,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = if (supportsImages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                )
-                            },
-                            onClick = {
-                                showAttachMenu = false
-                                onPickImage()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("添加文本/代码文件") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.AttachFile,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                            onClick = {
-                                showAttachMenu = false
-                                onPickFile()
-                            },
-                        )
-                    }
-                }
-
-                // Center Single-line Input Field
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
-                ) {
-                    BasicTextField(
-                        value = inputText,
-                        onValueChange = onInputTextChange,
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { isFocused = it.isFocused },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        decorationBox = { innerTextField ->
-                            if (inputText.isEmpty()) {
-                                Text(
-                                    text = "描述你的任务...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                )
-                            }
-                            innerTextField()
-                        },
-                    )
-                }
-
-                // Send Button
-                val canSend = inputText.trim().isNotEmpty() || pendingAttachments.isNotEmpty()
-                IconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .border(
-                            BorderStroke(1.dp, if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
-                            CircleShape,
-                        ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Send,
-                        contentDescription = "发送",
-                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 1. Pending Attachments Preview
+            if (pendingAttachments.isNotEmpty()) {
+                AttachmentsPreviewStrip(
+                    attachments = pendingAttachments,
+                    onRemove = onRemoveAttachment,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             }
-        } else {
-            // ==========================================
-            // Expanded Compound Card Mode
-            // ==========================================
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // 1. Pending Attachments Preview
-                if (pendingAttachments.isNotEmpty()) {
-                    AttachmentsPreviewStrip(
-                        attachments = pendingAttachments,
-                        onRemove = onRemoveAttachment,
+
+            // 2. Expandable discrete thinking effort slider panel
+            AnimatedVisibility(visible = showThinkingSlider) {
+                Column {
+                    ThinkingSliderPanel(
+                        currentEffort = thinkingEffort,
+                        modelSupportsReasoning = supportsReasoning,
+                        onEffortChanged = onUpdateThinkingEffort,
+                        onClose = { showThinkingSlider = false },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
+            }
 
-                // 2. Expandable discrete thinking effort slider panel
-                AnimatedVisibility(visible = showThinkingSlider) {
-                    Column {
-                        ThinkingSliderPanel(
-                            currentEffort = thinkingEffort,
-                            modelSupportsReasoning = supportsReasoning,
-                            onEffortChanged = onUpdateThinkingEffort,
-                            onClose = { showThinkingSlider = false },
-                        )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            // 3. Central unified input row — always maintains the EXACT same BasicTextField instance
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = if (isCollapsed) 6.dp else 14.dp,
+                        end = if (isCollapsed) 6.dp else 14.dp,
+                        top = if (isCollapsed) 5.dp else 12.dp,
+                        bottom = if (isCollapsed) 5.dp else 6.dp,
+                    ),
+                verticalAlignment = if (isCollapsed) Alignment.CenterVertically else Alignment.Top,
+            ) {
+                // Collapsed Left [+] Attachment Button
+                if (isCollapsed) {
+                    Box {
+                        IconButton(
+                            onClick = { showAttachMenu = true },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Lucide.Plus,
+                                contentDescription = "添加附件",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showAttachMenu,
+                            onDismissRequest = { showAttachMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("添加图片" + if (!supportsImages) " (当前模型不支持视觉)" else "") },
+                                leadingIcon = {
+                                    Icon(
+                                        Lucide.Image,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (supportsImages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    )
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onPickImage()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("添加文本/代码文件") },
+                                leadingIcon = {
+                                    Icon(
+                                        Lucide.Paperclip,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onPickFile()
+                                },
+                            )
+                        }
                     }
                 }
 
-                // 3. Multi-line borderless text input
+                // Permanent single BasicTextField in slot
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+                        .weight(1f)
+                        .padding(
+                            horizontal = if (isCollapsed) 8.dp else 0.dp,
+                            vertical = if (isCollapsed) 6.dp else 2.dp,
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            focusRequester.requestFocus()
+                        },
                 ) {
                     BasicTextField(
                         value = inputText,
                         onValueChange = onInputTextChange,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 36.dp, max = 150.dp)
+                            .then(
+                                if (isCollapsed) Modifier else Modifier.heightIn(min = 36.dp, max = 150.dp)
+                            )
+                            .focusRequester(focusRequester)
                             .onFocusChanged { isFocused = it.isFocused },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        singleLine = isCollapsed,
+                        textStyle = (if (isCollapsed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge).copy(
                             color = MaterialTheme.colorScheme.onSurface,
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -2034,7 +1950,7 @@ private fun ChatInputBar(
                             if (inputText.isEmpty()) {
                                 Text(
                                     text = "描述你的任务...",
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = if (isCollapsed) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 )
                             }
@@ -2043,7 +1959,55 @@ private fun ChatInputBar(
                     )
                 }
 
-                // 4. Bottom action Row matching blueprint layout
+                // Collapsed Right Send/Stop Button
+                if (isCollapsed) {
+                    if (isStreaming) {
+                        IconButton(
+                            onClick = onStop,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), CircleShape),
+                        ) {
+                            Icon(
+                                imageVector = Lucide.Square,
+                                contentDescription = "停止生成",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    } else {
+                        val canSend = inputText.trim().isNotEmpty() || pendingAttachments.isNotEmpty()
+                        IconButton(
+                            onClick = onSend,
+                            enabled = canSend,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .border(
+                                    BorderStroke(1.dp, if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
+                                    CircleShape,
+                                ),
+                        ) {
+                            Icon(
+                                imageVector = Lucide.Send,
+                                contentDescription = "发送",
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. Expanded bottom toolbar (Codex / iOS inspired)
+            AnimatedVisibility(
+                visible = !isCollapsed,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2062,7 +2026,7 @@ private fun ChatInputBar(
                                 modifier = Modifier.size(34.dp),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Add,
+                                    imageVector = Lucide.Plus,
                                     contentDescription = "添加附件",
                                     modifier = Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2077,7 +2041,7 @@ private fun ChatInputBar(
                                     text = { Text("添加图片" + if (!supportsImages) " (当前模型不支持视觉)" else "") },
                                     leadingIcon = {
                                         Icon(
-                                            Icons.Outlined.Image,
+                                            Lucide.Image,
                                             contentDescription = null,
                                             modifier = Modifier.size(18.dp),
                                             tint = if (supportsImages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
@@ -2092,7 +2056,7 @@ private fun ChatInputBar(
                                     text = { Text("添加文本/代码文件") },
                                     leadingIcon = {
                                         Icon(
-                                            Icons.Outlined.AttachFile,
+                                            Lucide.Paperclip,
                                             contentDescription = null,
                                             modifier = Modifier.size(18.dp),
                                             tint = MaterialTheme.colorScheme.primary,
@@ -2123,7 +2087,7 @@ private fun ChatInputBar(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Handyman,
+                                    imageVector = Lucide.Wrench,
                                     contentDescription = "联网",
                                     modifier = Modifier.size(14.dp),
                                     tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2163,7 +2127,7 @@ private fun ChatInputBar(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Psychology,
+                                    imageVector = Lucide.Brain,
                                     contentDescription = "思考强度",
                                     modifier = Modifier.size(14.dp),
                                     tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2211,7 +2175,7 @@ private fun ChatInputBar(
                                     modifier = Modifier.widthIn(max = 80.dp),
                                 )
                                 Icon(
-                                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                                    imageVector = Lucide.ChevronDown,
                                     contentDescription = "选择模型",
                                     modifier = Modifier.size(13.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2230,7 +2194,7 @@ private fun ChatInputBar(
                                     .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), CircleShape),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Stop,
+                                    imageVector = Lucide.Square,
                                     contentDescription = "停止生成",
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(18.dp),
@@ -2251,7 +2215,7 @@ private fun ChatInputBar(
                                     ),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Send,
+                                    imageVector = Lucide.Send,
                                     contentDescription = "发送",
                                     tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
                                     modifier = Modifier.size(16.dp),
@@ -2280,7 +2244,7 @@ private fun ThinkingEffortDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Outlined.Psychology,
+                    imageVector = Lucide.Brain,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -2438,7 +2402,7 @@ private fun McpSettingsDialog(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.Handyman,
+                        imageVector = Lucide.Wrench,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary,
@@ -2512,7 +2476,7 @@ private fun McpSettingsDialog(
                         fontWeight = FontWeight.SemiBold,
                     )
                     TextButton(onClick = { showAddServerDialog = true }) {
-                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(Lucide.Plus, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("添加服务", style = MaterialTheme.typography.labelSmall)
                     }
@@ -2573,7 +2537,7 @@ private fun McpSettingsDialog(
                                         )
                                         IconButton(onClick = { onDeleteServer(srv.id) }, modifier = Modifier.size(28.dp)) {
                                             Icon(
-                                                imageVector = Icons.Outlined.Close,
+                                                imageVector = Lucide.Close,
                                                 contentDescription = "删除",
                                                 modifier = Modifier.size(16.dp),
                                                 tint = MaterialTheme.colorScheme.error,
@@ -2722,7 +2686,7 @@ private fun BridgeOfflineBanner(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.WarningAmber,
+                    imageVector = Lucide.AlertTriangle,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.error,
@@ -2813,7 +2777,7 @@ private fun ChatEmptyState(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Lightbulb,
+                            imageVector = Lucide.Lightbulb,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2894,7 +2858,7 @@ private fun ModelSelectorDialog(
                 )
                 IconButton(onClick = onRefreshModels, modifier = Modifier.size(28.dp)) {
                     Icon(
-                        imageVector = Icons.Outlined.Refresh,
+                        imageVector = Lucide.RefreshCw,
                         contentDescription = "刷新模型列表",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2917,7 +2881,7 @@ private fun ModelSelectorDialog(
                     },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Outlined.Search,
+                            imageVector = Lucide.Search,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2927,7 +2891,7 @@ private fun ModelSelectorDialog(
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Close,
+                                    imageVector = Lucide.Close,
                                     contentDescription = "清除搜索",
                                     modifier = Modifier.size(16.dp),
                                 )
@@ -3043,7 +3007,7 @@ private fun ModelSelectorDialog(
                                     if (isSelected) {
                                         Spacer(Modifier.width(6.dp))
                                         Icon(
-                                            imageVector = Icons.Outlined.Check,
+                                            imageVector = Lucide.Check,
                                             contentDescription = "已选择",
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(18.dp),
