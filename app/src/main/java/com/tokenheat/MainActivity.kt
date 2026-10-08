@@ -44,7 +44,8 @@ import com.tokenheat.ui.CheckinDialog
 import com.tokenheat.ui.HubApp
 import com.tokenheat.ui.Loading
 import com.tokenheat.ui.LoginFlowState
-import com.tokenheat.ui.LogoutDialog
+import com.tokenheat.ui.ChatMessage
+import com.tokenheat.ui.ChatRole
 import com.tokenheat.ui.HubState
 import com.tokenheat.ui.HubTab
 import com.tokenheat.ui.realmName
@@ -67,6 +68,8 @@ class MainActivity : ComponentActivity() {
     private var service: BridgeService? = null
     private var bound by mutableStateOf(false)
     private var pollJob: Job? = null
+    private var chatJob: Job? = null
+    private var currentChatConn: java.net.HttpURLConnection? = null
 
     private var state by mutableStateOf(HubState())
     private var showHelp by mutableStateOf(false)
@@ -211,9 +214,15 @@ class MainActivity : ComponentActivity() {
                     when (tab) {
                         HubTab.Calls -> loadCalls()
                         HubTab.Credential -> loadBalance()
+                        HubTab.Chat -> if (state.models.isEmpty()) loadModels()
                         else -> Unit
                     }
                 },
+                onSendMessage = { text -> sendChatMessage(text) },
+                onStopStreaming = { stopChatMessage() },
+                onClearMessages = { clearChatMessages() },
+                onSelectChatModel = { modelId -> state = state.copy(selectedChatModelId = modelId) },
+                onRetryChatMessage = { retryChatMessage() },
             )
         }
 
@@ -291,6 +300,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopChatMessage()
         if (bound) runCatching { unbindService(connection) }
         pollJob?.cancel()
         super.onDestroy()
@@ -1129,6 +1139,245 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(text: String) {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun sendChatMessage(text: String) {
+        if (!store.hasAny()) {
+            toast("请先在账号页添加或登录账号")
+            return
+        }
+
+        val targetModelId = state.selectedChatModelId
+            ?: state.models.firstOrNull { it.isFree }?.id
+            ?: state.models.firstOrNull()?.id
+            ?: "default"
+
+        val userMsg = ChatMessage(
+            role = ChatRole.USER,
+            content = text,
+            modelId = targetModelId,
+        )
+        val assistantMsgId = java.util.UUID.randomUUID().toString()
+        val assistantMsg = ChatMessage(
+            id = assistantMsgId,
+            role = ChatRole.ASSISTANT,
+            content = "",
+            modelId = targetModelId,
+            isStreaming = true,
+        )
+
+        state = state.copy(
+            chatMessages = state.chatMessages + userMsg + assistantMsg,
+            isChatStreaming = true,
+            selectedChatModelId = targetModelId,
+        )
+
+        if (!state.bridgeRunning) {
+            startBridge(state.port, silent = true)
+        }
+
+        chatJob?.cancel()
+        chatJob = lifecycleScope.launch(Dispatchers.IO) {
+            if (!waitForBridgeReady(state.port, 3000)) {
+                withContext(Dispatchers.Main) {
+                    updateAssistantMessageError(assistantMsgId, "本地服务启动超时，请重试或前往服务页手动启动")
+                }
+                return@launch
+            }
+
+            try {
+                // 取最近有效消息构成上下文
+                val contextMessages = state.chatMessages
+                    .filter { !it.isError && it.content.isNotBlank() && it.id != assistantMsgId }
+                    .takeLast(20)
+
+                val requestObj = org.json.JSONObject().apply {
+                    put("model", targetModelId)
+                    put("stream", true)
+                    val arr = org.json.JSONArray()
+                    for (msg in contextMessages) {
+                        val obj = org.json.JSONObject()
+                        obj.put("role", when (msg.role) {
+                            ChatRole.USER -> "user"
+                            ChatRole.ASSISTANT -> "assistant"
+                            ChatRole.SYSTEM -> "system"
+                        })
+                        obj.put("content", msg.content)
+                        arr.put(obj)
+                    }
+                    put("messages", arr)
+                }
+
+                val url = java.net.URL("http://127.0.0.1:${state.port}/v1/chat/completions")
+                val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Authorization", "Bearer ${state.secret}")
+                    setRequestProperty("Accept", "text/event-stream")
+                    connectTimeout = 15_000
+                    readTimeout = 120_000
+                    doOutput = true
+                    doInput = true
+                }
+                currentChatConn = conn
+
+                conn.outputStream.use { os ->
+                    os.write(requestObj.toString().toByteArray(java.nio.charset.StandardCharsets.UTF_8))
+                    os.flush()
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode !in 200..299) {
+                    val errText = conn.errorStream?.bufferedReader(java.nio.charset.StandardCharsets.UTF_8)?.use { it.readText() }
+                        ?: conn.inputStream?.bufferedReader(java.nio.charset.StandardCharsets.UTF_8)?.use { it.readText() }
+                        ?: "HTTP $responseCode"
+                    val displayMsg = runCatching {
+                        val errObj = org.json.JSONObject(errText).optJSONObject("error")
+                        errObj?.optString("message") ?: errText
+                    }.getOrDefault(errText)
+
+                    withContext(Dispatchers.Main) {
+                        updateAssistantMessageError(assistantMsgId, displayMsg)
+                    }
+                    return@launch
+                }
+
+                val contentBuilder = java.lang.StringBuilder()
+                var lastUiUpdate = System.currentTimeMillis()
+
+                conn.inputStream.bufferedReader(java.nio.charset.StandardCharsets.UTF_8).use { reader ->
+                    while (isActive) {
+                        val line = reader.readLine() ?: break
+                        val trimmed = line.trim()
+                        if (trimmed.startsWith("data:")) {
+                            val data = trimmed.substring(5).trim()
+                            if (data == "[DONE]") break
+                            val delta = parseDeltaContent(data)
+                            if (delta.isNotEmpty()) {
+                                contentBuilder.append(delta)
+                                val now = System.currentTimeMillis()
+                                if (now - lastUiUpdate > 40) {
+                                    val currentStr = contentBuilder.toString()
+                                    withContext(Dispatchers.Main) {
+                                        updateAssistantMessageContent(assistantMsgId, currentStr, isStreaming = true)
+                                    }
+                                    lastUiUpdate = now
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val finalContent = contentBuilder.toString()
+                withContext(Dispatchers.Main) {
+                    updateAssistantMessageContent(assistantMsgId, finalContent, isStreaming = false)
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) {
+                    withContext(Dispatchers.Main) {
+                        finishAssistantMessageOnCancel(assistantMsgId)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        updateAssistantMessageError(assistantMsgId, "连接异常: ${e.message ?: "未知错误"}")
+                    }
+                }
+            } finally {
+                currentChatConn?.runCatching { disconnect() }
+                currentChatConn = null
+                withContext(Dispatchers.Main) {
+                    state = state.copy(isChatStreaming = false)
+                }
+            }
+        }
+    }
+
+    private fun parseDeltaContent(data: String): String {
+        return runCatching {
+            val json = org.json.JSONObject(data)
+            val choices = json.optJSONArray("choices")
+            if (choices != null && choices.length() > 0) {
+                val choice = choices.getJSONObject(0)
+                val delta = choice.optJSONObject("delta")
+                if (delta != null) {
+                    val content = delta.optString("content", "")
+                    if (content.isNotEmpty()) return@runCatching content
+                    val reasoning = delta.optString("reasoning_content", "")
+                    if (reasoning.isNotEmpty()) return@runCatching reasoning
+                }
+                choice.optString("text", "")
+            } else {
+                ""
+            }
+        }.getOrDefault("")
+    }
+
+    private suspend fun waitForBridgeReady(port: Int, timeoutMs: Long): Boolean {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            val ok = runCatching {
+                java.net.Socket("127.0.0.1", port).use { true }
+            }.getOrDefault(false)
+            if (ok) return true
+            delay(80)
+        }
+        return false
+    }
+
+    private fun stopChatMessage() {
+        chatJob?.cancel()
+        currentChatConn?.runCatching { disconnect() }
+        currentChatConn = null
+        state = state.copy(
+            isChatStreaming = false,
+            chatMessages = state.chatMessages.map { msg ->
+                if (msg.isStreaming) msg.copy(isStreaming = false) else msg
+            },
+        )
+    }
+
+    private fun retryChatMessage() {
+        val lastMsg = state.chatMessages.lastOrNull() ?: return
+        val messagesWithoutLast = if (lastMsg.role == ChatRole.ASSISTANT) {
+            state.chatMessages.dropLast(1)
+        } else {
+            state.chatMessages
+        }
+        val lastUserMsg = messagesWithoutLast.lastOrNull { it.role == ChatRole.USER } ?: return
+        state = state.copy(chatMessages = messagesWithoutLast.dropLast(1))
+        sendChatMessage(lastUserMsg.content)
+    }
+
+    private fun clearChatMessages() {
+        stopChatMessage()
+        state = state.copy(chatMessages = emptyList())
+    }
+
+    private fun updateAssistantMessageContent(id: String, content: String, isStreaming: Boolean) {
+        state = state.copy(
+            chatMessages = state.chatMessages.map { msg ->
+                if (msg.id == id) msg.copy(content = content, isStreaming = isStreaming) else msg
+            },
+            isChatStreaming = isStreaming,
+        )
+    }
+
+    private fun updateAssistantMessageError(id: String, errorText: String) {
+        state = state.copy(
+            chatMessages = state.chatMessages.map { msg ->
+                if (msg.id == id) msg.copy(content = errorText, isError = true, isStreaming = false) else msg
+            },
+            isChatStreaming = false,
+        )
+    }
+
+    private fun finishAssistantMessageOnCancel(id: String) {
+        state = state.copy(
+            chatMessages = state.chatMessages.map { msg ->
+                if (msg.id == id) msg.copy(isStreaming = false) else msg
+            },
+            isChatStreaming = false,
+        )
     }
 
     companion object {

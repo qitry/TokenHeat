@@ -101,6 +101,11 @@ fun HubApp(
     onExportBackup: () -> Unit = {},
     onImportBackup: () -> Unit = {},
     onTabShown: (HubTab) -> Unit = {},
+    onSendMessage: (String) -> Unit = {},
+    onStopStreaming: () -> Unit = {},
+    onClearMessages: () -> Unit = {},
+    onSelectChatModel: (String) -> Unit = {},
+    onRetryChatMessage: () -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -232,6 +237,17 @@ fun HubApp(
                             onRefreshBalance = onRefreshBalance,
                             onExportBackup = onExportBackup,
                             onImportBackup = onImportBackup,
+                        )
+                        HubTab.Chat -> ChatScreen(
+                            state = state,
+                            onSendMessage = onSendMessage,
+                            onStopStreaming = onStopStreaming,
+                            onClearMessages = onClearMessages,
+                            onSelectModel = onSelectChatModel,
+                            onStartBridge = { onStartBridge(state.port) },
+                            onRefreshModels = onRefreshModels,
+                            onCopyText = onCopyField,
+                            onRetryLastMessage = onRetryChatMessage,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

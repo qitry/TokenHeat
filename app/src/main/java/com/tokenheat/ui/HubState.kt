@@ -1,6 +1,7 @@
 package com.tokenheat.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Hub
@@ -18,9 +19,22 @@ import com.tokenheat.proto.Wire
 enum class HubTab(val label: String, val icon: ImageVector) {
     Dashboard("概览", Icons.Outlined.Dashboard),
     Credential("账号", Icons.Outlined.Key),
+    Chat("聊天", Icons.Outlined.ChatBubbleOutline),
     Bridge("服务", Icons.Outlined.Hub),
     Calls("记录", Icons.Outlined.History),
 }
+
+enum class ChatRole { USER, ASSISTANT, SYSTEM }
+
+data class ChatMessage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val role: ChatRole,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val modelId: String? = null,
+    val isError: Boolean = false,
+    val isStreaming: Boolean = false,
+)
 
 /** Everything the screens render; owned by the activity and backed by the service. */
 data class HubState(
@@ -58,6 +72,9 @@ data class HubState(
     val quotas: Map<Provider, String> = emptyMap(),
     val showZenKeyDialog: Boolean = false,
     val loginFlow: LoginFlowState? = null,
+    val chatMessages: List<ChatMessage> = emptyList(),
+    val selectedChatModelId: String? = null,
+    val isChatStreaming: Boolean = false,
 )
 
 /** Real-time OAuth/CLI login session state for dialog and status rendering. */
