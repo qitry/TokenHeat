@@ -469,6 +469,8 @@ fun ProviderDropdownSelector(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    ProviderBrandBadge(group = selectedGroup, size = 38.dp)
+                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = selectedGroup.label,
@@ -528,26 +530,32 @@ fun ProviderDropdownSelector(
                                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 )
-                                PillBadge(
-                                    text = "$count 账号",
-                                    variant = if (isSelected) BadgeVariant.Primary else BadgeVariant.Neutral,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    PillBadge(
+                                        text = "$count 账号",
+                                        variant = if (isSelected) BadgeVariant.Primary else BadgeVariant.Neutral,
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Outlined.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
                             }
                         },
                         onClick = {
                             expanded = false
                             onSelectGroup(group)
                         },
-                        leadingIcon = if (isSelected) {
-                            {
-                                Icon(
-                                    Icons.Outlined.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        } else null,
+                        leadingIcon = {
+                            ProviderBrandBadge(group = group, size = 26.dp)
+                        },
                     )
                 }
             }
@@ -572,6 +580,8 @@ private fun ActiveCredentialCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                ProviderBrandBadge(provider = provider, size = 32.dp)
+                Spacer(Modifier.width(10.dp))
                 StatusDot(active = active != null)
                 Spacer(Modifier.width(8.dp))
                 val title = if (provider == Provider.WORKBUDDY) {

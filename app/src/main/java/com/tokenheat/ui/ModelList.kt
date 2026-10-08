@@ -49,12 +49,12 @@ import androidx.compose.ui.unit.dp
 import com.tokenheat.proto.HubModel
 
 /**
- * Square vendor brand logo in Shadcn low-saturation style.
- * Displays recognizable geometric brand marks (OpenAI, Anthropic, Gemini, DeepSeek, GLM, etc.)
- * and falls back to a sleek Bot icon for unknown vendors.
+ * Square model family brand logo in Shadcn low-saturation style.
+ * Displays authentic AI model marks (OpenAI, Claude, Gemini, DeepSeek, GLM, etc.)
+ * with automatic Light/Dark theme adaptation, falling back to a sleek Bot icon for unknown models.
  */
 @Composable
-fun VendorBadge(model: HubModel, modifier: Modifier = Modifier) {
+fun ModelBadge(model: HubModel, modifier: Modifier = Modifier) {
     ModelBrandBadge(model = model, modifier = modifier, size = 36.dp)
 }
 
@@ -230,7 +230,7 @@ private fun ModelRow(model: HubModel, onCopy: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                VendorBadge(model)
+                ModelBadge(model)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
