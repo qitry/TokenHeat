@@ -31,6 +31,8 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -278,28 +281,6 @@ fun DashboardScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                text = "请求热力活跃墙",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "近 12 周请求活动分布记录",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        PillBadge(
-                            text = "过去 84 天",
-                            variant = BadgeVariant.Neutral,
-                        )
-                    }
-
                     ActivityHeatmap(calls = calls)
                 }
             }
@@ -421,14 +402,21 @@ fun DashboardScreen(
 }
 
 // -----------------------------------------------------------------------------
-// Activity Heatmap (GitHub Contribution Calendar in Zinc Tones)
+// Activity Heatmap (GitHub Contribution Calendar)
 // -----------------------------------------------------------------------------
+
+enum class HeatmapSpan(val weeks: Int, val label: String) {
+    WEEKS_12(12, "3 个月"),
+    WEEKS_26(26, "半年"),
+    WEEKS_52(52, "全年 (52周)"),
+}
 
 @Composable
 fun ActivityHeatmap(calls: List<CallRecord>) {
-    // Generate the last 12 weeks of dates (84 days)
+    var span by remember { mutableStateOf(HeatmapSpan.WEEKS_52) }
+
+    // Align to the coming Saturday so the grid ends neatly on today's week
     val calendar = Calendar.getInstance()
-    // Align to the coming Saturday so the grid ends neatly
     val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
     calendar.add(Calendar.DAY_OF_YEAR, Calendar.SATURDAY - currentDayOfWeek)
     val endDate = calendar.timeInMillis
@@ -439,12 +427,11 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
         calls.groupingBy { dateFormat.format(Date(it.timestamp)) }.eachCount()
     }
 
-    // Build 12 columns (weeks), each with 7 rows (Sunday to Saturday)
-    val weeks = remember(calls, endDate) {
+    // Build span.weeks columns, each with 7 rows (Sunday to Saturday)
+    val weeks = remember(calls, endDate, span) {
         val cal = Calendar.getInstance().apply { timeInMillis = endDate }
         val weekList = mutableListOf<List<DayHeat>>()
-        // 12 weeks backwards
-        for (w in 0 until 12) {
+        for (w in 0 until span.weeks) {
             val daysInWeek = mutableListOf<DayHeat>()
             for (d in 6 downTo 0) {
                 val calDay = Calendar.getInstance().apply {
@@ -461,9 +448,84 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
     }
 
     var selectedDay by remember { mutableStateOf<DayHeat?>(null) }
+    val scrollState = rememberScrollState()
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val scrollState = rememberScrollState()
+    // Automatically scroll to the right (most recent days) on launch or span change
+    LaunchedEffect(span, weeks.size) {
+        scrollState.scrollTo(scrollState.maxValue)
+    }
+
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+
+    // 5-level GitHub heat levels (level 0 to level 4)
+    // Dark: level 0 is dark gray, higher levels become brighter emerald
+    // Light: level 0 is light gray, higher levels become richer/darker emerald
+    val colors = remember(isDark) {
+        if (isDark) {
+            listOf(
+                Color(0xFF161B22), // 0: 暗灰底色
+                Color(0xFF0E4429), // 1: 低暗幽绿
+                Color(0xFF006D32), // 2: 中暗深绿
+                Color(0xFF26A641), // 3: 鲜明翠绿
+                Color(0xFF39D353), // 4: 最高亮荧光绿
+            )
+        } else {
+            listOf(
+                Color(0xFFEBEDF0), // 0: 浅灰底色
+                Color(0xFF9BE9A8), // 1: 浅亮草绿
+                Color(0xFF40C463), // 2: 明朗中绿
+                Color(0xFF30A14E), // 3: 浓郁翠绿
+                Color(0xFF216E39), // 4: 最深浓墨绿
+            )
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Header with Span Indicator
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "请求热力活跃墙",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "近 ${span.weeks} 周 (${span.weeks * 7} 天) 请求活动分布全景",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            PillBadge(
+                text = span.label,
+                variant = BadgeVariant.Primary,
+            )
+        }
+
+        // Span Selector Chips
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HeatmapSpan.entries.forEach { s ->
+                val isSelected = s == span
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { span = s },
+                    label = { Text(s.label, style = MaterialTheme.typography.labelSmall) },
+                    shape = RoundedCornerShape(6.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                )
+            }
+        }
+
+        // Scrollable Grid
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -477,11 +539,11 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
                     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         week.forEach { day ->
                             val color = when {
-                                day.count == 0 -> MaterialTheme.colorScheme.surfaceVariant
-                                day.count in 1..4 -> Color(0xFF27272A) // Zinc 800
-                                day.count in 5..14 -> Color(0xFF3F3F46) // Zinc 700
-                                day.count in 15..39 -> Color(0xFF71717A) // Zinc 500
-                                else -> Color(0xFFA1A1AA) // Zinc 400
+                                day.count == 0 -> colors[0]
+                                day.count in 1..4 -> colors[1]
+                                day.count in 5..14 -> colors[2]
+                                day.count in 15..39 -> colors[3]
+                                else -> colors[4]
                             }
                             Box(
                                 modifier = Modifier
@@ -496,16 +558,17 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
             }
         }
 
-        // Legend & Day Info
+        // Legend & Selected Day Info
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = selectedDay?.let { "${it.date}：${it.count} 次请求" } ?: "点击任意单元格查看当天请求次数",
+                text = selectedDay?.let { "${it.date}：${it.count} 次请求" } ?: "点击单元格查看当天请求次数（可向左滑动回溯）",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f, fill = false),
             )
 
             Row(
@@ -513,13 +576,7 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text("少", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                listOf(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    Color(0xFF27272A),
-                    Color(0xFF3F3F46),
-                    Color(0xFF71717A),
-                    Color(0xFFA1A1AA),
-                ).forEach { c ->
+                colors.forEach { c ->
                     Box(
                         modifier = Modifier
                             .size(10.dp)
