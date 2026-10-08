@@ -28,13 +28,19 @@ class ZenUpstreamClient {
      */
     fun chatStream(credential: Credential, bodyJson: String): UpstreamClient.ChatResult {
         val body = forceStream(bodyJson)
+        val sessionId = generateOpenCodeId("ses")
+        val requestId = generateOpenCodeId("req")
         val conn = open(
             "$CHAT_BASE/chat/completions",
             "POST",
             mapOf(
                 "Content-Type" to "application/json",
-                "Accept" to "application/json",
+                "Accept" to "text/event-stream, application/json",
                 "Authorization" to "Bearer ${credential.apiKey}",
+                "User-Agent" to OPENCODE_USER_AGENT,
+                "x-opencode-session" to sessionId,
+                "x-opencode-request" to requestId,
+                "x-opencode-client" to "cli",
             ),
             body,
             readTimeoutMs = 0,
@@ -53,14 +59,24 @@ class ZenUpstreamClient {
         return UpstreamClient.ChatResult.Failed(status, Wire.classify(status, text), text)
     }
 
+    private fun generateOpenCodeId(prefix: String): String {
+        val timestamp = System.currentTimeMillis()
+        val now = (timestamp shl 12) or (kotlin.random.Random.nextInt(0, 0x1000).toLong())
+        val hex = String.format("%012x", now)
+        val base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        val randomPart = (1..14).map { base62Chars[kotlin.random.Random.nextInt(base62Chars.length)] }.joinToString("")
+        return "${prefix}_${hex}${randomPart}"
+    }
+
     /**
      * Live roster (`/v1/models` needs no auth) intersected with the curated
      * chat-protocol set. Unknown ids are dropped rather than misrouted, and
      * rotated-out ids vanish on their own.
      */
     fun fetchModels(): List<ZenModel> {
-        val text = runCatching { request("$CHAT_BASE/models", "GET", emptyMap(), null) }.getOrNull()
-            ?: return emptyList()
+        val text = runCatching {
+            request("$CHAT_BASE/models", "GET", mapOf("User-Agent" to OPENCODE_USER_AGENT), null)
+        }.getOrNull() ?: return emptyList()
         return runCatching {
             val array = JSONObject(text).optJSONArray("data") ?: return emptyList()
             (0 until array.length()).mapNotNull { i ->
@@ -115,6 +131,7 @@ class ZenUpstreamClient {
     companion object {
         const val TAG = "TokenHeat"
         const val CHAT_BASE = "https://opencode.ai/zen/v1"
+        const val OPENCODE_USER_AGENT = "opencode/1.18.34"
 
         /**
          * Model ids the official docs place on `chat/completions`. Everything

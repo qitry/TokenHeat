@@ -88,7 +88,24 @@ object Wire {
                 val en = display.optString("en").trim()
                 if (en.isNotEmpty()) return@runCatching en
             }
-            obj.optString("msg").trim().ifEmpty { null }
+            val errObj = obj.optJSONObject("error")
+            if (errObj != null) {
+                val msg = errObj.optString("message").trim()
+                if (msg.isNotEmpty()) {
+                    if (msg.contains("free tier can only be used from within opencode", ignoreCase = true)) {
+                        return@runCatching "OpenCode 限免模型受官方客户端指纹限制（仅限 OpenCode 内部使用），建议在控制台使用按量付费模型或在官方客户端中调用"
+                    }
+                    return@runCatching msg
+                }
+            }
+            val directMsg = obj.optString("message").trim().ifEmpty { obj.optString("msg").trim() }
+            if (directMsg.isNotEmpty()) {
+                if (directMsg.contains("free tier can only be used from within opencode", ignoreCase = true)) {
+                    return@runCatching "OpenCode 限免模型受官方客户端指纹限制（仅限 OpenCode 内部使用），建议在控制台使用按量付费模型或在官方客户端中调用"
+                }
+                return@runCatching directMsg
+            }
+            null
         }.getOrNull()
     }
 
