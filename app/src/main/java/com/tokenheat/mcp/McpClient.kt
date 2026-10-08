@@ -400,14 +400,18 @@ object McpManager {
     }
 
     private fun evaluateMathExpression(expr: String): Double {
-        var pos = -1
-        var ch = -1
+        return ExpressionParser(expr).parse()
+    }
 
-        fun nextChar() {
+    private class ExpressionParser(private val expr: String) {
+        private var pos = -1
+        private var ch = -1
+
+        private fun nextChar() {
             ch = if (++pos < expr.length) expr[pos].code else -1
         }
 
-        fun eat(charToEat: Int): Boolean {
+        private fun eat(charToEat: Int): Boolean {
             while (ch == ' '.code) nextChar()
             if (ch == charToEat) {
                 nextChar()
@@ -416,8 +420,14 @@ object McpManager {
             return false
         }
 
-        fun parseExpression(): Double {
+        fun parse(): Double {
             nextChar()
+            val x = parseExpression()
+            if (pos < expr.length) throw IllegalArgumentException("意外字符: " + ch.toChar())
+            return x
+        }
+
+        private fun parseExpression(): Double {
             var x = parseTerm()
             while (true) {
                 when {
@@ -428,7 +438,7 @@ object McpManager {
             }
         }
 
-        fun parseTerm(): Double {
+        private fun parseTerm(): Double {
             var x = parseFactor()
             while (true) {
                 when {
@@ -444,7 +454,7 @@ object McpManager {
             }
         }
 
-        fun parseFactor(): Double {
+        private fun parseFactor(): Double {
             if (eat('+'.code)) return parseFactor()
             if (eat('-'.code)) return -parseFactor()
 
@@ -463,8 +473,6 @@ object McpManager {
             if (eat('^'.code)) x = Math.pow(x, parseFactor())
             return x
         }
-
-        return parseExpression()
     }
 
     /**
