@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -141,39 +143,42 @@ fun HubApp(
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     if (tab != HubTab.Chat.ordinal) {
                         TopAppBar(
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "TokenHeat",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                PillBadge(
-                                    text = if (state.bridgeRunning) "运行中 :${state.port}" else "已停用",
-                                    variant = if (state.bridgeRunning) BadgeVariant.Success else BadgeVariant.Neutral,
-                                )
-                            }
-                        },
-                        actions = {
-                            IconButton(onClick = { dark = !dark }) {
-                                Icon(
-                                    imageVector = if (dark) Lucide.Sun else Lucide.Moon,
-                                    contentDescription = if (dark) "浅色模式" else "深色模式",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                    )
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = getGreetingText(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    PillBadge(
+                                        text = if (state.bridgeRunning) "运行中 :${state.port}" else "已停用",
+                                        variant = if (state.bridgeRunning) BadgeVariant.Success else BadgeVariant.Neutral,
+                                    )
+                                }
+                            },
+                            actions = {
+                                IconButton(onClick = { dark = !dark }) {
+                                    Icon(
+                                        imageVector = if (dark) Lucide.Sun else Lucide.Moon,
+                                        contentDescription = if (dark) "浅色模式" else "深色模式",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        )
                     }
                 },
                 bottomBar = {
@@ -185,10 +190,13 @@ fun HubApp(
                     }
                 },
             ) { padding ->
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding),
+                        .padding(
+                            top = padding.calculateTopPadding(),
+                            bottom = if (tab == HubTab.Chat.ordinal && isChatDetailOpen) 0.dp else padding.calculateBottomPadding(),
+                        ),
                 ) {
                     when (HubTab.entries[tab]) {
                         HubTab.Dashboard -> DashboardScreen(
@@ -323,7 +331,28 @@ fun HubApp(
 }
 
 /**
- * Shadcn/iOS-inspired floating pill bottom navigation bar.
+ * Dynamic friendly greeting text based on local clock time.
+ */
+private fun getGreetingText(): String {
+    val cal = java.util.Calendar.getInstance()
+    val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val minute = cal.get(java.util.Calendar.MINUTE)
+    val timeVal = hour + minute / 60.0
+    return when {
+        timeVal < 6.0 -> "凌晨好，少熬夜身体好~"
+        timeVal < 11.5 -> "早上好，记得吃早餐哦~"
+        timeVal < 14.0 -> "中午好，需要干点什么？"
+        timeVal < 18.5 -> "下午好，来杯咖啡？"
+        else -> "工作劳累，记得休息。"
+    }
+}
+
+/**
+ * Shadcn/iOS-inspired floating pill bottom navigation bar:
+ * - Magnified comfort size (56dp pill height, 20dp vector icons).
+ * - Instant tab response without sluggish horizontal layout expansions.
+ * - Strict system navigation bar inset avoidance.
+ * - n=6 Continuous curvature squircle pill shape.
  */
 @Composable
 private fun FloatingNavigationBar(
@@ -335,17 +364,19 @@ private fun FloatingNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            shape = SquirclePillShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
             shadowElevation = 8.dp,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                modifier = Modifier
+                    .height(56.dp)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -353,35 +384,30 @@ private fun FloatingNavigationBar(
                     val isSelected = currentTab == index
                     Surface(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(SquirclePillShape)
                             .clickable { onSelectTab(index) },
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                        shape = SquirclePillShape,
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else Color.Transparent,
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            modifier = Modifier.padding(horizontal = if (isSelected) 14.dp else 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                         ) {
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = item.label,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(20.dp),
                                 tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                             )
-                            AnimatedVisibility(
-                                visible = isSelected,
-                                enter = fadeIn() + expandHorizontally(),
-                            ) {
-                                Row {
-                                    Spacer(Modifier.width(5.dp))
-                                    Text(
-                                        text = item.label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
+                            if (isSelected) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = item.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
                         }
                     }

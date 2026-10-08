@@ -145,7 +145,7 @@ private fun ModelBrandBadgeContent(
     modifier: Modifier = Modifier,
     size: Dp = 36.dp,
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    val shape = IconSquircleShape
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val iconRes = if (isDark) brand.darkIconRes else brand.lightIconRes
 
@@ -163,7 +163,7 @@ private fun ModelBrandBadgeContent(
                 contentDescription = brand.label,
                 modifier = Modifier
                     .size(size * 0.72f)
-                    .clip(RoundedCornerShape(4.dp)),
+                    .clip(IconSquircleShape),
                 contentScale = ContentScale.Fit,
             )
         } else {
@@ -205,7 +205,7 @@ private fun ProviderBrandBadgeContent(
     modifier: Modifier = Modifier,
     size: Dp = 36.dp,
 ) {
-    val shape = RoundedCornerShape(8.dp)
+    val shape = IconSquircleShape
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val iconRes = if (isDark) brand.darkIconRes else brand.lightIconRes
 
@@ -222,7 +222,7 @@ private fun ProviderBrandBadgeContent(
             contentDescription = brand.label,
             modifier = Modifier
                 .size(size * 0.72f)
-                .clip(RoundedCornerShape(4.dp)),
+                .clip(IconSquircleShape),
             contentScale = ContentScale.Fit,
         )
     }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -2232,6 +2233,7 @@ fun ActiveLoginCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginProgressDialog(
     flow: LoginFlowState,
@@ -2240,64 +2242,99 @@ fun LoginProgressDialog(
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = {
             if (!flow.inProgress) onDismiss()
         },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(active = flow.inProgress)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "${flow.title} 授权登录",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+        shape = SquircleCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .background(
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                        SquirclePillShape,
+                    ),
+            )
         },
-        text = {
-            Column(
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // Header: Title & Status Indicator
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                if (flow.error != null) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)), RoundedCornerShape(8.dp)),
-                        color = MaterialTheme.colorScheme.errorContainer,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(active = flow.inProgress)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "${flow.title} 授权登录",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                if (flow.inProgress) {
+                    PillBadge("授权中", variant = BadgeVariant.Primary)
+                }
+            }
+
+            // Status or Error Message
+            if (flow.error != null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(SquircleCornerShape(10.dp))
+                        .border(
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+                            SquircleCornerShape(10.dp),
+                        ),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Lucide.Close,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = flow.error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                        }
+                        Icon(
+                            Lucide.AlertCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = flow.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
-                } else {
+                }
+            } else {
+                Surface(
+                    shape = SquircleCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.padding(12.dp),
                     ) {
                         if (flow.inProgress) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.primary,
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(10.dp))
                         }
                         Text(
                             text = flow.statusText.ifBlank { "正在等待浏览器授权…" },
@@ -2306,59 +2343,73 @@ fun LoginProgressDialog(
                         )
                     }
                 }
+            }
 
-                if (flow.authUrl.isNotBlank()) {
-                    CodeField(
-                        label = "授权链接（支持复制后在任意浏览器打开）",
-                        value = flow.authUrl,
-                        onCopy = { onCopyUrl(flow.authUrl) },
-                    )
-                }
-
-                Text(
-                    text = "提示：若系统未自动唤起浏览器，可点击“复制链接”手动打开。在浏览器中授权同意后，应用将自动捕获凭证并保存。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (flow.authUrl.isNotBlank()) {
+                CodeField(
+                    label = "授权链接（支持复制后在任意浏览器打开）",
+                    value = flow.authUrl,
+                    onCopy = { onCopyUrl(flow.authUrl) },
                 )
             }
-        },
-        confirmButton = {
-            if (flow.inProgress && flow.authUrl.isNotBlank()) {
-                Button(
-                    onClick = { onOpenBrowser(flow.authUrl) },
-                    shape = RoundedCornerShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Icon(
-                        Lucide.ExternalLink,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("在浏览器打开")
+
+            Text(
+                text = "提示：若系统未自动唤起浏览器，可点击“在浏览器打开”或“复制链接”手动打开。在浏览器中授权同意后，应用将自动捕获凭证并保存。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                lineHeight = 18.sp,
+            )
+
+            // Bottom action buttons
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (flow.inProgress && flow.authUrl.isNotBlank()) {
+                    Button(
+                        onClick = { onOpenBrowser(flow.authUrl) },
+                        shape = SquircleCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Icon(
+                            Lucide.ExternalLink,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("在浏览器打开")
+                    }
                 }
-            } else if (!flow.inProgress) {
-                Button(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Text("确定")
+
+                if (flow.inProgress) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        shape = SquircleCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    ) {
+                        Text("取消登录", color = MaterialTheme.colorScheme.error)
+                    }
+                } else {
+                    Button(
+                        onClick = onDismiss,
+                        shape = SquircleCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Text("确定")
+                    }
                 }
             }
-        },
-        dismissButton = {
-            if (flow.inProgress) {
-                TextButton(onClick = onCancel) {
-                    Text("取消登录", color = MaterialTheme.colorScheme.error)
-                }
-            }
-        },
-    )
+        }
+    }
 }

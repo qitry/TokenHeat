@@ -157,25 +157,60 @@ object McpManager {
         servers: List<McpServerConfig>,
         exaApiKey: String,
     ): String = withContext(Dispatchers.IO) {
-        val args = runCatching { JSONObject(argumentsJson) }.getOrDefault(JSONObject())
+        val cleanArgsStr = argumentsJson.trim().removeSurrounding("```json", "```").removeSurrounding("```", "```").trim()
+        val args = runCatching { JSONObject(cleanArgsStr) }.getOrNull()
 
         when (toolName) {
             TOOL_WEB_FETCH -> {
-                val url = args.optString("url")
-                val maxLength = args.optInt("max_length", 4000).coerceIn(500, 15000)
-                return@withContext executeWebFetch(url, maxLength)
+                val url = args?.let {
+                    it.optString("url").ifBlank {
+                        it.optString("link").ifBlank {
+                            it.optString("uri").ifBlank {
+                                it.optString("page_url").ifBlank {
+                                    it.optString("href")
+                                }
+                            }
+                        }
+                    }
+                }?.ifBlank { null }
+                    ?: if (cleanArgsStr.startsWith("http://") || cleanArgsStr.startsWith("https://") || cleanArgsStr.startsWith("www.")) cleanArgsStr
+                    else args?.keys()?.asSequence()?.firstOrNull()?.let { args.optString(it) } ?: cleanArgsStr
+
+                val maxLength = args?.optInt("max_length", 4000)?.coerceIn(500, 15000) ?: 4000
+                return@withContext executeWebFetch(url.trim().removeSurrounding("\""), maxLength)
             }
             TOOL_WEB_SEARCH, "exa_search" -> {
-                val query = args.optString("query")
-                val count = args.optInt("num_results", 5).coerceIn(1, 10)
-                return@withContext executeWebSearch(exaApiKey, query, count)
+                val query = args?.let {
+                    it.optString("query").ifBlank {
+                        it.optString("q").ifBlank {
+                            it.optString("search_query").ifBlank {
+                                it.optString("text").ifBlank {
+                                    it.optString("keyword").ifBlank {
+                                        it.optString("prompt")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }?.ifBlank { null }
+                    ?: if (!cleanArgsStr.startsWith("{") && cleanArgsStr.isNotBlank()) cleanArgsStr
+                    else args?.keys()?.asSequence()?.firstOrNull()?.let { args.optString(it) } ?: cleanArgsStr
+
+                val count = args?.optInt("num_results", 5)?.coerceIn(1, 10) ?: 5
+                return@withContext executeWebSearch(exaApiKey, query.trim().removeSurrounding("\""), count)
             }
             TOOL_GET_TIME -> {
                 return@withContext executeGetCurrentTime()
             }
             TOOL_CALCULATOR -> {
-                val expr = args.optString("expression")
-                return@withContext executeCalculator(expr)
+                val expr = args?.let {
+                    it.optString("expression").ifBlank {
+                        it.optString("expr").ifBlank {
+                            it.optString("formula")
+                        }
+                    }
+                }?.ifBlank { null } ?: cleanArgsStr
+                return@withContext executeCalculator(expr.trim().removeSurrounding("\""))
             }
         }
 

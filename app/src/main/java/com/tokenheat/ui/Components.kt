@@ -21,6 +21,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -259,3 +265,104 @@ fun CodeField(
         }
     }
 }
+
+/**
+ * Continuous curvature Superellipse / Squircle Shape.
+ * Formula: |x/a|^n + |y/b|^n = 1
+ * - Exponent n = 5: Specially crafted for all icons, avatars, and badges.
+ * - Exponent n = 6: Specially crafted for containers, cards, buttons, dialogs, and inputs.
+ */
+class SuperellipseShape(
+    val exponent: Float = 6f,
+    val cornerRadius: Dp? = null,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val path = Path()
+        val width = size.width
+        val height = size.height
+        if (width <= 0f || height <= 0f) return Outline.Generic(path)
+
+        val r = cornerRadius?.let { with(density) { it.toPx() } }
+            ?.coerceAtMost(minOf(width, height) / 2f)
+
+        if (r == null || r >= minOf(width, height) / 2f - 0.5f) {
+            // Full Superellipse (for badges, square icons, capsules)
+            val cx = width / 2f
+            val cy = height / 2f
+            val a = width / 2f
+            val b = height / 2f
+            val p = 2.0 / exponent
+            val steps = 64
+            for (i in 0 until steps) {
+                val theta = (i.toDouble() / steps) * 2.0 * Math.PI
+                val cosT = Math.cos(theta)
+                val sinT = Math.sin(theta)
+                val x = cx + a * Math.signum(cosT).toFloat() * Math.pow(Math.abs(cosT), p).toFloat()
+                val y = cy + b * Math.signum(sinT).toFloat() * Math.pow(Math.abs(sinT), p).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+        } else {
+            // Corner-based continuous curvature superellipse
+            val p = 2.0 / exponent
+            val steps = 14
+            // 1. Top edge to top-right corner
+            path.moveTo(r, 0f)
+            path.lineTo(width - r, 0f)
+            for (i in 0..steps) {
+                val theta = (Math.PI / 2.0) * (1.0 - i.toDouble() / steps)
+                val cosT = Math.cos(theta)
+                val sinT = Math.sin(theta)
+                val x = width - r + r * Math.pow(cosT, p).toFloat()
+                val y = r - r * Math.pow(sinT, p).toFloat()
+                path.lineTo(x, y)
+            }
+            // 2. Right edge to bottom-right corner
+            path.lineTo(width, height - r)
+            for (i in 0..steps) {
+                val theta = (Math.PI / 2.0) * (i.toDouble() / steps)
+                val cosT = Math.cos(theta)
+                val sinT = Math.sin(theta)
+                val x = width - r + r * Math.pow(cosT, p).toFloat()
+                val y = height - r + r * Math.pow(sinT, p).toFloat()
+                path.lineTo(x, y)
+            }
+            // 3. Bottom edge to bottom-left corner
+            path.lineTo(r, height)
+            for (i in 0..steps) {
+                val theta = (Math.PI / 2.0) * (1.0 - i.toDouble() / steps)
+                val cosT = Math.cos(theta)
+                val sinT = Math.sin(theta)
+                val x = r - r * Math.pow(cosT, p).toFloat()
+                val y = height - r + r * Math.pow(sinT, p).toFloat()
+                path.lineTo(x, y)
+            }
+            // 4. Left edge to top-left corner
+            path.lineTo(0f, r)
+            for (i in 0..steps) {
+                val theta = (Math.PI / 2.0) * (i.toDouble() / steps)
+                val cosT = Math.cos(theta)
+                val sinT = Math.sin(theta)
+                val x = r - r * Math.pow(cosT, p).toFloat()
+                val y = r - r * Math.pow(sinT, p).toFloat()
+                path.lineTo(x, y)
+            }
+            path.close()
+        }
+        return Outline.Generic(path)
+    }
+}
+
+/** Icon Superellipse Shape (Exponent n = 5) */
+val IconSquircleShape = SuperellipseShape(exponent = 5f)
+
+/** Continuous Curvature Container Corner Shape (Exponent n = 6) */
+fun SquircleCornerShape(cornerRadius: Dp = 12.dp) = SuperellipseShape(exponent = 6f, cornerRadius = cornerRadius)
+
+/** Continuous Curvature Pill Shape (Exponent n = 6) */
+val SquirclePillShape = SuperellipseShape(exponent = 6f)
+

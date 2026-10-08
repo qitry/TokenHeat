@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -183,28 +184,29 @@ fun ChatScreen(
         currentChatConvId = null
     }
 
-    // Track if user is at the bottom of the message list
+    // Precise scroll-to-bottom detection using canScrollForward
     val isScrolledToBottom by remember {
         derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val visibleItems = layoutInfo.visibleItemsInfo
-            if (visibleItems.isEmpty()) true
-            else {
-                val lastItem = visibleItems.last()
-                lastItem.index >= layoutInfo.totalItemsCount - 1
-            }
+            !listState.canScrollForward
         }
     }
 
     var autoScrollEnabled by remember { mutableStateOf(true) }
 
+    // When user scrolls, disable auto-scroll if scrolled up to view history
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) {
-            autoScrollEnabled = isScrolledToBottom
+            if (listState.canScrollForward) {
+                // User has manually scrolled up to view history: freeze auto-scroll completely
+                autoScrollEnabled = false
+            } else {
+                // User scrolled all the way to bottom: resume auto-scroll
+                autoScrollEnabled = true
+            }
         }
     }
 
-    // Auto-scroll to end of message when messages change, honoring user scroll intent
+    // Auto-scroll to end of message when new tokens arrive, strictly honoring user scroll intent
     val messagesCount = state.chatMessages.size
     val lastLength = state.chatMessages.lastOrNull()?.content?.length ?: 0
     val lastReasoningLength = state.chatMessages.lastOrNull()?.reasoningContent?.length ?: 0
@@ -212,6 +214,15 @@ fun ChatScreen(
         if (messagesCount > 0 && currentChatConvId != null && autoScrollEnabled) {
             listState.scrollToItem(messagesCount - 1, scrollOffset = 100000)
         }
+    }
+
+    // Dynamic model context window & actual token usage calculation
+    val usedContextTokens = remember(state.chatMessages) {
+        val totalChars = state.chatMessages.sumOf { it.content.length + it.reasoningContent.length }
+        (totalChars / 2.2).roundToInt().coerceAtLeast(0)
+    }
+    val maxContextTokens = remember(activeModelId) {
+        getModelMaxContextTokens(activeModelId)
     }
 
     if (currentChatConvId == null) {
@@ -255,7 +266,6 @@ fun ChatScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
                 .background(MaterialTheme.colorScheme.background),
         ) {
             // Strict 3-part Top Bar: Back, Title, Hamburger Menu
@@ -328,10 +338,19 @@ fun ChatScreen(
                                     onCopy = { onCopyText("消息内容", it) },
                                 )
                             } else if (message.role == ChatRole.ASSISTANT) {
+                                val msgIndex = state.chatMessages.indexOf(message)
+                                val hasLaterAssistantOrTool = if (msgIndex in 0 until state.chatMessages.lastIndex) {
+                                    state.chatMessages.subList(msgIndex + 1, state.chatMessages.size).any {
+                                        it.role == ChatRole.ASSISTANT || it.role == ChatRole.TOOL
+                                    }
+                                } else false
+                                val isFinalAnswer = !hasLaterAssistantOrTool && !message.isStreaming
+
                                 AssistantMessageView(
                                     message = message,
                                     defaultModelId = activeModelId,
                                     isLastAssistant = isLastAssistant,
+                                    isFinalAnswer = isFinalAnswer,
                                     isChatStreaming = state.isChatStreaming,
                                     onCopy = { onCopyText("回答内容", it) },
                                     onCopyCode = { onCopyText("代码内容", it) },
@@ -381,6 +400,7 @@ fun ChatScreen(
                 supportsReasoning = activeModel?.supportsReasoning == true,
                 activeModelId = activeModelId,
                 activeModel = activeModel,
+                models = state.models,
                 thinkingEffort = state.thinkingEffort,
                 mcpEnabled = state.mcpEnabled,
                 pendingAttachments = state.pendingAttachments,
@@ -404,8 +424,9 @@ fun ChatScreen(
                 onRemoveAttachment = onRemoveAttachment,
                 onToggleMcpEnabled = onToggleMcpEnabled,
                 onUpdateThinkingEffort = onUpdateThinkingEffort,
-                onOpenModelDialog = { showModelDialog = true },
-                onOpenThinkingDialog = { showThinkingDialog = true },
+                onSelectModel = onSelectModel,
+                contextUsedTokens = usedContextTokens,
+                contextMaxTokens = maxContextTokens,
             )
         }
     }
@@ -1397,6 +1418,7 @@ private fun AssistantMessageView(
     message: ChatMessage,
     defaultModelId: String,
     isLastAssistant: Boolean,
+    isFinalAnswer: Boolean = true,
     isChatStreaming: Boolean,
     onCopy: (String) -> Unit,
     onCopyCode: (String) -> Unit,
@@ -1444,23 +1466,12 @@ private fun AssistantMessageView(
             )
         }
 
-        // 2. MCP Tool Execution Cards
+        // 2. Operation Group for tool calls (aggregates sequential tools into clean 2-line header)
         if (message.toolCalls.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                message.toolCalls.forEach { tool ->
-                    ToolCallCard(
-                        toolName = tool.name,
-                        arguments = tool.arguments,
-                        result = tool.result,
-                        isExecuting = tool.isExecuting,
-                    )
-                }
-            }
+            OperationGroupCard(
+                toolCalls = message.toolCalls,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
         }
 
         // 3. Main Response Body (Markdown rendering)
@@ -1501,8 +1512,8 @@ private fun AssistantMessageView(
             )
         }
 
-        // 4. Codex / Kelivo style Bottom Toolbar: [重新生成] [复制] [token速率 · 当前消耗]    (右侧)[删除消息]
-        if (!message.isStreaming && (message.content.isNotBlank() || message.isError)) {
+        // 4. Codex / Kelivo style Bottom Toolbar: ONLY shown for final completed answer, never on intermediate tool rounds
+        if (!message.isStreaming && isFinalAnswer && (message.content.isNotBlank() || message.isError)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1847,6 +1858,162 @@ private fun ThinkingSliderPanel(
 /**
  * Circular progress indicator showing context window token consumption.
  */
+/**
+ * Unified Operation Group card for multiple tool calls:
+ * - Line 1: "操作组：进行了 1轮xxx、2轮xxx、3轮xxx..."
+ * - Line 2: "当前状态：正在执行 xxx..." 或 "当前状态：已完成全部 n 项操作"
+ * - Expandable to inspect details of arguments and outputs.
+ */
+@Composable
+fun OperationGroupCard(
+    toolCalls: List<ChatToolCall>,
+    modifier: Modifier = Modifier,
+) {
+    if (toolCalls.isEmpty()) return
+    var isExpanded by remember { mutableStateOf(false) }
+
+    val summaryRounds = remember(toolCalls) {
+        toolCalls.mapIndexed { index, tool ->
+            "${index + 1}轮${formatToolName(tool.name)}"
+        }.joinToString("、")
+    }
+
+    val currentExecutingTool = toolCalls.firstOrNull { it.isExecuting }
+    val allDone = toolCalls.all { it.result != null }
+    val statusText = when {
+        currentExecutingTool != null -> "正在执行 ${formatToolName(currentExecutingTool.name)}..."
+        allDone -> "已完成全部 ${toolCalls.size} 项操作"
+        else -> "准备执行中"
+    }
+
+    Surface(
+        shape = SquircleCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(SquircleCornerShape(6.dp))
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = IconSquircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            modifier = Modifier.size(20.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Lucide.Wrench,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "操作组：进行了 $summaryRounds",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (currentExecutingTool != null) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(11.dp),
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        } else if (allDone) {
+                            Icon(
+                                imageVector = Lucide.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(
+                            text = "当前状态：$statusText",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                    contentDescription = if (isExpanded) "折叠" else "展开",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            AnimatedVisibility(visible = isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    toolCalls.forEach { tool ->
+                        ToolCallCard(
+                            toolName = tool.name,
+                            arguments = tool.arguments,
+                            result = tool.result,
+                            isExecuting = tool.isExecuting,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Translates technical tool names to clean user-friendly labels. */
+private fun formatToolName(name: String): String {
+    return when (name.lowercase()) {
+        "web_search" -> "联网搜索"
+        "web_fetch" -> "网页提取"
+        "get_current_time" -> "获取时间"
+        "calculator" -> "数值计算"
+        else -> name
+    }
+}
+
+/**
+ * Dynamically resolves maximum context window tokens based on model identifier.
+ */
+fun getModelMaxContextTokens(modelId: String): Int {
+    val lower = modelId.lowercase()
+    return when {
+        lower.contains("gemini-1.5-pro") || lower.contains("gemini-2.0-pro") || lower.contains("gemini-2.5-pro") -> 2_097_152
+        lower.contains("gemini") -> 1_048_576
+        lower.contains("claude-3-5") || lower.contains("claude-3") || lower.contains("sonnet") || lower.contains("opus") -> 200_000
+        lower.contains("gpt-4o") || lower.contains("o1") || lower.contains("o3") || lower.contains("gpt-4-turbo") -> 128_000
+        lower.contains("deepseek") -> 64_000
+        lower.contains("qwen") -> 128_000
+        lower.contains("llama-3") -> 128_000
+        lower.contains("glm-4") -> 128_000
+        else -> 128_000
+    }
+}
+
+/**
+ * Circular progress indicator showing context window token consumption.
+ */
 @Composable
 private fun ContextUsageIndicator(
     usedTokens: Int,
@@ -1883,7 +2050,7 @@ private fun ContextUsageIndicator(
         DropdownMenu(
             expanded = showDetail,
             onDismissRequest = { showDetail = false },
-            shape = RoundedCornerShape(12.dp),
+            shape = SquircleCornerShape(12.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             modifier = Modifier.width(220.dp),
@@ -1936,6 +2103,11 @@ private fun ContextUsageIndicator(
  * - Solid Zinc surface with clean outline (no corner shadow artifacts).
  * - Single persistent BasicTextField node ensuring reliable focus and soft keyboard interactions.
  * - Collapses to single-line input bar when unfocused; expands into compound card when focused.
+ * - Insets: uses navigationBarsPadding() and imePadding() directly, preventing keyboard gap.
+ * - Send button: 26dp refined squircle.
+ * - Web search button: Pure icon toggle (no text).
+ * - Model button: Text-only (no icon prefix, no border).
+ * - Thinking & Model selection: Lightweight popup menus right above buttons.
  */
 @Composable
 private fun ChatInputBar(
@@ -1945,6 +2117,7 @@ private fun ChatInputBar(
     supportsReasoning: Boolean,
     activeModelId: String,
     activeModel: HubModel?,
+    models: List<HubModel>,
     thinkingEffort: ThinkingEffort,
     mcpEnabled: Boolean,
     pendingAttachments: List<ChatAttachment>,
@@ -1956,13 +2129,14 @@ private fun ChatInputBar(
     onRemoveAttachment: (String) -> Unit,
     onToggleMcpEnabled: (Boolean) -> Unit,
     onUpdateThinkingEffort: (ThinkingEffort) -> Unit,
-    onOpenModelDialog: () -> Unit,
-    onOpenThinkingDialog: () -> Unit,
-    contextUsedTokens: Int = 1200,
-    contextMaxTokens: Int = 128000,
+    onSelectModel: (String) -> Unit,
+    contextUsedTokens: Int,
+    contextMaxTokens: Int,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
+    var showThinkingMenu by remember { mutableStateOf(false) }
+    var showModelMenu by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     val isCollapsed = !isFocused && inputText.isEmpty() && pendingAttachments.isEmpty()
@@ -1970,6 +2144,8 @@ private fun ChatInputBar(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .animateContentSize(
                 animationSpec = spring(
@@ -1977,7 +2153,7 @@ private fun ChatInputBar(
                     stiffness = 420f,
                 ),
             ),
-        shape = RoundedCornerShape(if (isCollapsed) 24.dp else 20.dp),
+        shape = SquircleCornerShape(if (isCollapsed) 24.dp else 20.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
         shadowElevation = 0.dp,
@@ -2009,12 +2185,12 @@ private fun ChatInputBar(
                     Box {
                         IconButton(
                             onClick = { showAttachMenu = true },
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(30.dp),
                         ) {
                             Icon(
                                 imageVector = Lucide.Plus,
                                 contentDescription = "添加附件",
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(17.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -2022,7 +2198,7 @@ private fun ChatInputBar(
                         DropdownMenu(
                             expanded = showAttachMenu,
                             onDismissRequest = { showAttachMenu = false },
-                            shape = RoundedCornerShape(12.dp),
+                            shape = SquircleCornerShape(12.dp),
                             containerColor = MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                         ) {
@@ -2066,7 +2242,7 @@ private fun ChatInputBar(
                         .weight(1f)
                         .padding(
                             horizontal = if (isCollapsed) 8.dp else 0.dp,
-                            vertical = if (isCollapsed) 5.dp else 2.dp,
+                            vertical = if (isCollapsed) 4.dp else 2.dp,
                         )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -2103,22 +2279,22 @@ private fun ChatInputBar(
                     )
                 }
 
-                // Collapsed Right Send/Stop Button (refined 30dp size)
+                // Collapsed Right Send/Stop Button (refined 26dp size)
                 if (isCollapsed) {
                     if (isStreaming) {
                         IconButton(
                             onClick = onStop,
                             modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
+                                .size(26.dp)
+                                .clip(IconSquircleShape)
                                 .background(MaterialTheme.colorScheme.errorContainer)
-                                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), CircleShape),
+                                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), IconSquircleShape),
                         ) {
                             Icon(
                                 imageVector = Lucide.Square,
                                 contentDescription = "停止生成",
                                 tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(11.dp),
                             )
                         }
                     } else {
@@ -2127,15 +2303,15 @@ private fun ChatInputBar(
                             onClick = onSend,
                             enabled = canSend,
                             modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
+                                .size(26.dp)
+                                .clip(IconSquircleShape)
                                 .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                         ) {
                             Icon(
                                 imageVector = Lucide.Send,
                                 contentDescription = "发送",
                                 tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(13.dp),
                             )
                         }
                     }
@@ -2151,10 +2327,10 @@ private fun ChatInputBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 2.dp),
+                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp, top = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Left action group: [+], [联网], [思考强度]
+                    // Left action group: [+], [联网 (纯图标)], [思考强度 (小上拉菜单)]
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2163,12 +2339,12 @@ private fun ChatInputBar(
                         Box {
                             IconButton(
                                 onClick = { showAttachMenu = true },
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(30.dp),
                             ) {
                                 Icon(
                                     imageVector = Lucide.Plus,
                                     contentDescription = "添加附件",
-                                    modifier = Modifier.size(18.dp),
+                                    modifier = Modifier.size(17.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -2176,7 +2352,7 @@ private fun ChatInputBar(
                             DropdownMenu(
                                 expanded = showAttachMenu,
                                 onDismissRequest = { showAttachMenu = false },
-                                shape = RoundedCornerShape(12.dp),
+                                shape = SquircleCornerShape(12.dp),
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                             ) {
@@ -2213,70 +2389,111 @@ private fun ChatInputBar(
                             }
                         }
 
-                        // [联网] Toggle Pill Button
+                        // [联网] Pure icon toggle button (as requested: no text label)
                         Surface(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
+                                .size(28.dp)
+                                .clip(IconSquircleShape)
                                 .clickable { onToggleMcpEnabled(!mcpEnabled) },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = IconSquircleShape,
                             color = if (mcpEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Lucide.Wrench,
                                     contentDescription = "联网",
                                     modifier = Modifier.size(14.dp),
                                     tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "联网",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (mcpEnabled) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
                         }
 
-                        // [思考强度] Button -> triggers BottomSheet
-                        Surface(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onOpenThinkingDialog() },
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (thinkingEffort != ThinkingEffort.OFF) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                        // [思考强度] Small popup menu above button
+                        Box {
+                            Surface(
+                                modifier = Modifier
+                                    .clip(SquircleCornerShape(14.dp))
+                                    .clickable { showThinkingMenu = true },
+                                shape = SquircleCornerShape(14.dp),
+                                color = if (thinkingEffort != ThinkingEffort.OFF) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                },
                             ) {
-                                Icon(
-                                    imageVector = Lucide.Brain,
-                                    contentDescription = "思考强度",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Spacer(Modifier.width(4.dp))
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Lucide.Brain,
+                                        contentDescription = "思考强度",
+                                        modifier = Modifier.size(13.dp),
+                                        tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (thinkingEffort != ThinkingEffort.OFF) "思考:${thinkingEffort.label}" else "思考",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (thinkingEffort != ThinkingEffort.OFF) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = showThinkingMenu,
+                                onDismissRequest = { showThinkingMenu = false },
+                                shape = SquircleCornerShape(12.dp),
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                modifier = Modifier.width(190.dp),
+                            ) {
                                 Text(
-                                    text = if (thinkingEffort != ThinkingEffort.OFF) "思考: ${thinkingEffort.label}" else "思考",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (thinkingEffort != ThinkingEffort.OFF) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    text = "思考强度 (供应商深度)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
+                                ThinkingEffort.entries.forEach { effort ->
+                                    val isSelected = thinkingEffort == effort
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = effort.label + if (effort == ThinkingEffort.OFF) " (关闭)" else "",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Lucide.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(14.dp),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onUpdateThinkingEffort(effort)
+                                            showThinkingMenu = false
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
 
                     Spacer(Modifier.weight(1f))
 
-                    // Right action group: [ContextUsageIndicator], [Model Pill (No Border)], [Send/Stop Button (30dp)]
+                    // Right action group: [ContextUsageIndicator], [Model Pill (No icon, No border)], [Send/Stop Button (26dp)]
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2287,53 +2504,112 @@ private fun ChatInputBar(
                             maxContextTokens = contextMaxTokens,
                         )
 
-                        // [Model Capsule] Button (Border-free as requested)
-                        Surface(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onOpenModelDialog() },
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                        // [Model Capsule] Button -> Small popup menu (No icon, no border)
+                        Box {
+                            Surface(
+                                modifier = Modifier
+                                    .clip(SquircleCornerShape(14.dp))
+                                    .clickable { showModelMenu = true },
+                                shape = SquircleCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                             ) {
-                                ModelBrandBadge(modelId = activeModelId, size = 15.dp)
-                                Spacer(Modifier.width(4.dp))
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Prefix brand icon removed as requested!
+                                    Text(
+                                        text = (activeModel?.name ?: activeModelId).ifBlank { "模型" }.substringAfterLast('/'),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.widthIn(max = 84.dp),
+                                    )
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(
+                                        imageVector = Lucide.ChevronDown,
+                                        contentDescription = "选择模型",
+                                        modifier = Modifier.size(12.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = showModelMenu,
+                                onDismissRequest = { showModelMenu = false },
+                                shape = SquircleCornerShape(12.dp),
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .width(260.dp)
+                                    .heightIn(max = 280.dp),
+                            ) {
                                 Text(
-                                    text = (activeModel?.name ?: activeModelId).ifBlank { "模型" }.substringAfterLast('/'),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 80.dp),
+                                    text = "切换模型",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
-                                Spacer(Modifier.width(2.dp))
-                                Icon(
-                                    imageVector = Lucide.ChevronDown,
-                                    contentDescription = "选择模型",
-                                    modifier = Modifier.size(13.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                models.forEach { m ->
+                                    val isSelected = m.id == activeModelId
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = m.name.ifBlank { m.id }.substringAfterLast('/'),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                if (m.isFree) {
+                                                    Spacer(Modifier.width(4.dp))
+                                                    PillBadge("免费", variant = BadgeVariant.Success)
+                                                }
+                                                if (isSelected) {
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Icon(
+                                                        imageVector = Lucide.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(14.dp),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onSelectModel(m.id)
+                                            showModelMenu = false
+                                        },
+                                    )
+                                }
                             }
                         }
 
-                        // [Send/Stop Button] (refined 30dp size)
+                        // [Send/Stop Button] (refined 26dp size)
                         if (isStreaming) {
                             IconButton(
                                 onClick = onStop,
                                 modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(CircleShape)
+                                    .size(26.dp)
+                                    .clip(IconSquircleShape)
                                     .background(MaterialTheme.colorScheme.errorContainer)
-                                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), CircleShape),
+                                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), IconSquircleShape),
                             ) {
                                 Icon(
                                     imageVector = Lucide.Square,
                                     contentDescription = "停止生成",
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(11.dp),
                                 )
                             }
                         } else {
@@ -2342,20 +2618,19 @@ private fun ChatInputBar(
                                 onClick = onSend,
                                 enabled = canSend,
                                 modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(CircleShape)
+                                    .size(26.dp)
+                                    .clip(IconSquircleShape)
                                     .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             ) {
                                 Icon(
                                     imageVector = Lucide.Send,
                                     contentDescription = "发送",
                                     tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(13.dp),
                                 )
                             }
                         }
                     }
-                }
             }
         }
     }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,96 +66,11 @@ fun MarkdownView(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         blocks.forEach { block ->
-            when (block) {
-                is MarkdownBlock.Header -> {
-                    val typography = when (block.level) {
-                        1 -> MaterialTheme.typography.titleLarge
-                        2 -> MaterialTheme.typography.titleMedium
-                        else -> MaterialTheme.typography.titleSmall
-                    }
-                    SelectionContainer {
-                        Text(
-                            text = renderInlineMarkdown(block.text, isDark),
-                            style = typography,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                        )
-                    }
-                }
-                is MarkdownBlock.Code -> {
-                    CodeBlockCard(
-                        language = block.language,
-                        code = block.code,
-                        isDark = isDark,
-                        onCopy = { onCopyCode(block.code) },
-                    )
-                }
-                is MarkdownBlock.Quote -> {
-                    Surface(
-                        shape = RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp, topEnd = 8.dp, bottomEnd = 8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(3.5.dp)
-                                    .height(24.dp)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), RoundedCornerShape(2.dp)),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            SelectionContainer {
-                                Text(
-                                    text = renderInlineMarkdown(block.text, isDark),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontStyle = FontStyle.Italic,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 22.sp,
-                                )
-                            }
-                        }
-                    }
-                }
-                is MarkdownBlock.ListItem -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(
-                            text = if (block.ordered) "${block.index}. " else "• ",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = (block.indent * 12).dp),
-                        )
-                        SelectionContainer {
-                            Text(
-                                text = renderInlineMarkdown(block.text, isDark),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                lineHeight = 22.sp,
-                            )
-                        }
-                    }
-                }
-                is MarkdownBlock.Paragraph -> {
-                    SelectionContainer {
-                        Text(
-                            text = renderInlineMarkdown(block.text, isDark),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 22.sp,
-                        )
-                    }
-                }
-            }
+            RenderMarkdownBlock(
+                block = block,
+                isDark = isDark,
+                onCopyCode = onCopyCode,
+            )
         }
 
         if (isStreaming) {
@@ -441,16 +357,130 @@ private fun CodeBlockCard(
     }
 }
 
+/**
+ * Renders an individual markdown block.
+ * Supports nesting inside blockquotes (code blocks, paragraphs, lists, headers, dividers).
+ */
+@Composable
+private fun RenderMarkdownBlock(
+    block: MarkdownBlock,
+    isDark: Boolean,
+    onCopyCode: (String) -> Unit,
+) {
+    when (block) {
+        is MarkdownBlock.Header -> {
+            val typography = when (block.level) {
+                1 -> MaterialTheme.typography.titleLarge
+                2 -> MaterialTheme.typography.titleMedium
+                else -> MaterialTheme.typography.titleSmall
+            }
+            SelectionContainer {
+                Text(
+                    text = renderInlineMarkdown(block.text, isDark),
+                    style = typography,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+            }
+        }
+        is MarkdownBlock.Code -> {
+            CodeBlockCard(
+                language = block.language,
+                code = block.code,
+                isDark = isDark,
+                onCopy = { onCopyCode(block.code) },
+            )
+        }
+        is MarkdownBlock.Quote -> {
+            Surface(
+                shape = SquircleCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.5.dp)
+                            .heightIn(min = 24.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), RoundedCornerShape(2.dp)),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        block.children.forEach { child ->
+                            RenderMarkdownBlock(
+                                block = child,
+                                isDark = isDark,
+                                onCopyCode = onCopyCode,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        is MarkdownBlock.ListItem -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = if (block.ordered) "${block.index}. " else "• ",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = (block.indent * 12).dp),
+                )
+                SelectionContainer {
+                    Text(
+                        text = renderInlineMarkdown(block.text, isDark),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 22.sp,
+                    )
+                }
+            }
+        }
+        is MarkdownBlock.Paragraph -> {
+            SelectionContainer {
+                Text(
+                    text = renderInlineMarkdown(block.text, isDark),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = 22.sp,
+                )
+            }
+        }
+        is MarkdownBlock.Divider -> {
+            HorizontalDivider(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+            )
+        }
+    }
+}
+
 /** Markdown parser representation of document structure. */
 private sealed class MarkdownBlock {
     data class Header(val level: Int, val text: String) : MarkdownBlock()
     data class Code(val language: String, val code: String) : MarkdownBlock()
-    data class Quote(val text: String) : MarkdownBlock()
+    data class Quote(val children: List<MarkdownBlock>) : MarkdownBlock()
     data class ListItem(val text: String, val ordered: Boolean, val index: Int, val indent: Int) : MarkdownBlock()
     data class Paragraph(val text: String) : MarkdownBlock()
+    object Divider : MarkdownBlock()
 }
 
-/** Splits markdown text into typed blocks. */
+/** Splits markdown text into typed blocks with support for nested blockquotes and dividers. */
 private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
     val blocks = mutableListOf<MarkdownBlock>()
     val lines = rawText.split("\n")
@@ -466,8 +496,11 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
         }
     }
 
-    for (line in lines) {
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i]
         val trimmed = line.trim()
+
         if (trimmed.startsWith("```")) {
             if (inCodeBlock) {
                 // End code block
@@ -480,11 +513,43 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
                 inCodeBlock = true
                 codeLang = trimmed.removePrefix("```").trim()
             }
+            i++
             continue
         }
 
         if (inCodeBlock) {
             codeBuilder.append(line).append("\n")
+            i++
+            continue
+        }
+
+        // Horizontal divider: ---, ***, ___
+        if (trimmed.matches(Regex("""^[-*_]{3,}$"""))) {
+            flushParagraph()
+            blocks.add(MarkdownBlock.Divider)
+            i++
+            continue
+        }
+
+        // Blockquote (supports multi-line, nested code blocks, etc.)
+        if (trimmed.startsWith(">")) {
+            flushParagraph()
+            val quoteLines = mutableListOf<String>()
+            while (i < lines.size) {
+                val currentLine = lines[i]
+                val currentTrimmed = currentLine.trim()
+                if (currentTrimmed.startsWith(">")) {
+                    val stripped = currentLine.trimStart().removePrefix(">").let {
+                        if (it.startsWith(" ")) it.substring(1) else it
+                    }
+                    quoteLines.add(stripped)
+                    i++
+                } else {
+                    break
+                }
+            }
+            val children = parseMarkdownBlocks(quoteLines.joinToString("\n"))
+            blocks.add(MarkdownBlock.Quote(children))
             continue
         }
 
@@ -500,10 +565,6 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
             trimmed.startsWith("### ") -> {
                 flushParagraph()
                 blocks.add(MarkdownBlock.Header(3, trimmed.removePrefix("### ").trim()))
-            }
-            trimmed.startsWith("> ") -> {
-                flushParagraph()
-                blocks.add(MarkdownBlock.Quote(trimmed.removePrefix("> ").trim()))
             }
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
                 flushParagraph()
@@ -526,6 +587,7 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
                 paragraphBuilder.append(line)
             }
         }
+        i++
     }
 
     if (inCodeBlock) {
@@ -539,14 +601,19 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
 /**
  * Strips all raw Markdown syntax characters and formats inline styles:
  * - ***bold italic*** / ___bold italic___ -> Bold + Italic text
- * - **bold** / __bold__ -> Bold text
+ * - **bold** / __bold__ -> Bold text (supports nested inline code)
  * - *italic* / _italic_ -> Italic text
  * - ~~strikethrough~~ -> Strikethrough text
- * - `code` -> Monospace rounded chip
+ * - `code` -> Monospace rounded chip (inherits outer bold/italic)
  * - [label](url) -> Underlined primary colored label (URL stripped)
  * - Safe streaming fallback: strips unfinished leading asterisks/underscores
  */
-private fun renderInlineMarkdown(rawText: String, isDark: Boolean): AnnotatedString {
+private fun renderInlineMarkdown(
+    rawText: String,
+    isDark: Boolean,
+    isParentBold: Boolean = false,
+    isParentItalic: Boolean = false,
+): AnnotatedString {
     // Strip redundant leading hash symbols if any slipped into the text
     val text = rawText.trimStart().replace(Regex("""^#{1,6}\s*"""), "")
     val primaryColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)
@@ -560,90 +627,63 @@ private fun renderInlineMarkdown(rawText: String, isDark: Boolean): AnnotatedStr
                 // 1. Inline code: `code`
                 text[i] == '`' -> {
                     val end = text.indexOf('`', i + 1)
-                    if (end != -1) {
-                        val code = text.substring(i + 1, end)
-                        withStyle(
-                            SpanStyle(
-                                fontFamily = FontFamily.Monospace,
-                                background = if (isDark) ZincColors.Zinc800 else ZincColors.Zinc200,
-                                fontSize = 13.sp,
-                            ),
-                        ) {
-                            append(" $code ")
-                        }
-                        i = end + 1
-                    } else {
-                        // Unclosed code block during streaming: format remaining without raw backtick
-                        val remaining = text.substring(i + 1)
-                        if (remaining.isNotEmpty()) {
-                            withStyle(
-                                SpanStyle(
-                                    fontFamily = FontFamily.Monospace,
-                                    background = if (isDark) ZincColors.Zinc800 else ZincColors.Zinc200,
-                                    fontSize = 13.sp,
-                                ),
-                            ) {
-                                append(" $remaining ")
-                            }
-                        }
-                        i = len
+                    val codeContent = if (end != -1) text.substring(i + 1, end) else text.substring(i + 1)
+                    val nextI = if (end != -1) end + 1 else len
+
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = if (isDark) ZincColors.Zinc800 else ZincColors.Zinc200,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isParentBold) FontWeight.Bold else FontWeight.Medium,
+                            fontStyle = if (isParentItalic) FontStyle.Italic else FontStyle.Normal,
+                            color = if (isDark) ZincColors.Zinc100 else ZincColors.Zinc900,
+                        ),
+                    ) {
+                        append(" $codeContent ")
                     }
+                    i = nextI
                 }
 
                 // 2. Bold Italic: ***text*** or ___text___
                 (i + 2 < len && text.startsWith("***", i)) || (i + 2 < len && text.startsWith("___", i)) -> {
                     val delimiter = if (text.startsWith("***", i)) "***" else "___"
                     val end = text.indexOf(delimiter, i + 3)
-                    if (end != -1) {
-                        val inner = text.substring(i + 3, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
-                            append(inner)
-                        }
-                        i = end + 3
-                    } else {
-                        val remaining = text.substring(i + 3)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
-                            append(remaining)
-                        }
-                        i = len
+                    val inner = if (end != -1) text.substring(i + 3, end) else text.substring(i + 3)
+                    val nextI = if (end != -1) end + 3 else len
+
+                    val sub = renderInlineMarkdown(inner, isDark, isParentBold = true, isParentItalic = true)
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                        append(sub)
                     }
+                    i = nextI
                 }
 
-                // 3. Bold: **text** or __text__
+                // 3. Bold: **text** or __text__ (supports bold inline code)
                 (i + 1 < len && text.startsWith("**", i)) || (i + 1 < len && text.startsWith("__", i)) -> {
                     val delimiter = if (text.startsWith("**", i)) "**" else "__"
                     val end = text.indexOf(delimiter, i + 2)
-                    if (end != -1) {
-                        val inner = text.substring(i + 2, end)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(inner)
-                        }
-                        i = end + 2
-                    } else {
-                        val remaining = text.substring(i + 2)
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(remaining)
-                        }
-                        i = len
+                    val inner = if (end != -1) text.substring(i + 2, end) else text.substring(i + 2)
+                    val nextI = if (end != -1) end + 2 else len
+
+                    val sub = renderInlineMarkdown(inner, isDark, isParentBold = true, isParentItalic = isParentItalic)
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(sub)
                     }
+                    i = nextI
                 }
 
                 // 4. Strikethrough: ~~text~~
                 i + 1 < len && text.startsWith("~~", i) -> {
                     val end = text.indexOf("~~", i + 2)
-                    if (end != -1) {
-                        val inner = text.substring(i + 2, end)
-                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                            append(inner)
-                        }
-                        i = end + 2
-                    } else {
-                        val remaining = text.substring(i + 2)
-                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                            append(remaining)
-                        }
-                        i = len
+                    val inner = if (end != -1) text.substring(i + 2, end) else text.substring(i + 2)
+                    val nextI = if (end != -1) end + 2 else len
+
+                    val sub = renderInlineMarkdown(inner, isDark, isParentBold = isParentBold, isParentItalic = isParentItalic)
+                    withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                        append(sub)
                     }
+                    i = nextI
                 }
 
                 // 5. Italic: *text* or _text_
@@ -652,8 +692,9 @@ private fun renderInlineMarkdown(rawText: String, isDark: Boolean): AnnotatedStr
                     val end = text.indexOf(delimiter, i + 1)
                     if (end != -1 && end > i + 1) {
                         val inner = text.substring(i + 1, end)
+                        val sub = renderInlineMarkdown(inner, isDark, isParentBold = isParentBold, isParentItalic = true)
                         withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                            append(inner)
+                            append(sub)
                         }
                         i = end + 1
                     } else {

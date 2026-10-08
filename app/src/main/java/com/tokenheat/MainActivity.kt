@@ -1502,7 +1502,7 @@ class MainActivity : ComponentActivity() {
 
                 val contentBuilder = java.lang.StringBuilder()
                 val reasoningBuilder = java.lang.StringBuilder()
-                val toolCallBuilder = mutableListOf<ChatToolCall>()
+                val streamingToolsMap = java.util.LinkedHashMap<Int, ChatToolCallAccumulator>()
                 var lastUiUpdate = System.currentTimeMillis()
 
                 conn.inputStream.bufferedReader(java.nio.charset.StandardCharsets.UTF_8).use { reader ->
@@ -1515,22 +1515,22 @@ class MainActivity : ComponentActivity() {
 
                             val deltaText = parseDeltaContent(data)
                             val deltaReasoning = parseDeltaReasoning(data)
-                            val discoveredTools = parseDeltaToolCalls(data)
+                            parseDeltaToolCallsInto(data, streamingToolsMap)
 
                             if (deltaText.isNotEmpty()) contentBuilder.append(deltaText)
                             if (deltaReasoning.isNotEmpty()) reasoningBuilder.append(deltaReasoning)
-                            if (discoveredTools.isNotEmpty()) toolCallBuilder.addAll(discoveredTools)
 
                             val now = System.currentTimeMillis()
                             if (now - lastUiUpdate > 45) {
                                 val currentStr = contentBuilder.toString()
                                 val currentReasoning = reasoningBuilder.toString()
+                                val currentTools = streamingToolsMap.values.filter { it.name.isNotBlank() }.map { it.toChatToolCall() }
                                 withContext(Dispatchers.Main) {
                                     updateAssistantMessageState(
                                         id = assistantMsgId,
                                         content = currentStr,
                                         reasoning = currentReasoning,
-                                        tools = toolCallBuilder,
+                                        tools = currentTools,
                                         isStreaming = true,
                                     )
                                 }
@@ -1540,18 +1540,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val finalToolCalls = streamingToolsMap.values.filter { it.name.isNotBlank() }.map { it.toChatToolCall() }
+
                 // Check if the model triggered MCP tool calls
-                if (toolCallBuilder.isNotEmpty() && state.mcpEnabled) {
+                if (finalToolCalls.isNotEmpty() && state.mcpEnabled) {
                     val executedTools = mutableListOf<ChatToolCall>()
                     val toolResultsSb = StringBuilder()
 
-                    for (tool in toolCallBuilder) {
+                    for (tool in finalToolCalls) {
                         withContext(Dispatchers.Main) {
                             updateAssistantMessageState(
                                 id = assistantMsgId,
                                 content = contentBuilder.toString(),
                                 reasoning = reasoningBuilder.toString(),
-                                tools = toolCallBuilder.map { if (it.name == tool.name) it.copy(isExecuting = true) else it },
+                                tools = finalToolCalls.map { if (it.name == tool.name) it.copy(isExecuting = true) else it },
                                 isStreaming = true,
                             )
                         }
@@ -1608,7 +1610,7 @@ class MainActivity : ComponentActivity() {
                         id = assistantMsgId,
                         content = finalContent,
                         reasoning = finalReasoning,
-                        tools = toolCallBuilder,
+                        tools = finalToolCalls,
                         isStreaming = false,
                     )
                     syncActiveConversationMessages(state.chatMessages)
@@ -1665,27 +1667,33 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault("")
     }
 
-    private fun parseDeltaToolCalls(data: String): List<ChatToolCall> {
-        return runCatching {
+    private fun parseDeltaToolCallsInto(
+        data: String,
+        map: java.util.LinkedHashMap<Int, ChatToolCallAccumulator>,
+    ) {
+        runCatching {
             val json = org.json.JSONObject(data)
-            val choices = json.optJSONArray("choices") ?: return@runCatching emptyList()
-            if (choices.length() == 0) return@runCatching emptyList()
+            val choices = json.optJSONArray("choices") ?: return@runCatching
+            if (choices.length() == 0) return@runCatching
             val choice = choices.getJSONObject(0)
-            val delta = choice.optJSONObject("delta") ?: return@runCatching emptyList()
-            val tools = delta.optJSONArray("tool_calls") ?: return@runCatching emptyList()
+            val delta = choice.optJSONObject("delta") ?: return@runCatching
+            val tools = delta.optJSONArray("tool_calls") ?: return@runCatching
 
-            val list = mutableListOf<ChatToolCall>()
             for (i in 0 until tools.length()) {
                 val t = tools.getJSONObject(i)
-                val func = t.optJSONObject("function") ?: continue
-                val name = func.optString("name")
-                val args = func.optString("arguments")
-                if (name.isNotBlank()) {
-                    list.add(ChatToolCall(id = t.optString("id", UUID.randomUUID().toString()), name = name, arguments = args))
+                val index = t.optInt("index", i)
+                val accum = map.getOrPut(index) { ChatToolCallAccumulator() }
+                val id = t.optString("id", "")
+                if (id.isNotBlank()) accum.id = id
+                val func = t.optJSONObject("function")
+                if (func != null) {
+                    val name = func.optString("name", "")
+                    if (name.isNotBlank()) accum.name = name
+                    val argsChunk = func.optString("arguments", "")
+                    if (argsChunk.isNotEmpty()) accum.argsBuilder.append(argsChunk)
                 }
             }
-            list
-        }.getOrDefault(emptyList())
+        }
     }
 
     private suspend fun waitForBridgeReady(port: Int, timeoutMs: Long): Boolean {
@@ -1917,3 +1925,19 @@ class MainActivity : ComponentActivity() {
         private const val LOGIN_TIMEOUT_MS = 9 * 60 * 1000L
     }
 }
+
+/**
+ * Accumulator for streaming function tool calls over SSE chunks.
+ */
+data class ChatToolCallAccumulator(
+    var id: String = "",
+    var name: String = "",
+    val argsBuilder: StringBuilder = StringBuilder(),
+) {
+    fun toChatToolCall() = com.tokenheat.ui.ChatToolCall(
+        id = id.ifBlank { java.util.UUID.randomUUID().toString() },
+        name = name,
+        arguments = argsBuilder.toString(),
+    )
+}
+
