@@ -265,6 +265,7 @@ class MainActivity : ComponentActivity() {
                 onClearAllConversations = { clearAllConversations() },
                 onTogglePinConversation = { convId -> togglePinConversation(convId) },
                 onToggleArchiveConversation = { convId -> toggleArchiveConversation(convId) },
+                onDeleteChatMessage = { id -> deleteChatMessage(id) },
             )
         }
 
@@ -1721,6 +1722,12 @@ class MainActivity : ComponentActivity() {
         val lastUserMsg = messagesWithoutLast.lastOrNull { it.role == ChatRole.USER } ?: return
         state = state.copy(chatMessages = messagesWithoutLast.dropLast(1))
         sendChatMessage(lastUserMsg.content, lastUserMsg.attachments)
+    }
+
+    private fun deleteChatMessage(messageId: String) {
+        val updated = state.chatMessages.filterNot { it.id == messageId }
+        state = state.copy(chatMessages = updated)
+        syncActiveConversationMessages(updated)
     }
 
     private fun loadChatConversations() {

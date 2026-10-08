@@ -269,8 +269,9 @@ fun CredentialScreen(
             )
         }
 
-        // 6. Embedded Rewards / Balance Cards (only for providers supporting balances or credits)
-        if (currentProvider == Provider.WORKBUDDY) {
+        // 6. Embedded Rewards / Balance Cards (only for providers supporting balances or credits, and only when logged in)
+        val hasLoggedInAccounts = active != null || savedAccounts.isNotEmpty()
+        if (currentProvider == Provider.WORKBUDDY && hasLoggedInAccounts) {
             item {
                 WorkBuddyDailyCheckinCard(
                     state = state,
@@ -284,7 +285,7 @@ fun CredentialScreen(
                     onRefreshBalance = onRefreshBalance,
                 )
             }
-        } else if (currentProvider == Provider.ZCODE) {
+        } else if (currentProvider == Provider.ZCODE && hasLoggedInAccounts) {
             item {
                 ZCodeQuotaCard(
                     state = state,
@@ -292,14 +293,6 @@ fun CredentialScreen(
                     onRefreshBalance = onRefreshBalance,
                 )
             }
-        }
-
-        // 7. Account Backup & Restore (.json.gz)
-        item {
-            AccountBackupCard(
-                onExport = onExportBackup,
-                onImport = onImportBackup,
-            )
         }
 
         // 8. Saved Accounts Pool Section
@@ -443,8 +436,8 @@ fun ProviderDropdownSelector(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)), RoundedCornerShape(12.dp))
                     .clickable { expanded = true },
                 color = MaterialTheme.colorScheme.surface,
             ) {
@@ -452,7 +445,7 @@ fun ProviderDropdownSelector(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ProviderBrandBadge(group = selectedGroup, size = 38.dp)
+                    ProviderBrandBadge(group = selectedGroup, size = 36.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -479,6 +472,7 @@ fun ProviderDropdownSelector(
                         imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
                         contentDescription = "选择供应商",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -486,9 +480,11 @@ fun ProviderDropdownSelector(
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
+                shape = RoundedCornerShape(12.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .background(MaterialTheme.colorScheme.surface),
+                    .fillMaxWidth(0.92f),
             ) {
                 ProviderGroup.entries.forEach { group ->
                     val isSelected = group == selectedGroup

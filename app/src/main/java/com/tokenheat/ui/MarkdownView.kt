@@ -91,27 +91,34 @@ fun MarkdownView(
                     )
                 }
                 is MarkdownBlock.Quote -> {
-                    Row(
+                    Surface(
+                        shape = RoundedCornerShape(topStart = 2.dp, bottomStart = 2.dp, topEnd = 8.dp, bottomEnd = 8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                             .padding(vertical = 4.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(20.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        SelectionContainer {
-                            Text(
-                                text = renderInlineMarkdown(block.text, isDark),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontStyle = FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.5.dp)
+                                    .height(24.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), RoundedCornerShape(2.dp)),
                             )
+                            Spacer(Modifier.width(10.dp))
+                            SelectionContainer {
+                                Text(
+                                    text = renderInlineMarkdown(block.text, isDark),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontStyle = FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 22.sp,
+                                )
+                            }
                         }
                     }
                 }
@@ -170,19 +177,22 @@ fun ThinkingProcessCard(
     modifier: Modifier = Modifier,
     isStreaming: Boolean = false,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // User can freely toggle expand/collapse even while streaming
+    var isExpanded by remember { mutableStateOf(true) }
 
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded },
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
@@ -191,14 +201,14 @@ fun ThinkingProcessCard(
                         imageVector = Lucide.Brain,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         text = if (isStreaming) "正在深度思考..." else "思考过程",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (isStreaming) {
                         Spacer(Modifier.width(8.dp))
@@ -210,14 +220,14 @@ fun ThinkingProcessCard(
                     }
                 }
                 Icon(
-                    imageVector = if (expanded) Lucide.ChevronUp else Lucide.ChevronDown,
-                    contentDescription = null,
+                    imageVector = if (isExpanded) Lucide.ChevronUp else Lucide.ChevronDown,
+                    contentDescription = if (isExpanded) "折叠" else "展开",
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            AnimatedVisibility(visible = expanded || isStreaming) {
+            AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
                     SelectionContainer {
                         Text(
@@ -225,7 +235,7 @@ fun ThinkingProcessCard(
                             style = MaterialTheme.typography.bodySmall,
                             fontStyle = FontStyle.Italic,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            lineHeight = 18.sp,
+                            lineHeight = 20.sp,
                         )
                     }
                 }

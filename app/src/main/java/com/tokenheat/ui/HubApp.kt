@@ -1,15 +1,23 @@
 package com.tokenheat.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -120,8 +128,10 @@ fun HubApp(
     onClearAllConversations: () -> Unit = {},
     onTogglePinConversation: (String) -> Unit = {},
     onToggleArchiveConversation: (String) -> Unit = {},
+    onDeleteChatMessage: (String) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
+    var isChatDetailOpen by remember { mutableStateOf(false) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
 
     val systemDark = isSystemInDarkTheme()
@@ -167,43 +177,11 @@ fun HubApp(
                     }
                 },
                 bottomBar = {
-                    Surface(
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        color = MaterialTheme.colorScheme.surface,
-                    ) {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 0.dp,
-                        ) {
-                            HubTab.entries.forEachIndexed { index, item ->
-                                val isSelected = tab == index
-                                NavigationBarItem(
-                                    selected = isSelected,
-                                    onClick = { tab = index },
-                                    icon = {
-                                        Icon(
-                                            item.icon,
-                                            contentDescription = item.label,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    },
-                                    label = {
-                                        Text(
-                                            item.label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    ),
-                                )
-                            }
-                        }
+                    if (tab != HubTab.Chat.ordinal || !isChatDetailOpen) {
+                        FloatingNavigationBar(
+                            currentTab = tab,
+                            onSelectTab = { tab = it },
+                        )
                     }
                 },
             ) { padding ->
@@ -280,6 +258,8 @@ fun HubApp(
                             onClearAllConversations = onClearAllConversations,
                             onTogglePinConversation = onTogglePinConversation,
                             onToggleArchiveConversation = onToggleArchiveConversation,
+                            onDeleteChatMessage = onDeleteChatMessage,
+                            onChatDetailStateChanged = { isChatDetailOpen = it },
                             isDarkTheme = dark,
                             onToggleDarkTheme = { dark = !dark },
                         )
@@ -338,6 +318,75 @@ fun HubApp(
                 onCancel = onCancelLogin,
                 onDismiss = onDismissLoginDialog,
             )
+        }
+    }
+}
+
+/**
+ * Shadcn/iOS-inspired floating pill bottom navigation bar.
+ */
+@Composable
+private fun FloatingNavigationBar(
+    currentTab: Int,
+    onSelectTab: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            shadowElevation = 8.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                HubTab.entries.forEachIndexed { index, item ->
+                    val isSelected = currentTab == index
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable { onSelectTab(index) },
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            )
+                            AnimatedVisibility(
+                                visible = isSelected,
+                                enter = fadeIn() + expandHorizontally(),
+                            ) {
+                                Row {
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(
+                                        text = item.label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
