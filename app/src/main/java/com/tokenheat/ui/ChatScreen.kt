@@ -1651,13 +1651,6 @@ private fun AttachmentsPreviewStrip(
 }
 
 /**
- * 12-step discrete pill slider matching the visual design of Screenshot:
- * - 36dp pill container with fully rounded ends.
- * - Dark grey pill background track (Color(0xFF2C2C2E)).
- * - Light silver grey active track filling from start to thumb center (Color(0xFFA0A0A5)).
- * - 12 discrete tick dots (white when active, translucent white when inactive).
- * - Solid pure white thumb ball at the active step.
-/**
  * Discrete pill slider matching the visual design:
  * - 36dp pill container with fully rounded ends.
  * - Dark grey pill background track (Color(0xFF2C2C2E)).
