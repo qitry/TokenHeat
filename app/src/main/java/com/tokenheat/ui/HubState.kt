@@ -27,11 +27,33 @@ enum class HubTab(val label: String, val icon: ImageVector) {
 
 enum class ChatRole { USER, ASSISTANT, SYSTEM, TOOL }
 
-enum class ThinkingEffort(val label: String, val levelName: String, val budgetTokens: Int) {
-    OFF("关闭", "none", 0),
-    LOW("低强度", "low", 2048),
-    MEDIUM("中等", "medium", 8192),
-    HIGH("高强度", "high", 16384),
+enum class ThinkingEffort(
+    val label: String,
+    val levelName: String,
+    val budgetTokens: Int,
+    val stepIndex: Int,
+) {
+    OFF("关闭", "none", 0, 0),
+    T512("极速", "low", 512, 1),
+    T1K("微弱", "low", 1024, 2),
+    LOW("轻量", "low", 2048, 3),
+    T4K("适中", "medium", 4096, 4),
+    MEDIUM("均衡", "medium", 8192, 5),
+    T12K("进阶", "medium", 12288, 6),
+    HIGH("深度", "high", 16384, 7),
+    T24K("强力", "high", 24576, 8),
+    T32K("极限", "high", 32768, 9),
+    T48K("极致", "high", 49152, 10),
+    MAX("满血", "high", 65536, 11);
+
+    val step: Int get() = stepIndex + 1
+
+    companion object {
+        fun fromStep(step: Int): ThinkingEffort {
+            val clamped = step.coerceIn(0, entries.size - 1)
+            return entries[clamped]
+        }
+    }
 }
 
 enum class AttachmentType { IMAGE, TEXT_FILE }

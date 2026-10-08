@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,12 +78,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -299,20 +313,17 @@ fun ChatScreen(
             }
         }
 
-        // 4. Pending Attachments Preview Strip
-        if (state.pendingAttachments.isNotEmpty()) {
-            AttachmentsPreviewStrip(
-                attachments = state.pendingAttachments,
-                onRemove = onRemoveAttachment,
-            )
-        }
-
-        // 5. Claude App Style Bottom Input Bar with File/Image Attachment buttons
+        // 4. Floating compound input bar matching design blueprint (IMG_20261008_141556.jpg)
         ChatInputBar(
             inputText = inputText,
             isStreaming = state.isChatStreaming,
             supportsImages = activeModel?.supportsImages == true,
-            hasPendingAttachments = state.pendingAttachments.isNotEmpty(),
+            supportsReasoning = activeModel?.supportsReasoning == true,
+            activeModelId = activeModelId,
+            activeModel = activeModel,
+            thinkingEffort = state.thinkingEffort,
+            mcpEnabled = state.mcpEnabled,
+            pendingAttachments = state.pendingAttachments,
             onInputTextChange = { inputText = it },
             onSend = {
                 val text = inputText.trim()
@@ -330,6 +341,11 @@ fun ChatScreen(
                 }
             },
             onPickFile = onPickFile,
+            onRemoveAttachment = onRemoveAttachment,
+            onToggleMcpEnabled = onToggleMcpEnabled,
+            onUpdateThinkingEffort = onUpdateThinkingEffort,
+            onOpenModelDialog = { showModelDialog = true },
+            onOpenThinkingDialog = { showThinkingDialog = true },
         )
     }
 }
@@ -1367,56 +1383,545 @@ private fun AssistantMessageView(
     }
 }
 
-/** Attachments preview strip shown right above the input bar. */
+/** Attachments preview strip shown inside or above the input bar. */
 @Composable
 private fun AttachmentsPreviewStrip(
     attachments: List<ChatAttachment>,
     onRemove: (String) -> Unit,
 ) {
-    Surface(
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        items(attachments, key = { it.id }) { att ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = att.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "移除",
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clickable { onRemove(att.id) },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 12-step discrete pill slider matching the visual design of Screenshot:
+ * - 36dp pill container with fully rounded ends.
+ * - Dark grey pill background track (Color(0xFF2C2C2E)).
+ * - Light silver grey active track filling from start to thumb center (Color(0xFFA0A0A5)).
+ * - 12 discrete tick dots (white when active, translucent white when inactive).
+ * - Solid pure white thumb ball at the active step.
+ * - Supports drag and tap gestures to snap immediately to discrete step (0..11).
+ */
+@Composable
+fun SteppedPillSlider(
+    currentEffort: ThinkingEffort,
+    onEffortChanged: (ThinkingEffort) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val totalSteps = ThinkingEffort.entries.size // 12
+    val activeIndex = currentEffort.ordinal.coerceIn(0, totalSteps - 1)
+
+    val trackBgColor = Color(0xFF2C2C2E)
+    val activeTrackColor = Color(0xFFA0A0A5)
+    val activeDotColor = Color.White
+    val inactiveDotColor = Color.White.copy(alpha = 0.35f)
+    val thumbColor = Color.White
+    val thumbShadowColor = Color.Black.copy(alpha = 0.3f)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(36.dp)
+            .pointerInput(totalSteps) {
+                detectTapGestures { offset ->
+                    val pillHeight = size.height.toFloat()
+                    val pillWidth = size.width.toFloat()
+                    val radius = pillHeight / 2f
+                    val trackStart = radius
+                    val trackEnd = pillWidth - radius
+                    val trackLength = (trackEnd - trackStart).coerceAtLeast(1f)
+                    val fraction = ((offset.x - trackStart) / trackLength).coerceIn(0f, 1f)
+                    val newIndex = (fraction * (totalSteps - 1)).roundToInt().coerceIn(0, totalSteps - 1)
+                    onEffortChanged(ThinkingEffort.entries[newIndex])
+                }
+            }
+            .pointerInput(totalSteps) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    val pillHeight = size.height.toFloat()
+                    val pillWidth = size.width.toFloat()
+                    val radius = pillHeight / 2f
+                    val trackStart = radius
+                    val trackEnd = pillWidth - radius
+                    val trackLength = (trackEnd - trackStart).coerceAtLeast(1f)
+                    val fraction = ((change.position.x - trackStart) / trackLength).coerceIn(0f, 1f)
+                    val newIndex = (fraction * (totalSteps - 1)).roundToInt().coerceIn(0, totalSteps - 1)
+                    onEffortChanged(ThinkingEffort.entries[newIndex])
+                }
+            },
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val pillHeight = size.height
+            val pillWidth = size.width
+            val pillRadius = pillHeight / 2f
+
+            // 1. Draw outer dark capsule background
+            drawRoundRect(
+                color = trackBgColor,
+                size = Size(pillWidth, pillHeight),
+                cornerRadius = CornerRadius(pillRadius, pillRadius),
+            )
+
+            val trackStart = pillRadius
+            val trackEnd = pillWidth - pillRadius
+            val trackLength = (trackEnd - trackStart).coerceAtLeast(1f)
+            val stepDistance = trackLength / (totalSteps - 1)
+
+            val thumbX = trackStart + activeIndex * stepDistance
+            val centerY = pillHeight / 2f
+            val thumbRadius = pillRadius - 2.5.dp.toPx()
+
+            // 2. Draw active track from left capsule end to thumb center
+            if (activeIndex > 0) {
+                val activeWidth = (thumbX + thumbRadius * 0.5f).coerceAtMost(pillWidth)
+                drawRoundRect(
+                    color = activeTrackColor,
+                    topLeft = Offset(0f, 0f),
+                    size = Size(activeWidth, pillHeight),
+                    cornerRadius = CornerRadius(pillRadius, pillRadius),
+                )
+            }
+
+            // 3. Draw 12 tick dots
+            val dotRadius = 2.4.dp.toPx()
+            for (i in 0 until totalSteps) {
+                val dotX = trackStart + i * stepDistance
+                val isCoveredByThumb = kotlin.math.abs(dotX - thumbX) < thumbRadius * 0.8f
+                if (!isCoveredByThumb) {
+                    val dotColor = if (i <= activeIndex) activeDotColor else inactiveDotColor
+                    drawCircle(
+                        color = dotColor,
+                        radius = dotRadius,
+                        center = Offset(dotX, centerY),
+                    )
+                }
+            }
+
+            // 4. Draw Thumb (pure white circle with shadow)
+            drawCircle(
+                color = thumbShadowColor,
+                radius = thumbRadius + 1.5.dp.toPx(),
+                center = Offset(thumbX, centerY + 1.dp.toPx()),
+            )
+            drawCircle(
+                color = thumbColor,
+                radius = thumbRadius,
+                center = Offset(thumbX, centerY),
+            )
+        }
+    }
+}
+
+/** In-card thinking effort slider panel expandable via the "思考强度" button. */
+@Composable
+private fun ThinkingSliderPanel(
+    currentEffort: ThinkingEffort,
+    modelSupportsReasoning: Boolean,
+    onEffortChanged: (ThinkingEffort) -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            items(attachments, key = { it.id }) { att ->
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = if (currentEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "思考强度: ${currentEffort.label}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (currentEffort == ThinkingEffort.OFF) "(关闭)" else "(${currentEffort.budgetTokens} tokens)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = "收起",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onClose() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        SteppedPillSlider(
+            currentEffort = currentEffort,
+            onEffortChanged = onEffortChanged,
+        )
+    }
+}
+
+/**
+ * Bottom chat input toolbar strictly matching design blueprint (IMG_20261008_141556.jpg):
+ * - Compound card with RoundedCornerShape(22.dp).
+ * - Upper area: Borderless multi-line text input with placeholder "描述你的任务...".
+ * - Lower toolbar Row:
+ *   - Left: [+] (Pick Image/File), [联网] (MCP/Exa quick toggle), [思考强度] (Expand 12-step slider)
+ *   - Right: [Model] (Active model capsule with brand logo & picker), [Send/Stop] (Action circle button)
+ */
+@Composable
+private fun ChatInputBar(
+    inputText: String,
+    isStreaming: Boolean,
+    supportsImages: Boolean,
+    supportsReasoning: Boolean,
+    activeModelId: String,
+    activeModel: HubModel?,
+    thinkingEffort: ThinkingEffort,
+    mcpEnabled: Boolean,
+    pendingAttachments: List<ChatAttachment>,
+    onInputTextChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
+    onToggleMcpEnabled: (Boolean) -> Unit,
+    onUpdateThinkingEffort: (ThinkingEffort) -> Unit,
+    onOpenModelDialog: () -> Unit,
+    onOpenThinkingDialog: () -> Unit,
+) {
+    var showThinkingSlider by remember { mutableStateOf(false) }
+    var showAttachMenu by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .imePadding(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 2.dp,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 1. Pending Attachments Preview
+            if (pendingAttachments.isNotEmpty()) {
+                AttachmentsPreviewStrip(
+                    attachments = pendingAttachments,
+                    onRemove = onRemoveAttachment,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            }
+
+            // 2. Expandable 12-step discrete thinking effort slider panel
+            AnimatedVisibility(visible = showThinkingSlider) {
+                Column {
+                    ThinkingSliderPanel(
+                        currentEffort = thinkingEffort,
+                        modelSupportsReasoning = supportsReasoning,
+                        onEffortChanged = onUpdateThinkingEffort,
+                        onClose = { showThinkingSlider = false },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                }
+            }
+
+            // 3. Multi-line borderless text input with strictly defined placeholder
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, top = 12.dp, bottom = 6.dp),
+            ) {
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = onInputTextChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 36.dp, max = 150.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { innerTextField ->
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = "描述你的任务...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                        }
+                        innerTextField()
+                    },
+                )
+            }
+
+            // 4. Bottom action Row matching blueprint layout
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Left action group: [+], [联网], [思考强度]
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    // [+] Attachment Button
+                    Box {
+                        IconButton(
+                            onClick = { showAttachMenu = true },
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = "添加附件",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showAttachMenu,
+                            onDismissRequest = { showAttachMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("添加图片" + if (!supportsImages) " (当前模型不支持视觉)" else "") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.Image,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (supportsImages) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                    )
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onPickImage()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("添加文本/代码文件") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.AttachFile,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onPickFile()
+                                },
+                            )
+                        }
+                    }
+
+                    // [联网] Toggle Pill Button
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onToggleMcpEnabled(!mcpEnabled) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (mcpEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = BorderStroke(
+                            1.dp,
+                            if (mcpEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant,
+                        ),
                     ) {
-                        Icon(
-                            imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = att.name,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 120.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "移除",
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Handyman,
+                                contentDescription = "联网",
+                                modifier = Modifier.size(14.dp),
+                                tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "联网",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (mcpEnabled) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    // [思考强度] Toggle Slider Pill Button
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { showThinkingSlider = !showThinkingSlider },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (thinkingEffort != ThinkingEffort.OFF || showThinkingSlider) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (thinkingEffort != ThinkingEffort.OFF || showThinkingSlider) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Psychology,
+                                contentDescription = "思考强度",
+                                modifier = Modifier.size(14.dp),
+                                tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (thinkingEffort != ThinkingEffort.OFF) "思考: ${thinkingEffort.label}" else "思考",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (thinkingEffort != ThinkingEffort.OFF) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                // Spacer pushing right controls to the right
+                Spacer(Modifier.weight(1f))
+
+                // Right action group: [Model Pill], [Send/Stop Button]
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // [Model Capsule] Button
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onOpenModelDialog() },
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ModelBrandBadge(modelId = activeModelId, size = 15.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = (activeModel?.name ?: activeModelId).ifBlank { "模型" }.substringAfterLast('/'),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 80.dp),
+                            )
+                            Icon(
+                                imageVector = Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = "选择模型",
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+
+                    // [Send/Stop Button]
+                    if (isStreaming) {
+                        IconButton(
+                            onClick = onStop,
                             modifier = Modifier
-                                .size(14.dp)
-                                .clickable { onRemove(att.id) },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)), CircleShape),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Stop,
+                                contentDescription = "停止生成",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    } else {
+                        val canSend = inputText.trim().isNotEmpty() || pendingAttachments.isNotEmpty()
+                        IconButton(
+                            onClick = onSend,
+                            enabled = canSend,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .border(
+                                    BorderStroke(1.dp, if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
+                                    CircleShape,
+                                ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Send,
+                                contentDescription = "发送",
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1424,131 +1929,7 @@ private fun AttachmentsPreviewStrip(
     }
 }
 
-/** Bottom chat input toolbar with Image, File, Send, and Stop controls. */
-@Composable
-private fun ChatInputBar(
-    inputText: String,
-    isStreaming: Boolean,
-    supportsImages: Boolean,
-    hasPendingAttachments: Boolean,
-    onInputTextChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStop: () -> Unit,
-    onPickImage: () -> Unit,
-    onPickFile: () -> Unit,
-) {
-    Surface(
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            // Attachment Action Buttons (Claude App style)
-            Row(
-                modifier = Modifier.padding(bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Add Image button (checks vision)
-                IconButton(
-                    onClick = onPickImage,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Image,
-                        contentDescription = "添加图片",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (supportsImages) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
-                    )
-                }
-
-                // Add File button (any model supports)
-                IconButton(
-                    onClick = onPickFile,
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AttachFile,
-                        contentDescription = "添加文件",
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputTextChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 44.dp, max = 130.dp),
-                placeholder = {
-                    Text(
-                        text = "输入消息，支持 Markdown 与附件...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                shape = RoundedCornerShape(20.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.outline,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                ),
-                maxLines = 5,
-            )
-
-            Spacer(Modifier.width(6.dp))
-
-            if (isStreaming) {
-                IconButton(
-                    onClick = onStop,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Stop,
-                        contentDescription = "停止生成",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-            } else {
-                val canSend = inputText.trim().isNotEmpty() || hasPendingAttachments
-                IconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                        .border(
-                            BorderStroke(1.dp, if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
-                            CircleShape,
-                        ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Send,
-                        contentDescription = "发送",
-                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Thinking Intensity selector dialog matching OpenAI o1/Claude Thinking/Codex. */
+/** Thinking Intensity selector dialog with 12-step slider and quick options. */
 @Composable
 private fun ThinkingEffortDialog(
     currentEffort: ThinkingEffort,
@@ -1556,6 +1937,8 @@ private fun ThinkingEffortDialog(
     onSelect: (ThinkingEffort) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var localEffort by remember(currentEffort) { mutableStateOf(currentEffort) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1575,63 +1958,118 @@ private fun ThinkingEffortDialog(
             }
         },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(
-                    text = if (modelSupportsReasoning) "当前模型支持深度思考推理，调节思考预算可平衡响应深度与生成速度。"
-                    else "当前模型未显式声明思考能力，设置思考强度将尝试向下游传递推理预算。",
+                    text = if (modelSupportsReasoning) "当前模型支持深度思考推理，拖动药丸滑块可精细调节思考预算 (0 ~ 65,536 tokens)。"
+                    else "当前模型未显式声明思考能力，设置思考强度将向下游传递推理预算。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp,
                 )
+
+                Spacer(Modifier.height(14.dp))
+
+                // Current effort pill display
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "当前档位: ${localEffort.label} (第 ${localEffort.step} 档)",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = if (localEffort.budgetTokens > 0) "${localEffort.budgetTokens} tokens" else "关闭思考",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(12.dp))
 
+                // 12-Step discrete pill slider
+                SteppedPillSlider(
+                    currentEffort = localEffort,
+                    onEffortChanged = {
+                        localEffort = it
+                        onSelect(it)
+                    },
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                Text(
+                    text = "12 级档位列表:",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(6.dp))
+
                 ThinkingEffort.entries.forEach { effort ->
+                    val isSelected = effort == localEffort
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (effort == currentEffort) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+                        color = if (isSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
                         border = BorderStroke(
                             1.dp,
-                            if (effort == currentEffort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 3.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(effort) },
+                            .clickable {
+                                localEffort = effort
+                                onSelect(effort)
+                            },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             RadioButton(
-                                selected = effort == currentEffort,
-                                onClick = { onSelect(effort) },
+                                selected = isSelected,
+                                onClick = {
+                                    localEffort = effort
+                                    onSelect(effort)
+                                },
+                                modifier = Modifier.size(20.dp),
                             )
                             Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = effort.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (effort == currentEffort) FontWeight.Bold else FontWeight.Medium,
-                                )
-                                Text(
-                                    text = when (effort) {
-                                        ThinkingEffort.OFF -> "关闭思考链，直接给出回答"
-                                        ThinkingEffort.LOW -> "轻量思考 (预算 ~2,048 tokens)"
-                                        ThinkingEffort.MEDIUM -> "平衡深度思考 (预算 ~8,192 tokens)"
-                                        ThinkingEffort.HIGH -> "高强度深度推理 (预算 ~16,384 tokens)"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Text(
+                                text = effort.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = if (effort.budgetTokens > 0) "${effort.budgetTokens} tokens" else "关闭",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text("完成") }
         },
         shape = RoundedCornerShape(12.dp),
         containerColor = MaterialTheme.colorScheme.surface,
