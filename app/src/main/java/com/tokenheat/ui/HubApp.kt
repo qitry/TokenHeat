@@ -116,6 +116,11 @@ fun HubApp(
     onPickImage: () -> Unit = {},
     onPickFile: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
+    onSelectConversation: (String) -> Unit = {},
+    onNewConversation: () -> Unit = {},
+    onRenameConversation: (String, String) -> Unit = { _, _ -> },
+    onDeleteConversation: (String) -> Unit = {},
+    onClearAllConversations: () -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -128,7 +133,8 @@ fun HubApp(
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
                 topBar = {
-                    TopAppBar(
+                    if (tab != HubTab.Chat.ordinal) {
+                        TopAppBar(
                         title = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
@@ -159,6 +165,7 @@ fun HubApp(
                             titleContentColor = MaterialTheme.colorScheme.onSurface,
                         ),
                     )
+                    }
                 },
                 bottomBar = {
                     Surface(
@@ -267,6 +274,13 @@ fun HubApp(
                             onPickImage = onPickImage,
                             onPickFile = onPickFile,
                             onRemoveAttachment = onRemoveAttachment,
+                            onSelectConversation = onSelectConversation,
+                            onNewConversation = onNewConversation,
+                            onRenameConversation = onRenameConversation,
+                            onDeleteConversation = onDeleteConversation,
+                            onClearAllConversations = onClearAllConversations,
+                            isDarkTheme = dark,
+                            onToggleDarkTheme = { dark = !dark },
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

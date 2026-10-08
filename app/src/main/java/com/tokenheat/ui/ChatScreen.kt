@@ -32,16 +32,22 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -49,14 +55,23 @@ import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -104,7 +119,17 @@ fun ChatScreen(
     onPickImage: () -> Unit,
     onPickFile: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
+    onSelectConversation: (String) -> Unit = {},
+    onNewConversation: () -> Unit = {},
+    onRenameConversation: (String, String) -> Unit = { _, _ -> },
+    onDeleteConversation: (String) -> Unit = {},
+    onClearAllConversations: () -> Unit = {},
+    isDarkTheme: Boolean = true,
+    onToggleDarkTheme: () -> Unit = {},
 ) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val coroutineScope = rememberCoroutineScope()
+
     var inputText by remember { mutableStateOf("") }
     var showModelDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -112,7 +137,21 @@ fun ChatScreen(
     var showMcpDialog by remember { mutableStateOf(false) }
     var showNoVisionDialog by remember { mutableStateOf(false) }
 
+    // Conversation dialog states
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameTargetId by remember { mutableStateOf("") }
+    var renameInitialTitle by remember { mutableStateOf("") }
+
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var deleteTargetId by remember { mutableStateOf("") }
+
+    var showClearAllConfirmDialog by remember { mutableStateOf(false) }
+
+    val activeConversation = state.activeConversation
+    val activeConversationTitle = activeConversation?.title ?: "新对话"
+
     val activeModelId = state.selectedChatModelId
+        ?: activeConversation?.modelId
         ?: state.models.firstOrNull { it.isFree }?.id
         ?: state.models.firstOrNull()?.id
         ?: ""
@@ -130,34 +169,84 @@ fun ChatScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        // 1. Top Claude/Codex Toolbar: Model Selector, Thinking Effort & MCP Tool Control
-        ChatTopToolbar(
-            activeModelId = activeModelId,
-            activeModel = activeModel,
-            thinkingEffort = state.thinkingEffort,
-            mcpEnabled = state.mcpEnabled,
-            modelsCount = state.models.size,
-            hasMessages = state.chatMessages.isNotEmpty(),
-            onOpenModelDialog = { showModelDialog = true },
-            onOpenThinkingDialog = { showThinkingDialog = true },
-            onOpenMcpDialog = { showMcpDialog = true },
-            onRefreshModels = onRefreshModels,
-            onOpenClearDialog = { showClearDialog = true },
-        )
-
-        // 2. Bridge Service Offline Warning Banner
-        AnimatedVisibility(visible = !state.bridgeRunning) {
-            BridgeOfflineBanner(
-                port = state.port,
-                onStartBridge = { onStartBridge(state.port) },
-            )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(310.dp),
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                drawerContentColor = MaterialTheme.colorScheme.onSurface,
+                drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+            ) {
+                ConversationDrawerContent(
+                    conversations = state.conversations,
+                    activeConversationId = state.activeConversationId,
+                    onSelect = { convId ->
+                        onSelectConversation(convId)
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                    onNew = {
+                        onNewConversation()
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                    onRename = { convId, title ->
+                        renameTargetId = convId
+                        renameInitialTitle = title
+                        showRenameDialog = true
+                    },
+                    onDelete = { convId ->
+                        deleteTargetId = convId
+                        showDeleteConfirmDialog = true
+                    },
+                    onClearAll = {
+                        showClearAllConfirmDialog = true
+                    },
+                    onCloseDrawer = {
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                )
+            }
         }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            // 1. Top Kelivo/Claude Toolbar: Drawer Menu, Title, Model Selector & Quick Actions
+            ChatTopToolbar(
+                conversationTitle = activeConversationTitle,
+                activeModelId = activeModelId,
+                activeModel = activeModel,
+                thinkingEffort = state.thinkingEffort,
+                mcpEnabled = state.mcpEnabled,
+                modelsCount = state.models.size,
+                hasMessages = state.chatMessages.isNotEmpty(),
+                isDarkTheme = isDarkTheme,
+                onOpenDrawer = { coroutineScope.launch { drawerState.open() } },
+                onEditTitle = {
+                    renameTargetId = activeConversation?.id ?: ""
+                    renameInitialTitle = activeConversationTitle
+                    showRenameDialog = true
+                },
+                onOpenModelDialog = { showModelDialog = true },
+                onNewConversation = onNewConversation,
+                onOpenThinkingDialog = { showThinkingDialog = true },
+                onOpenMcpDialog = { showMcpDialog = true },
+                onRefreshModels = onRefreshModels,
+                onOpenClearDialog = { showClearDialog = true },
+                onToggleDarkTheme = onToggleDarkTheme,
+            )
+
+            // 2. Bridge Service Offline Warning Banner
+            AnimatedVisibility(visible = !state.bridgeRunning) {
+                BridgeOfflineBanner(
+                    port = state.port,
+                    onStartBridge = { onStartBridge(state.port) },
+                )
+            }
 
         // 3. Messages List or Empty State (Claude style: direct text, no speech bubble/avatar for AI)
         Box(
@@ -241,6 +330,45 @@ fun ChatScreen(
                 }
             },
             onPickFile = onPickFile,
+        )
+    }
+}
+
+    // Rename Conversation Dialog
+    if (showRenameDialog) {
+        RenameConversationDialog(
+            initialTitle = renameInitialTitle,
+            onConfirm = { newTitle ->
+                if (renameTargetId.isNotBlank()) {
+                    onRenameConversation(renameTargetId, newTitle)
+                }
+                showRenameDialog = false
+            },
+            onDismiss = { showRenameDialog = false },
+        )
+    }
+
+    // Delete Single Conversation Confirm Dialog
+    if (showDeleteConfirmDialog) {
+        DeleteConversationConfirmDialog(
+            onConfirm = {
+                if (deleteTargetId.isNotBlank()) {
+                    onDeleteConversation(deleteTargetId)
+                }
+                showDeleteConfirmDialog = false
+            },
+            onDismiss = { showDeleteConfirmDialog = false },
+        )
+    }
+
+    // Clear All Conversations Confirm Dialog
+    if (showClearAllConfirmDialog) {
+        ClearAllConversationsConfirmDialog(
+            onConfirm = {
+                onClearAllConversations()
+                showClearAllConfirmDialog = false
+            },
+            onDismiss = { showClearAllConfirmDialog = false },
         )
     }
 
@@ -358,18 +486,26 @@ fun ChatScreen(
  */
 @Composable
 private fun ChatTopToolbar(
+    conversationTitle: String,
     activeModelId: String,
     activeModel: HubModel?,
     thinkingEffort: ThinkingEffort,
     mcpEnabled: Boolean,
     modelsCount: Int,
     hasMessages: Boolean,
+    isDarkTheme: Boolean,
+    onOpenDrawer: () -> Unit,
+    onEditTitle: () -> Unit,
     onOpenModelDialog: () -> Unit,
+    onNewConversation: () -> Unit,
     onOpenThinkingDialog: () -> Unit,
     onOpenMcpDialog: () -> Unit,
     onRefreshModels: () -> Unit,
     onOpenClearDialog: () -> Unit,
+    onToggleDarkTheme: () -> Unit,
 ) {
+    var showMoreMenu by remember { mutableStateOf(false) }
+
     Surface(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         color = MaterialTheme.colorScheme.surface,
@@ -377,104 +513,605 @@ private fun ChatTopToolbar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Model Selector Card
-            Surface(
+            // Left: Hamburger Menu + Conversation Title (clickable)
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onOpenModelDialog() },
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    .padding(end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(
+                    onClick = onOpenDrawer,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Menu,
+                        contentDescription = "历史会话",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
+
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onEditTitle() }
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ModelBrandBadge(modelId = activeModelId, size = 26.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = activeModel?.name ?: activeModelId.ifBlank { "选择模型" },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
+                    Text(
+                        text = conversationTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = "重命名",
+                        modifier = Modifier.size(13.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
+            }
+
+            // Right Action Elements: Compact Model Capsule + New Chat + More Menu
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Model Capsule Button
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable { onOpenModelDialog() },
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ModelBrandBadge(modelId = activeModelId, size = 18.dp)
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = (activeModel?.name ?: activeModelId).ifBlank { "选择模型" }.substringAfterLast('/'),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 95.dp),
+                        )
+                        Icon(
+                            imageVector = Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = "切换模型",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // New Chat Icon Button
+                IconButton(
+                    onClick = onNewConversation,
+                    modifier = Modifier.size(34.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = "新建对话",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+
+                // More Menu Icon Button
+                Box {
+                    IconButton(
+                        onClick = { showMoreMenu = true },
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreVert,
+                            contentDescription = "更多设置",
+                            modifier = Modifier.size(19.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text("思考强度: ${thinkingEffort.levelName}")
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Psychology,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                onOpenThinkingDialog()
+                            },
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(if (mcpEnabled) "MCP/Exa搜索: 已启用" else "MCP/Exa搜索: 未启用")
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Handyman,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                onOpenMcpDialog()
+                            },
+                        )
+
+                        DropdownMenuItem(
+                            text = {
+                                Text(if (isDarkTheme) "切换为浅色模式" else "切换为深色模式")
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (isDarkTheme) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                onToggleDarkTheme()
+                            },
+                        )
+
+                        if (modelsCount == 0) {
+                            DropdownMenuItem(
+                                text = { Text("刷新模型列表") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onRefreshModels()
+                                },
                             )
-                            if (activeModel?.isFree == true) {
-                                Spacer(Modifier.width(4.dp))
-                                PillBadge(text = "免费", variant = BadgeVariant.Success)
-                            }
+                        }
+
+                        if (hasMessages) {
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text("清空当前对话", color = MaterialTheme.colorScheme.error)
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    onOpenClearDialog()
+                                },
+                            )
                         }
                     }
-                    Icon(
-                        imageVector = Icons.Outlined.KeyboardArrowDown,
-                        contentDescription = "切换模型",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
+        }
+    }
+}
 
-            Spacer(Modifier.width(8.dp))
+/**
+ * Kelivo App style navigation drawer for managing conversation history.
+ */
+@Composable
+private fun ConversationDrawerContent(
+    conversations: List<ChatConversation>,
+    activeConversationId: String?,
+    onSelect: (String) -> Unit,
+    onNew: () -> Unit,
+    onRename: (String, String) -> Unit,
+    onDelete: (String) -> Unit,
+    onClearAll: () -> Unit,
+    onCloseDrawer: () -> Unit,
+) {
+    val sortedConversations = remember(conversations) {
+        conversations.sortedByDescending { it.updatedAt }
+    }
 
-            // Thinking Intensity quick toggle button
-            IconButton(
-                onClick = onOpenThinkingDialog,
-                modifier = Modifier.size(34.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Psychology,
-                    contentDescription = "思考强度",
-                    modifier = Modifier.size(19.dp),
-                    tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface),
+    ) {
+        // Drawer Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "对话列表",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(8.dp))
+                PillBadge(
+                    text = "共 ${conversations.size} 个",
+                    variant = BadgeVariant.Neutral,
                 )
             }
-
-            // MCP & Exa AI search config button
             IconButton(
-                onClick = onOpenMcpDialog,
-                modifier = Modifier.size(34.dp),
+                onClick = onCloseDrawer,
+                modifier = Modifier.size(28.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Handyman,
-                    contentDescription = "MCP工具与Exa搜索",
-                    modifier = Modifier.size(19.dp),
-                    tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "关闭",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
 
-            if (modelsCount == 0) {
-                IconButton(onClick = onRefreshModels, modifier = Modifier.size(34.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "刷新模型",
-                        modifier = Modifier.size(19.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+        // "+ New Chat" Kelivo style prominent button
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onNew() },
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "新建对话",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
+        }
 
-            IconButton(
-                onClick = onOpenClearDialog,
-                enabled = hasMessages,
-                modifier = Modifier.size(34.dp),
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+        // Conversations List
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(
+                items = sortedConversations,
+                key = { it.id },
+            ) { conv ->
+                val isActive = conv.id == activeConversationId
+                ConversationDrawerItem(
+                    conversation = conv,
+                    isActive = isActive,
+                    onClick = { onSelect(conv.id) },
+                    onRename = { onRename(conv.id, conv.title) },
+                    onDelete = { onDelete(conv.id) },
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+        // Drawer Footer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TextButton(
+                onClick = onClearAll,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
-                    contentDescription = "清空对话",
-                    modifier = Modifier.size(19.dp),
-                    tint = if (hasMessages) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "清空全部历史",
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
         }
     }
+}
+
+/** Single conversation card in the navigation drawer. */
+@Composable
+private fun ConversationDrawerItem(
+    conversation: ChatConversation,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+    val timeStr = remember(conversation.updatedAt) { timeFormat.format(Date(conversation.updatedAt)) }
+
+    val lastMessagePreview = remember(conversation.messages) {
+        val last = conversation.messages.lastOrNull { it.content.isNotBlank() }
+        last?.content?.trim()?.replace("\n", " ")?.take(36) ?: "空会话"
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() },
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(
+            1.dp,
+            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
+        ),
+        color = if (isActive) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.ChatBubbleOutline,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+
+            Spacer(Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = conversation.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = lastMessagePreview,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "· $timeStr",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+            }
+
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = "操作",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("重命名") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            onRename()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Outlined.DeleteOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Dialog for renaming a conversation. */
+@Composable
+private fun RenameConversationDialog(
+    initialTitle: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(initialTitle) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "重命名对话",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("对话名称") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(text.trim()) },
+                enabled = text.isNotBlank(),
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+/** Dialog for confirming deletion of a single conversation. */
+@Composable
+private fun DeleteConversationConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "删除此对话",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Text(
+                text = "确定要删除该对话记录吗？所有消息将被移除，此操作无法撤销。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+/** Dialog for clearing all conversation history. */
+@Composable
+private fun ClearAllConversationsConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "清空全部历史对话",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Text(
+                text = "确定要清空全部对话历史吗？所有现有会话将被删除并为您新建一个空白对话。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("清空全部", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }
 
 /** User message bubble with optional image and file attachments. */

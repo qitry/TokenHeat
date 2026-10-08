@@ -67,6 +67,15 @@ data class ChatMessage(
     val toolCalls: List<ChatToolCall> = emptyList(),
 )
 
+data class ChatConversation(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String = "新对话",
+    val modelId: String? = null,
+    val messages: List<ChatMessage> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
 /** Everything the screens render; owned by the activity and backed by the service. */
 data class HubState(
     val credential: Credential? = null,
@@ -111,7 +120,12 @@ data class HubState(
     val mcpServers: List<McpServerConfig> = emptyList(),
     val mcpEnabled: Boolean = false,
     val pendingAttachments: List<ChatAttachment> = emptyList(),
+    val conversations: List<ChatConversation> = emptyList(),
+    val activeConversationId: String? = null,
 )
+
+val HubState.activeConversation: ChatConversation?
+    get() = conversations.firstOrNull { it.id == activeConversationId } ?: conversations.firstOrNull()
 
 /** Real-time OAuth/CLI login session state for dialog and status rendering. */
 data class LoginFlowState(

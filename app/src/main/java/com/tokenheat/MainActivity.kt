@@ -68,11 +68,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import com.tokenheat.data.ChatConversationStore
+import com.tokenheat.ui.ChatConversation
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var store: CredentialStore
     private lateinit var callLog: CallLogStore
+    private lateinit var chatStore: ChatConversationStore
     private var service: BridgeService? = null
     private var bound by mutableStateOf(false)
     private var pollJob: Job? = null
@@ -142,6 +145,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = CredentialStore(this)
         callLog = CallLogStore(this)
+        chatStore = ChatConversationStore(this)
         // One-time repair: keys once mis-saved into a build file move home.
         store.repairMisplacedApiKeys()
         Notifications.ensureChannel(this)
@@ -153,6 +157,7 @@ class MainActivity : ComponentActivity() {
         loadModels()
         loadCalls()
         loadMcpSettings()
+        loadChatConversations()
         state = state.copy(
             notificationsAllowed = Notifications.hasPermission(this),
             overlayOpacity = BridgeSettings.opacity(this),
@@ -253,6 +258,11 @@ class MainActivity : ComponentActivity() {
                 onPickImage = { imagePickerLauncher.launch("image/*") },
                 onPickFile = { filePickerLauncher.launch("*/*") },
                 onRemoveAttachment = { id -> state = state.copy(pendingAttachments = state.pendingAttachments.filter { it.id != id }) },
+                onSelectConversation = { convId -> switchConversation(convId) },
+                onNewConversation = { createConversation() },
+                onRenameConversation = { convId, newTitle -> renameConversation(convId, newTitle) },
+                onDeleteConversation = { convId -> deleteConversation(convId) },
+                onClearAllConversations = { clearAllConversations() },
             )
         }
 
@@ -1307,7 +1317,18 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        var currentActiveId = state.activeConversationId
+        var convs = state.conversations
+        if (currentActiveId == null || convs.none { it.id == currentActiveId }) {
+            val fresh = ChatConversation(title = "新对话", modelId = state.selectedChatModelId)
+            convs = listOf(fresh) + convs
+            currentActiveId = fresh.id
+            state = state.copy(conversations = convs, activeConversationId = currentActiveId)
+        }
+
+        val currentConv = convs.first { it.id == currentActiveId }
         val targetModelId = state.selectedChatModelId
+            ?: currentConv.modelId
             ?: state.models.firstOrNull { it.isFree }?.id
             ?: state.models.firstOrNull()?.id
             ?: "default"
@@ -1327,12 +1348,30 @@ class MainActivity : ComponentActivity() {
             isStreaming = true,
         )
 
+        val newMessages = state.chatMessages + userMsg + assistantMsg
+        val autoTitle = if (currentConv.title == "新对话" && currentConv.messages.isEmpty() && text.isNotBlank()) {
+            text.trim().lines().firstOrNull { it.isNotBlank() }?.take(22) ?: "新对话"
+        } else currentConv.title
+
+        val updatedConvs = convs.map { conv ->
+            if (conv.id == currentActiveId) {
+                conv.copy(
+                    title = autoTitle,
+                    modelId = targetModelId,
+                    messages = newMessages,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            } else conv
+        }
+
         state = state.copy(
-            chatMessages = state.chatMessages + userMsg + assistantMsg,
+            conversations = updatedConvs,
+            chatMessages = newMessages,
             pendingAttachments = emptyList(),
             isChatStreaming = true,
             selectedChatModelId = targetModelId,
         )
+        chatStore.save(updatedConvs)
 
         if (!state.bridgeRunning) {
             startBridge(state.port, silent = true)
@@ -1569,15 +1608,18 @@ class MainActivity : ComponentActivity() {
                         tools = toolCallBuilder,
                         isStreaming = false,
                     )
+                    syncActiveConversationMessages(state.chatMessages)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
                     withContext(Dispatchers.Main) {
                         finishAssistantMessageOnCancel(assistantMsgId)
+                        syncActiveConversationMessages(state.chatMessages)
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         updateAssistantMessageError(assistantMsgId, "连接异常: ${e.message ?: "未知错误"}")
+                        syncActiveConversationMessages(state.chatMessages)
                     }
                 }
             } finally {
@@ -1679,9 +1721,128 @@ class MainActivity : ComponentActivity() {
         sendChatMessage(lastUserMsg.content, lastUserMsg.attachments)
     }
 
+    private fun loadChatConversations() {
+        val loaded = chatStore.load()
+        if (loaded.isEmpty()) {
+            val initial = ChatConversation(title = "新对话")
+            chatStore.save(listOf(initial))
+            state = state.copy(
+                conversations = listOf(initial),
+                activeConversationId = initial.id,
+                chatMessages = emptyList(),
+            )
+        } else {
+            val active = loaded.maxByOrNull { it.updatedAt } ?: loaded.first()
+            state = state.copy(
+                conversations = loaded,
+                activeConversationId = active.id,
+                chatMessages = active.messages,
+                selectedChatModelId = active.modelId ?: state.selectedChatModelId,
+            )
+        }
+    }
+
+    private fun createConversation() {
+        stopChatMessage()
+        val newConv = ChatConversation(
+            title = "新对话",
+            modelId = state.selectedChatModelId,
+        )
+        val updated = listOf(newConv) + state.conversations
+        state = state.copy(
+            conversations = updated,
+            activeConversationId = newConv.id,
+            chatMessages = emptyList(),
+            pendingAttachments = emptyList(),
+        )
+        chatStore.save(updated)
+    }
+
+    private fun switchConversation(convId: String) {
+        if (state.activeConversationId == convId) return
+        stopChatMessage()
+        val target = state.conversations.firstOrNull { it.id == convId } ?: return
+        state = state.copy(
+            activeConversationId = target.id,
+            chatMessages = target.messages,
+            selectedChatModelId = target.modelId ?: state.selectedChatModelId,
+            pendingAttachments = emptyList(),
+        )
+    }
+
+    private fun renameConversation(convId: String, newTitle: String) {
+        val trimmed = newTitle.trim().ifBlank { "未命名会话" }
+        val updated = state.conversations.map { conv ->
+            if (conv.id == convId) conv.copy(title = trimmed) else conv
+        }
+        state = state.copy(conversations = updated)
+        chatStore.save(updated)
+    }
+
+    private fun deleteConversation(convId: String) {
+        val currentActiveId = state.activeConversationId
+        val remaining = state.conversations.filter { it.id != convId }
+        if (remaining.isEmpty()) {
+            val fresh = ChatConversation(title = "新对话", modelId = state.selectedChatModelId)
+            val list = listOf(fresh)
+            state = state.copy(
+                conversations = list,
+                activeConversationId = fresh.id,
+                chatMessages = emptyList(),
+                pendingAttachments = emptyList(),
+            )
+            chatStore.save(list)
+        } else {
+            val newActive = if (currentActiveId == convId) remaining.first() else remaining.firstOrNull { it.id == currentActiveId } ?: remaining.first()
+            state = state.copy(
+                conversations = remaining,
+                activeConversationId = newActive.id,
+                chatMessages = newActive.messages,
+                selectedChatModelId = newActive.modelId ?: state.selectedChatModelId,
+            )
+            chatStore.save(remaining)
+        }
+    }
+
+    private fun clearAllConversations() {
+        stopChatMessage()
+        val fresh = ChatConversation(title = "新对话", modelId = state.selectedChatModelId)
+        val list = listOf(fresh)
+        state = state.copy(
+            conversations = list,
+            activeConversationId = fresh.id,
+            chatMessages = emptyList(),
+            pendingAttachments = emptyList(),
+        )
+        chatStore.save(list)
+    }
+
+    private fun syncActiveConversationMessages(messages: List<ChatMessage>, newTitle: String? = null) {
+        val activeId = state.activeConversationId ?: return
+        val updated = state.conversations.map { conv ->
+            if (conv.id == activeId) {
+                conv.copy(
+                    title = newTitle ?: conv.title,
+                    messages = messages,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            } else conv
+        }
+        state = state.copy(
+            conversations = updated,
+            chatMessages = messages,
+        )
+        chatStore.save(updated)
+    }
+
     private fun clearChatMessages() {
         stopChatMessage()
-        state = state.copy(chatMessages = emptyList(), pendingAttachments = emptyList())
+        val activeId = state.activeConversationId
+        val updated = state.conversations.map { conv ->
+            if (conv.id == activeId) conv.copy(messages = emptyList(), updatedAt = System.currentTimeMillis()) else conv
+        }
+        state = state.copy(conversations = updated, chatMessages = emptyList(), pendingAttachments = emptyList())
+        chatStore.save(updated)
     }
 
     private fun updateAssistantMessageState(
