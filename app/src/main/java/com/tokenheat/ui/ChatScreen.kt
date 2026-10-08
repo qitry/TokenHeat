@@ -3,7 +3,6 @@ package com.tokenheat.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -29,13 +29,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Handyman
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Send
@@ -50,7 +56,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,6 +75,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.tokenheat.mcp.McpProtocol
+import com.tokenheat.mcp.McpServerConfig
 import com.tokenheat.proto.HubModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -75,7 +86,7 @@ import java.util.Locale
 @Composable
 fun ChatScreen(
     state: HubState,
-    onSendMessage: (String) -> Unit,
+    onSendMessage: (String, List<ChatAttachment>) -> Unit,
     onStopStreaming: () -> Unit,
     onClearMessages: () -> Unit,
     onSelectModel: (String) -> Unit,
@@ -83,10 +94,22 @@ fun ChatScreen(
     onRefreshModels: () -> Unit,
     onCopyText: (String, String) -> Unit,
     onRetryLastMessage: () -> Unit,
+    onUpdateThinkingEffort: (ThinkingEffort) -> Unit,
+    onUpdateExaApiKey: (String) -> Unit,
+    onToggleMcpEnabled: (Boolean) -> Unit,
+    onAddMcpServer: (McpServerConfig) -> Unit,
+    onDeleteMcpServer: (String) -> Unit,
+    onToggleMcpServer: (String, Boolean) -> Unit,
+    onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
+    onRemoveAttachment: (String) -> Unit,
 ) {
     var inputText by remember { mutableStateOf("") }
     var showModelDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showThinkingDialog by remember { mutableStateOf(false) }
+    var showMcpDialog by remember { mutableStateOf(false) }
+    var showNoVisionDialog by remember { mutableStateOf(false) }
 
     val activeModelId = state.selectedChatModelId
         ?: state.models.firstOrNull { it.isFree }?.id
@@ -96,10 +119,11 @@ fun ChatScreen(
     val activeModel = state.models.firstOrNull { it.id == activeModelId }
     val listState = rememberLazyListState()
 
-    // Auto-scroll to bottom when messages change or streaming updates
+    // Auto-scroll to bottom when messages or content change
     val messagesCount = state.chatMessages.size
-    val lastMessageLength = state.chatMessages.lastOrNull()?.content?.length ?: 0
-    LaunchedEffect(messagesCount, lastMessageLength) {
+    val lastLength = state.chatMessages.lastOrNull()?.content?.length ?: 0
+    val lastReasoningLength = state.chatMessages.lastOrNull()?.reasoningContent?.length ?: 0
+    LaunchedEffect(messagesCount, lastLength, lastReasoningLength) {
         if (messagesCount > 0) {
             listState.animateScrollToItem(messagesCount - 1)
         }
@@ -111,18 +135,22 @@ fun ChatScreen(
             .imePadding()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // 1. Top Model Selector & Header Bar
-        ChatHeaderBar(
+        // 1. Top Claude/Codex Toolbar: Model Selector, Thinking Effort & MCP Tool Control
+        ChatTopToolbar(
             activeModelId = activeModelId,
             activeModel = activeModel,
+            thinkingEffort = state.thinkingEffort,
+            mcpEnabled = state.mcpEnabled,
             modelsCount = state.models.size,
             hasMessages = state.chatMessages.isNotEmpty(),
             onOpenModelDialog = { showModelDialog = true },
+            onOpenThinkingDialog = { showThinkingDialog = true },
+            onOpenMcpDialog = { showMcpDialog = true },
             onRefreshModels = onRefreshModels,
             onOpenClearDialog = { showClearDialog = true },
         )
 
-        // 2. Bridge Service Warning Banner (when bridge is not running)
+        // 2. Bridge Service Offline Warning Banner
         AnimatedVisibility(visible = !state.bridgeRunning) {
             BridgeOfflineBanner(
                 port = state.port,
@@ -130,7 +158,7 @@ fun ChatScreen(
             )
         }
 
-        // 3. Chat Messages / Empty State
+        // 3. Messages List or Empty State (Claude style: direct text, no speech bubble/avatar for AI)
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -140,17 +168,18 @@ fun ChatScreen(
                 ChatEmptyState(
                     activeModelId = activeModelId,
                     activeModel = activeModel,
+                    thinkingEffort = state.thinkingEffort,
+                    mcpEnabled = state.mcpEnabled,
                     onSuggestionClick = { suggestion ->
-                        inputText = suggestion
-                        onSendMessage(suggestion)
+                        onSendMessage(suggestion, emptyList())
                     },
                 )
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     items(
                         items = state.chatMessages,
@@ -159,32 +188,58 @@ fun ChatScreen(
                         val isLastAssistant = message.role == ChatRole.ASSISTANT &&
                             message.id == state.chatMessages.lastOrNull { it.role == ChatRole.ASSISTANT }?.id
 
-                        ChatMessageBubble(
-                            message = message,
-                            defaultModelId = activeModelId,
-                            isLastAssistant = isLastAssistant,
-                            isChatStreaming = state.isChatStreaming,
-                            onCopy = { onCopyText("消息内容", it) },
-                            onRetry = onRetryLastMessage,
-                        )
+                        if (message.role == ChatRole.USER) {
+                            UserMessageView(
+                                message = message,
+                                onCopy = { onCopyText("消息内容", it) },
+                            )
+                        } else if (message.role == ChatRole.ASSISTANT) {
+                            AssistantMessageView(
+                                message = message,
+                                defaultModelId = activeModelId,
+                                isLastAssistant = isLastAssistant,
+                                isChatStreaming = state.isChatStreaming,
+                                onCopy = { onCopyText("回答内容", it) },
+                                onCopyCode = { onCopyText("代码内容", it) },
+                                onRetry = onRetryLastMessage,
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // 4. Bottom Input Bar
+        // 4. Pending Attachments Preview Strip
+        if (state.pendingAttachments.isNotEmpty()) {
+            AttachmentsPreviewStrip(
+                attachments = state.pendingAttachments,
+                onRemove = onRemoveAttachment,
+            )
+        }
+
+        // 5. Claude App Style Bottom Input Bar with File/Image Attachment buttons
         ChatInputBar(
             inputText = inputText,
             isStreaming = state.isChatStreaming,
+            supportsImages = activeModel?.supportsImages == true,
+            hasPendingAttachments = state.pendingAttachments.isNotEmpty(),
             onInputTextChange = { inputText = it },
             onSend = {
                 val text = inputText.trim()
-                if (text.isNotEmpty()) {
+                if (text.isNotEmpty() || state.pendingAttachments.isNotEmpty()) {
                     inputText = ""
-                    onSendMessage(text)
+                    onSendMessage(text, state.pendingAttachments)
                 }
             },
             onStop = onStopStreaming,
+            onPickImage = {
+                if (activeModel?.supportsImages == true) {
+                    onPickImage()
+                } else {
+                    showNoVisionDialog = true
+                }
+            },
+            onPickFile = onPickFile,
         )
     }
 
@@ -199,6 +254,62 @@ fun ChatScreen(
             },
             onDismiss = { showModelDialog = false },
             onRefreshModels = onRefreshModels,
+        )
+    }
+
+    // Thinking Effort Intensity Dialog
+    if (showThinkingDialog) {
+        ThinkingEffortDialog(
+            currentEffort = state.thinkingEffort,
+            modelSupportsReasoning = activeModel?.supportsReasoning == true,
+            onSelect = { effort ->
+                onUpdateThinkingEffort(effort)
+                showThinkingDialog = false
+            },
+            onDismiss = { showThinkingDialog = false },
+        )
+    }
+
+    // MCP & Exa AI Search Dialog
+    if (showMcpDialog) {
+        McpSettingsDialog(
+            enabled = state.mcpEnabled,
+            exaApiKey = state.exaApiKey,
+            servers = state.mcpServers,
+            onToggleEnabled = onToggleMcpEnabled,
+            onSaveExaApiKey = onUpdateExaApiKey,
+            onAddServer = onAddMcpServer,
+            onDeleteServer = onDeleteMcpServer,
+            onToggleServer = onToggleMcpServer,
+            onDismiss = { showMcpDialog = false },
+        )
+    }
+
+    // No Vision Model Dialog
+    if (showNoVisionDialog) {
+        AlertDialog(
+            onDismissRequest = { showNoVisionDialog = false },
+            title = {
+                Text(
+                    text = "当前模型不支持视觉",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            text = {
+                Text(
+                    text = "所选模型 [${activeModel?.name ?: activeModelId}] 未声明多模态视觉能力。如需发送图片，请在顶部切换至支持视觉的模型（例如 GPT-4o、Claude 3.5 Sonnet、Gemini 2.5 等）。\n\n您依然可以附带代码文件或文本文件。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showNoVisionDialog = false }) {
+                    Text("我知道了")
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
         )
     }
 
@@ -241,14 +352,20 @@ fun ChatScreen(
     }
 }
 
-/** Top model indicator and action toolbar. */
+/**
+ * Top Toolbar matching Codex / Claude: model badge, reasoning badge, and MCP indicator.
+ */
 @Composable
-private fun ChatHeaderBar(
+private fun ChatTopToolbar(
     activeModelId: String,
     activeModel: HubModel?,
+    thinkingEffort: ThinkingEffort,
+    mcpEnabled: Boolean,
     modelsCount: Int,
     hasMessages: Boolean,
     onOpenModelDialog: () -> Unit,
+    onOpenThinkingDialog: () -> Unit,
+    onOpenMcpDialog: () -> Unit,
     onRefreshModels: () -> Unit,
     onOpenClearDialog: () -> Unit,
 ) {
@@ -259,11 +376,11 @@ private fun ChatHeaderBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Clickable Model Info Box
+            // Model Selector Card
             Surface(
                 modifier = Modifier
                     .weight(1f)
@@ -274,14 +391,11 @@ private fun ChatHeaderBar(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ModelBrandBadge(
-                        modelId = activeModelId,
-                        size = 30.dp,
-                    )
-                    Spacer(Modifier.width(10.dp))
+                    ModelBrandBadge(modelId = activeModelId, size = 26.dp)
+                    Spacer(Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -293,29 +407,15 @@ private fun ChatHeaderBar(
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (activeModel?.isFree == true) {
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(4.dp))
                                 PillBadge(text = "免费", variant = BadgeVariant.Success)
-                            } else if (activeModel != null && activeModel.multiplier >= 0.0) {
-                                Spacer(Modifier.width(6.dp))
-                                PillBadge(text = "${activeModel.multiplier}x", variant = BadgeVariant.Neutral)
                             }
                         }
-                        if (activeModelId.isNotBlank()) {
-                            Text(
-                                text = activeModelId,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
-                    Spacer(Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Outlined.KeyboardArrowDown,
                         contentDescription = "切换模型",
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -323,27 +423,52 @@ private fun ChatHeaderBar(
 
             Spacer(Modifier.width(8.dp))
 
-            // Refresh Models button
+            // Thinking Intensity quick toggle button
+            IconButton(
+                onClick = onOpenThinkingDialog,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Psychology,
+                    contentDescription = "思考强度",
+                    modifier = Modifier.size(19.dp),
+                    tint = if (thinkingEffort != ThinkingEffort.OFF) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // MCP & Exa AI search config button
+            IconButton(
+                onClick = onOpenMcpDialog,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Handyman,
+                    contentDescription = "MCP工具与Exa搜索",
+                    modifier = Modifier.size(19.dp),
+                    tint = if (mcpEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             if (modelsCount == 0) {
-                IconButton(onClick = onRefreshModels) {
+                IconButton(onClick = onRefreshModels, modifier = Modifier.size(34.dp)) {
                     Icon(
                         imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "获取可用模型",
-                        modifier = Modifier.size(20.dp),
+                        contentDescription = "刷新模型",
+                        modifier = Modifier.size(19.dp),
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
 
-            // Clear conversation button
             IconButton(
                 onClick = onOpenClearDialog,
                 enabled = hasMessages,
+                modifier = Modifier.size(34.dp),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.DeleteOutline,
                     contentDescription = "清空对话",
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(19.dp),
                     tint = if (hasMessages) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
                 )
             }
@@ -351,7 +476,819 @@ private fun ChatHeaderBar(
     }
 }
 
-/** Offline bridge banner informing user of necessity to run bridge service. */
+/** User message bubble with optional image and file attachments. */
+@Composable
+private fun UserMessageView(
+    message: ChatMessage,
+    onCopy: (String) -> Unit,
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    val formattedTime = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.widthIn(max = 330.dp),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                // Attachments in user message
+                if (message.attachments.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        message.attachments.forEach { att ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = att.name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        text = "${att.sizeBytes / 1024} KB",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (message.content.isNotBlank()) {
+                    SelectionContainer {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 22.sp,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.align(Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = formattedTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = "复制",
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clickable { onCopy(message.content) },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Claude App style AI response: NO speech bubble card and NO avatar.
+ * Renders pure markdown with headers, code blocks, collapsible reasoning, and MCP tools.
+ */
+@Composable
+private fun AssistantMessageView(
+    message: ChatMessage,
+    defaultModelId: String,
+    isLastAssistant: Boolean,
+    isChatStreaming: Boolean,
+    onCopy: (String) -> Unit,
+    onCopyCode: (String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    val formattedTime = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        // Minimalist top information label (Model ID, time)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = (message.modelId ?: defaultModelId).ifBlank { "Assistant" },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = formattedTime,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
+        }
+
+        // 1. Collapsible Reasoning / Thinking Chain Card (Codex/Claude style)
+        if (message.reasoningContent.isNotBlank() || (message.isStreaming && message.content.isEmpty())) {
+            ThinkingProcessCard(
+                reasoningContent = message.reasoningContent,
+                isStreaming = message.isStreaming && message.content.isEmpty(),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+
+        // 2. MCP Tool Execution Cards
+        if (message.toolCalls.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                message.toolCalls.forEach { tool ->
+                    ToolCallCard(
+                        toolName = tool.name,
+                        arguments = tool.arguments,
+                        result = tool.result,
+                        isExecuting = tool.isExecuting,
+                    )
+                }
+            }
+        }
+
+        // 3. Main Response Body (Markdown rendering)
+        if (message.isError) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(top = 2.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    SelectionContainer {
+                        Text(
+                            text = message.content.ifBlank { "请求上游模型失败，请检查账号状态或网络连接。" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        } else if (message.content.isNotBlank() || message.isStreaming) {
+            MarkdownView(
+                content = message.content,
+                isStreaming = message.isStreaming && message.content.isNotBlank(),
+                onCopyCode = onCopyCode,
+            )
+        }
+
+        // 4. Subtle Bottom Toolbar
+        if (!message.isStreaming && (message.content.isNotBlank() || message.isError)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (message.content.isNotBlank()) {
+                    IconButton(
+                        onClick = { onCopy(message.content) },
+                        modifier = Modifier.size(26.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = "复制正文",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (isLastAssistant && !isChatStreaming) {
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = onRetry,
+                        modifier = Modifier.size(26.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "重新生成",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Attachments preview strip shown right above the input bar. */
+@Composable
+private fun AttachmentsPreviewStrip(
+    attachments: List<ChatAttachment>,
+    onRemove: (String) -> Unit,
+) {
+    Surface(
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    ) {
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(attachments, key = { it.id }) { att ->
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (att.type == AttachmentType.IMAGE) Icons.Outlined.Image else Icons.Outlined.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = att.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 120.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "移除",
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { onRemove(att.id) },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Bottom chat input toolbar with Image, File, Send, and Stop controls. */
+@Composable
+private fun ChatInputBar(
+    inputText: String,
+    isStreaming: Boolean,
+    supportsImages: Boolean,
+    hasPendingAttachments: Boolean,
+    onInputTextChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
+) {
+    Surface(
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            // Attachment Action Buttons (Claude App style)
+            Row(
+                modifier = Modifier.padding(bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Add Image button (checks vision)
+                IconButton(
+                    onClick = onPickImage,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Image,
+                        contentDescription = "添加图片",
+                        modifier = Modifier.size(20.dp),
+                        tint = if (supportsImages) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.outline,
+                    )
+                }
+
+                // Add File button (any model supports)
+                IconButton(
+                    onClick = onPickFile,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AttachFile,
+                        contentDescription = "添加文件",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(6.dp))
+
+            OutlinedTextField(
+                value = inputText,
+                onValueChange = onInputTextChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 44.dp, max = 130.dp),
+                placeholder = {
+                    Text(
+                        text = "输入消息，支持 Markdown 与附件...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                shape = RoundedCornerShape(20.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.outline,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                ),
+                maxLines = 5,
+            )
+
+            Spacer(Modifier.width(6.dp))
+
+            if (isStreaming) {
+                IconButton(
+                    onClick = onStop,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), CircleShape),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Stop,
+                        contentDescription = "停止生成",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
+            } else {
+                val canSend = inputText.trim().isNotEmpty() || hasPendingAttachments
+                IconButton(
+                    onClick = onSend,
+                    enabled = canSend,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            BorderStroke(1.dp, if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant),
+                            CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Send,
+                        contentDescription = "发送",
+                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Thinking Intensity selector dialog matching OpenAI o1/Claude Thinking/Codex. */
+@Composable
+private fun ThinkingEffortDialog(
+    currentEffort: ThinkingEffort,
+    modelSupportsReasoning: Boolean,
+    onSelect: (ThinkingEffort) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Psychology,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "思考强度设置",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = if (modelSupportsReasoning) "当前模型支持深度思考推理，调节思考预算可平衡响应深度与生成速度。"
+                    else "当前模型未显式声明思考能力，设置思考强度将尝试向下游传递推理预算。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                ThinkingEffort.entries.forEach { effort ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (effort == currentEffort) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (effort == currentEffort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSelect(effort) },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = effort == currentEffort,
+                                onClick = { onSelect(effort) },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = effort.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (effort == currentEffort) FontWeight.Bold else FontWeight.Medium,
+                                )
+                                Text(
+                                    text = when (effort) {
+                                        ThinkingEffort.OFF -> "关闭思考链，直接给出回答"
+                                        ThinkingEffort.LOW -> "轻量思考 (预算 ~2,048 tokens)"
+                                        ThinkingEffort.MEDIUM -> "平衡深度思考 (预算 ~8,192 tokens)"
+                                        ThinkingEffort.HIGH -> "高强度深度推理 (预算 ~16,384 tokens)"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+/** MCP tool calling and Exa AI search configuration dialog. */
+@Composable
+private fun McpSettingsDialog(
+    enabled: Boolean,
+    exaApiKey: String,
+    servers: List<McpServerConfig>,
+    onToggleEnabled: (Boolean) -> Unit,
+    onSaveExaApiKey: (String) -> Unit,
+    onAddServer: (McpServerConfig) -> Unit,
+    onDeleteServer: (String) -> Unit,
+    onToggleServer: (String, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var apiKeyText by remember { mutableStateOf(exaApiKey) }
+    var showAddServerDialog by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Handyman,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "MCP 与 Exa 搜索",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggleEnabled,
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp),
+            ) {
+                Text(
+                    text = "支持内置 Exa AI 全网实时检索，并支持接入符合三种传输规范（Streamable HTTP、SSE、WebSocket）的任意远程 MCP 服务器。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // Exa API Key Input
+                Text(
+                    text = "Exa API Key (用于智能联网搜索):",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = apiKeyText,
+                        onValueChange = { apiKeyText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("输入 Exa API Key...", style = MaterialTheme.typography.bodySmall) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    OutlinedButton(
+                        onClick = { onSaveExaApiKey(apiKeyText.trim()) },
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text("保存", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Remote MCP Servers Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "远程 MCP 服务器 (${servers.size}):",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    TextButton(onClick = { showAddServerDialog = true }) {
+                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("添加服务", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                // Servers list
+                if (servers.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "暂无远程 MCP 服务，可点击上方按钮添加",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 180.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(servers, key = { it.id }) { srv ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = srv.name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            text = "${srv.protocol.label} • ${srv.url}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Switch(
+                                            checked = srv.enabled,
+                                            onCheckedChange = { onToggleServer(srv.id, it) },
+                                        )
+                                        IconButton(onClick = { onDeleteServer(srv.id) }, modifier = Modifier.size(28.dp)) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Close,
+                                                contentDescription = "删除",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("完成") }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+
+    if (showAddServerDialog) {
+        AddMcpServerDialog(
+            onConfirm = { server ->
+                onAddServer(server)
+                showAddServerDialog = false
+            },
+            onDismiss = { showAddServerDialog = false },
+        )
+    }
+}
+
+/** Dialog for adding a new remote MCP server supporting 3 protocols. */
+@Composable
+private fun AddMcpServerDialog(
+    onConfirm: (McpServerConfig) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var protocol by remember { mutableStateOf(McpProtocol.STREAMABLE_HTTP) }
+    var url by remember { mutableStateOf("") }
+    var authHeader by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "添加远程 MCP 服务器",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("服务名称 (如 GitHub MCP)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+
+                Text("传输协议:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    McpProtocol.entries.forEach { p ->
+                        FilterChip(
+                            selected = protocol == p,
+                            onClick = { protocol = p },
+                            label = { Text(p.name, style = MaterialTheme.typography.labelSmall) },
+                            shape = RoundedCornerShape(6.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("服务 URL (http/https/ws/wss)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = authHeader,
+                    onValueChange = { authHeader = it },
+                    label = { Text("鉴权 Header (可选，如 Authorization: Bearer ...)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isNotBlank() && url.isNotBlank()) {
+                        onConfirm(
+                            McpServerConfig(
+                                name = name.trim(),
+                                protocol = protocol,
+                                url = url.trim(),
+                                authHeader = authHeader.trim(),
+                            ),
+                        )
+                    }
+                },
+            ) {
+                Text("添加")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+        shape = RoundedCornerShape(12.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+/** Offline bridge banner. */
 @Composable
 private fun BridgeOfflineBanner(
     port: Int,
@@ -409,6 +1346,8 @@ private fun BridgeOfflineBanner(
 private fun ChatEmptyState(
     activeModelId: String,
     activeModel: HubModel?,
+    thinkingEffort: ThinkingEffort,
+    mcpEnabled: Boolean,
     onSuggestionClick: (String) -> Unit,
 ) {
     Column(
@@ -418,11 +1357,8 @@ private fun ChatEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ModelBrandBadge(
-            modelId = activeModelId,
-            size = 54.dp,
-        )
-        Spacer(Modifier.height(16.dp))
+        ModelBrandBadge(modelId = activeModelId, size = 52.dp)
+        Spacer(Modifier.height(14.dp))
         Text(
             text = "与 ${activeModel?.name ?: activeModelId.ifBlank { "AI 模型" }} 对话",
             style = MaterialTheme.typography.titleMedium,
@@ -431,21 +1367,19 @@ private fun ChatEmptyState(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            text = "请求通过本地 TokenHeat 桥接服务进行路由分发与账号池轮询，Token 吞吐将自动同步至数据大屏。",
+            text = "Claude APP 风格沉浸式排版 • 思考强度: ${thinkingEffort.label} • MCP工具: ${if (mcpEnabled) "已启用" else "已关闭"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
-            lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
         )
 
         Spacer(Modifier.height(24.dp))
 
-        // Prompt Suggestions
         val suggestions = listOf(
-            "写一段简洁优雅的 Kotlin 协程并发处理示例",
-            "用通俗易懂的语言解释什么是大模型注意力机制",
-            "分析一下各主流大语言模型在代码生成方面的优缺点",
-            "写一首关于山川与思考的现代短诗",
+            "写一段 Kotlin 协程并发处理示例，要求带有优雅的取消逻辑",
+            "用通俗易懂的语言详细分析 Transformer 注意力机制的演进",
+            "分析主流大语言模型的优缺点，并给出选型建议",
+            "写一首关于山川与思考的现代哲理诗",
         )
 
         Column(
@@ -488,311 +1422,6 @@ private fun ChatEmptyState(
     }
 }
 
-/** Individual chat message bubble. */
-@Composable
-private fun ChatMessageBubble(
-    message: ChatMessage,
-    defaultModelId: String,
-    isLastAssistant: Boolean,
-    isChatStreaming: Boolean,
-    onCopy: (String) -> Unit,
-    onRetry: () -> Unit,
-) {
-    val isUser = message.role == ChatRole.USER
-    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-    val formattedTime = remember(message.timestamp) { timeFormat.format(Date(message.timestamp)) }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-    ) {
-        if (isUser) {
-            // User Message
-            Surface(
-                shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.widthIn(max = 320.dp),
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    SelectionContainer {
-                        Text(
-                            text = message.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.align(Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Outlined.ContentCopy,
-                            contentDescription = "复制消息",
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clickable { onCopy(message.content) },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
-                    }
-                }
-            }
-        } else {
-            // Assistant Message
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
-                ModelBrandBadge(
-                    modelId = message.modelId ?: defaultModelId,
-                    size = 28.dp,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Surface(
-                    shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
-                    color = if (message.isError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(
-                        1.dp,
-                        if (message.isError) MaterialTheme.colorScheme.error.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant,
-                    ),
-                    modifier = Modifier.weight(1f, fill = false),
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        // Header info: model label and time
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = (message.modelId ?: defaultModelId).ifBlank { "Assistant" },
-                                style = MaterialTheme.typography.labelSmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = formattedTime,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            )
-                        }
-
-                        Spacer(Modifier.height(6.dp))
-
-                        // Message content rendering
-                        if (message.isError) {
-                            Row(verticalAlignment = Alignment.Top) {
-                                Icon(
-                                    imageVector = Icons.Outlined.ErrorOutline,
-                                    contentDescription = "错误",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .padding(top = 2.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                SelectionContainer {
-                                    Text(
-                                        text = message.content.ifBlank { "请求上游模型失败，请检查账号状态或网络连接。" },
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                            }
-                        } else if (message.isStreaming && message.content.isEmpty()) {
-                            // Waiting indicator
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            ) {
-                                StatusDot(active = true, size = 6.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "模型思考生成中...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        } else {
-                            SelectionContainer {
-                                Text(
-                                    text = if (message.isStreaming) "${message.content} ▋" else message.content,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                            }
-                        }
-
-                        // Bottom action buttons for assistant message
-                        if (!message.isStreaming && message.content.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                IconButton(
-                                    onClick = { onCopy(message.content) },
-                                    modifier = Modifier.size(24.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.ContentCopy,
-                                        contentDescription = "复制内容",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                if (isLastAssistant && !isChatStreaming) {
-                                    Spacer(Modifier.width(8.dp))
-                                    IconButton(
-                                        onClick = onRetry,
-                                        modifier = Modifier.size(24.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Refresh,
-                                            contentDescription = "重新生成",
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                        } else if (message.isError && isLastAssistant && !isChatStreaming) {
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                            ) {
-                                OutlinedButton(
-                                    onClick = onRetry,
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        text = "重试",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Bottom chat input toolbar with send and cancel streaming controls. */
-@Composable
-private fun ChatInputBar(
-    inputText: String,
-    isStreaming: Boolean,
-    onInputTextChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Surface(
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputTextChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 44.dp, max = 130.dp),
-                placeholder = {
-                    Text(
-                        text = "输入消息，与模型对话...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                shape = RoundedCornerShape(20.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.outline,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                ),
-                maxLines = 5,
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            if (isStreaming) {
-                // Stop Generation button
-                IconButton(
-                    onClick = onStop,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), CircleShape),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Stop,
-                        contentDescription = "停止生成",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            } else {
-                // Send button
-                val canSend = inputText.trim().isNotEmpty()
-                IconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                        .border(
-                            BorderStroke(
-                                1.dp,
-                                if (canSend) Color.Transparent else MaterialTheme.colorScheme.outlineVariant,
-                            ),
-                            CircleShape,
-                        ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Send,
-                        contentDescription = "发送",
-                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /** Dialog enabling real-time search, category filtering, and switching of AI models. */
 @Composable
 private fun ModelSelectorDialog(
@@ -807,8 +1436,9 @@ private fun ModelSelectorDialog(
 
     val categories = remember(models) {
         val list = mutableListOf("全部")
-        val hasFree = models.any { it.isFree }
-        if (hasFree) list.add("免费")
+        if (models.any { it.isFree }) list.add("免费")
+        if (models.any { it.supportsImages }) list.add("视觉")
+        if (models.any { it.supportsReasoning }) list.add("思考")
         val brands = listOf("Claude", "GPT", "Gemini", "DeepSeek", "GLM", "Qwen")
         brands.forEach { brand ->
             if (models.any { it.id.contains(brand, ignoreCase = true) || it.name.contains(brand, ignoreCase = true) }) {
@@ -828,6 +1458,8 @@ private fun ModelSelectorDialog(
             val matchCategory = when (filterCategory) {
                 "全部" -> true
                 "免费" -> model.isFree
+                "视觉" -> model.supportsImages
+                "思考" -> model.supportsReasoning
                 else -> model.id.contains(filterCategory, ignoreCase = true) ||
                     model.name.contains(filterCategory, ignoreCase = true)
             }
@@ -860,7 +1492,6 @@ private fun ModelSelectorDialog(
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Search Field
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -901,7 +1532,6 @@ private fun ModelSelectorDialog(
 
                 Spacer(Modifier.height(8.dp))
 
-                // Category Chips
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -925,7 +1555,6 @@ private fun ModelSelectorDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Models List
                 if (filtered.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -980,9 +1609,14 @@ private fun ModelSelectorDialog(
                                             if (model.isFree) {
                                                 Spacer(Modifier.width(6.dp))
                                                 PillBadge(text = "免费", variant = BadgeVariant.Success)
-                                            } else if (model.multiplier >= 0.0) {
-                                                Spacer(Modifier.width(6.dp))
-                                                PillBadge(text = "${model.multiplier}x", variant = BadgeVariant.Neutral)
+                                            }
+                                            if (model.supportsImages) {
+                                                Spacer(Modifier.width(4.dp))
+                                                PillBadge(text = "视觉", variant = BadgeVariant.Neutral)
+                                            }
+                                            if (model.supportsReasoning) {
+                                                Spacer(Modifier.width(4.dp))
+                                                PillBadge(text = "思考", variant = BadgeVariant.Neutral)
                                             }
                                         }
                                         Text(
@@ -1011,9 +1645,7 @@ private fun ModelSelectorDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
+            TextButton(onClick = onDismiss) { Text("关闭") }
         },
         shape = RoundedCornerShape(12.dp),
         containerColor = MaterialTheme.colorScheme.surface,

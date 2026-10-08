@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tokenheat.data.QLogin
+import com.tokenheat.mcp.McpServerConfig
 import com.tokenheat.proto.Provider
 import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.Wire
@@ -101,11 +102,20 @@ fun HubApp(
     onExportBackup: () -> Unit = {},
     onImportBackup: () -> Unit = {},
     onTabShown: (HubTab) -> Unit = {},
-    onSendMessage: (String) -> Unit = {},
+    onSendMessage: (String, List<ChatAttachment>) -> Unit = { _, _ -> },
     onStopStreaming: () -> Unit = {},
     onClearMessages: () -> Unit = {},
     onSelectChatModel: (String) -> Unit = {},
     onRetryChatMessage: () -> Unit = {},
+    onUpdateThinkingEffort: (ThinkingEffort) -> Unit = {},
+    onUpdateExaApiKey: (String) -> Unit = {},
+    onToggleMcpEnabled: (Boolean) -> Unit = {},
+    onAddMcpServer: (McpServerConfig) -> Unit = {},
+    onDeleteMcpServer: (String) -> Unit = {},
+    onToggleMcpServer: (String, Boolean) -> Unit = { _, _ -> },
+    onPickImage: () -> Unit = {},
+    onPickFile: () -> Unit = {},
+    onRemoveAttachment: (String) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -248,6 +258,15 @@ fun HubApp(
                             onRefreshModels = onRefreshModels,
                             onCopyText = onCopyField,
                             onRetryLastMessage = onRetryChatMessage,
+                            onUpdateThinkingEffort = onUpdateThinkingEffort,
+                            onUpdateExaApiKey = onUpdateExaApiKey,
+                            onToggleMcpEnabled = onToggleMcpEnabled,
+                            onAddMcpServer = onAddMcpServer,
+                            onDeleteMcpServer = onDeleteMcpServer,
+                            onToggleMcpServer = onToggleMcpServer,
+                            onPickImage = onPickImage,
+                            onPickFile = onPickFile,
+                            onRemoveAttachment = onRemoveAttachment,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

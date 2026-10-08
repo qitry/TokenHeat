@@ -43,11 +43,17 @@ import com.tokenheat.proto.toHubModel
 import com.tokenheat.ui.CheckinDialog
 import com.tokenheat.ui.HubApp
 import com.tokenheat.ui.Loading
-import com.tokenheat.ui.LoginFlowState
+import com.tokenheat.mcp.McpManager
+import com.tokenheat.mcp.McpProtocol
+import com.tokenheat.mcp.McpServerConfig
+import com.tokenheat.ui.AttachmentType
+import com.tokenheat.ui.ChatAttachment
 import com.tokenheat.ui.ChatMessage
 import com.tokenheat.ui.ChatRole
+import com.tokenheat.ui.ChatToolCall
 import com.tokenheat.ui.HubState
 import com.tokenheat.ui.HubTab
+import com.tokenheat.ui.ThinkingEffort
 import com.tokenheat.ui.realmName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +66,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
 
@@ -118,6 +125,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) handlePickedImage(uri)
+    }
+
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) handlePickedFile(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = CredentialStore(this)
@@ -132,6 +151,7 @@ class MainActivity : ComponentActivity() {
         loadBalance()
         loadModels()
         loadCalls()
+        loadMcpSettings()
         state = state.copy(
             notificationsAllowed = Notifications.hasPermission(this),
             overlayOpacity = BridgeSettings.opacity(this),
@@ -218,11 +238,20 @@ class MainActivity : ComponentActivity() {
                         else -> Unit
                     }
                 },
-                onSendMessage = { text -> sendChatMessage(text) },
+                onSendMessage = { text, atts -> sendChatMessage(text, atts) },
                 onStopStreaming = { stopChatMessage() },
                 onClearMessages = { clearChatMessages() },
                 onSelectChatModel = { modelId -> state = state.copy(selectedChatModelId = modelId) },
                 onRetryChatMessage = { retryChatMessage() },
+                onUpdateThinkingEffort = { effort -> state = state.copy(thinkingEffort = effort) },
+                onUpdateExaApiKey = { key -> updateExaApiKey(key) },
+                onToggleMcpEnabled = { en -> updateMcpEnabled(en) },
+                onAddMcpServer = { srv -> addMcpServer(srv) },
+                onDeleteMcpServer = { id -> deleteMcpServer(id) },
+                onToggleMcpServer = { id, en -> toggleMcpServer(id, en) },
+                onPickImage = { imagePickerLauncher.launch("image/*") },
+                onPickFile = { filePickerLauncher.launch("*/*") },
+                onRemoveAttachment = { id -> state = state.copy(pendingAttachments = state.pendingAttachments.filter { it.id != id }) },
             )
         }
 
@@ -1141,7 +1170,137 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
     }
 
-    private fun sendChatMessage(text: String) {
+    private fun handlePickedImage(uri: android.net.Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    val fileName = queryFileName(uri) ?: "image_${System.currentTimeMillis()}.png"
+                    val mime = contentResolver.getType(uri) ?: "image/png"
+                    val att = ChatAttachment(
+                        type = AttachmentType.IMAGE,
+                        name = fileName,
+                        sizeBytes = bytes.size.toLong(),
+                        mimeType = mime,
+                        base64Data = "data:$mime;base64,$base64",
+                    )
+                    withContext(Dispatchers.Main) {
+                        state = state.copy(pendingAttachments = state.pendingAttachments + att)
+                        toast("已添加图片附件: $fileName")
+                    }
+                }
+            }.onFailure { e ->
+                withContext(Dispatchers.Main) { toast("读取图片失败: ${e.message}") }
+            }
+        }
+    }
+
+    private fun handlePickedFile(uri: android.net.Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    val text = stream.bufferedReader(java.nio.charset.StandardCharsets.UTF_8).use { it.readText() }
+                    val fileName = queryFileName(uri) ?: "file.txt"
+                    val mime = contentResolver.getType(uri) ?: "text/plain"
+                    val att = ChatAttachment(
+                        type = AttachmentType.TEXT_FILE,
+                        name = fileName,
+                        sizeBytes = text.toByteArray().size.toLong(),
+                        mimeType = mime,
+                        textContent = text.take(300_000),
+                    )
+                    withContext(Dispatchers.Main) {
+                        state = state.copy(pendingAttachments = state.pendingAttachments + att)
+                        toast("已添加文本附件: $fileName")
+                    }
+                }
+            }.onFailure { e ->
+                withContext(Dispatchers.Main) { toast("读取文件失败: ${e.message}") }
+            }
+        }
+    }
+
+    private fun queryFileName(uri: android.net.Uri): String? {
+        return runCatching {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+    }
+
+    private fun loadMcpSettings() {
+        val prefs = getSharedPreferences("tokenheat_mcp", Context.MODE_PRIVATE)
+        val en = prefs.getBoolean("mcp_enabled", false)
+        val exaKey = prefs.getString("exa_api_key", "").orEmpty()
+        val serversJson = prefs.getString("mcp_servers", "[]").orEmpty()
+        val list = mutableListOf<McpServerConfig>()
+        runCatching {
+            val arr = org.json.JSONArray(serversJson)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    McpServerConfig(
+                        id = obj.optString("id"),
+                        name = obj.optString("name"),
+                        protocol = McpProtocol.valueOf(obj.optString("protocol", McpProtocol.STREAMABLE_HTTP.name)),
+                        url = obj.optString("url"),
+                        authHeader = obj.optString("authHeader"),
+                        enabled = obj.optBoolean("enabled", true),
+                    )
+                )
+            }
+        }
+        state = state.copy(mcpEnabled = en, exaApiKey = exaKey, mcpServers = list)
+    }
+
+    private fun updateExaApiKey(key: String) {
+        getSharedPreferences("tokenheat_mcp", Context.MODE_PRIVATE).edit().putString("exa_api_key", key).apply()
+        state = state.copy(exaApiKey = key)
+        toast("已保存 Exa API Key")
+    }
+
+    private fun updateMcpEnabled(enabled: Boolean) {
+        getSharedPreferences("tokenheat_mcp", Context.MODE_PRIVATE).edit().putBoolean("mcp_enabled", enabled).apply()
+        state = state.copy(mcpEnabled = enabled)
+    }
+
+    private fun saveMcpServers(servers: List<McpServerConfig>) {
+        val arr = org.json.JSONArray()
+        for (s in servers) {
+            arr.put(org.json.JSONObject().apply {
+                put("id", s.id)
+                put("name", s.name)
+                put("protocol", s.protocol.name)
+                put("url", s.url)
+                put("authHeader", s.authHeader)
+                put("enabled", s.enabled)
+            })
+        }
+        getSharedPreferences("tokenheat_mcp", Context.MODE_PRIVATE).edit().putString("mcp_servers", arr.toString()).apply()
+    }
+
+    private fun addMcpServer(server: McpServerConfig) {
+        val updated = state.mcpServers + server
+        state = state.copy(mcpServers = updated)
+        saveMcpServers(updated)
+        toast("已添加 MCP 服务器: ${server.name}")
+    }
+
+    private fun deleteMcpServer(id: String) {
+        val updated = state.mcpServers.filter { it.id != id }
+        state = state.copy(mcpServers = updated)
+        saveMcpServers(updated)
+        toast("已删除 MCP 服务器")
+    }
+
+    private fun toggleMcpServer(id: String, enabled: Boolean) {
+        val updated = state.mcpServers.map { if (it.id == id) it.copy(enabled = enabled) else it }
+        state = state.copy(mcpServers = updated)
+        saveMcpServers(updated)
+    }
+
+    private fun sendChatMessage(text: String, attachments: List<ChatAttachment> = emptyList()) {
         if (!store.hasAny()) {
             toast("请先在账号页添加或登录账号")
             return
@@ -1156,6 +1315,7 @@ class MainActivity : ComponentActivity() {
             role = ChatRole.USER,
             content = text,
             modelId = targetModelId,
+            attachments = attachments,
         )
         val assistantMsgId = java.util.UUID.randomUUID().toString()
         val assistantMsg = ChatMessage(
@@ -1168,6 +1328,7 @@ class MainActivity : ComponentActivity() {
 
         state = state.copy(
             chatMessages = state.chatMessages + userMsg + assistantMsg,
+            pendingAttachments = emptyList(),
             isChatStreaming = true,
             selectedChatModelId = targetModelId,
         )
@@ -1176,6 +1337,10 @@ class MainActivity : ComponentActivity() {
             startBridge(state.port, silent = true)
         }
 
+        dispatchChatStream(targetModelId, assistantMsgId)
+    }
+
+    private fun dispatchChatStream(targetModelId: String, assistantMsgId: String) {
         chatJob?.cancel()
         chatJob = lifecycleScope.launch(Dispatchers.IO) {
             if (!waitForBridgeReady(state.port, 3000)) {
@@ -1186,14 +1351,33 @@ class MainActivity : ComponentActivity() {
             }
 
             try {
-                // 取最近有效消息构成上下文
                 val contextMessages = state.chatMessages
-                    .filter { !it.isError && it.content.isNotBlank() && it.id != assistantMsgId }
-                    .takeLast(20)
+                    .filter { !it.isError && (it.content.isNotBlank() || it.attachments.isNotEmpty() || it.toolCalls.isNotEmpty()) && it.id != assistantMsgId }
+                    .takeLast(25)
 
                 val requestObj = org.json.JSONObject().apply {
                     put("model", targetModelId)
                     put("stream", true)
+
+                    // 1. Thinking Intensity
+                    if (state.thinkingEffort != ThinkingEffort.OFF) {
+                        put("reasoning_effort", state.thinkingEffort.levelName)
+                        put("thinking", org.json.JSONObject().apply {
+                            put("type", "enabled")
+                            put("budget_tokens", state.thinkingEffort.budgetTokens)
+                        })
+                    }
+
+                    // 2. MCP & Exa AI Tools
+                    if (state.mcpEnabled) {
+                        val tools = McpManager.getAvailableTools(state.mcpServers, state.exaApiKey)
+                        if (tools.length() > 0) {
+                            put("tools", tools)
+                            put("tool_choice", "auto")
+                        }
+                    }
+
+                    // 3. Assemble messages with multimodal vision & attachments
                     val arr = org.json.JSONArray()
                     for (msg in contextMessages) {
                         val obj = org.json.JSONObject()
@@ -1201,8 +1385,39 @@ class MainActivity : ComponentActivity() {
                             ChatRole.USER -> "user"
                             ChatRole.ASSISTANT -> "assistant"
                             ChatRole.SYSTEM -> "system"
+                            ChatRole.TOOL -> "tool"
                         })
-                        obj.put("content", msg.content)
+
+                        val imageAtt = msg.attachments.firstOrNull { it.type == AttachmentType.IMAGE }
+                        val fileAtts = msg.attachments.filter { it.type == AttachmentType.TEXT_FILE }
+
+                        val promptWithFiles = StringBuilder().apply {
+                            if (fileAtts.isNotEmpty()) {
+                                fileAtts.forEach { f ->
+                                    append("\n[附加文件: ${f.name}]\n```\n${f.textContent}\n```\n")
+                                }
+                            }
+                            append(msg.content)
+                        }.toString()
+
+                        if (imageAtt != null && msg.role == ChatRole.USER) {
+                            // OpenAI multimodal array
+                            val contentArr = org.json.JSONArray().apply {
+                                put(org.json.JSONObject().apply {
+                                    put("type", "text")
+                                    put("text", promptWithFiles)
+                                })
+                                put(org.json.JSONObject().apply {
+                                    put("type", "image_url")
+                                    put("image_url", org.json.JSONObject().apply {
+                                        put("url", imageAtt.base64Data)
+                                    })
+                                })
+                            }
+                            obj.put("content", contentArr)
+                        } else {
+                            obj.put("content", promptWithFiles)
+                        }
                         arr.put(obj)
                     }
                     put("messages", arr)
@@ -1243,6 +1458,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val contentBuilder = java.lang.StringBuilder()
+                val reasoningBuilder = java.lang.StringBuilder()
+                val toolCallBuilder = mutableListOf<ChatToolCall>()
                 var lastUiUpdate = System.currentTimeMillis()
 
                 conn.inputStream.bufferedReader(java.nio.charset.StandardCharsets.UTF_8).use { reader ->
@@ -1252,25 +1469,105 @@ class MainActivity : ComponentActivity() {
                         if (trimmed.startsWith("data:")) {
                             val data = trimmed.substring(5).trim()
                             if (data == "[DONE]") break
-                            val delta = parseDeltaContent(data)
-                            if (delta.isNotEmpty()) {
-                                contentBuilder.append(delta)
-                                val now = System.currentTimeMillis()
-                                if (now - lastUiUpdate > 40) {
-                                    val currentStr = contentBuilder.toString()
-                                    withContext(Dispatchers.Main) {
-                                        updateAssistantMessageContent(assistantMsgId, currentStr, isStreaming = true)
-                                    }
-                                    lastUiUpdate = now
+
+                            val deltaText = parseDeltaContent(data)
+                            val deltaReasoning = parseDeltaReasoning(data)
+                            val discoveredTools = parseDeltaToolCalls(data)
+
+                            if (deltaText.isNotEmpty()) contentBuilder.append(deltaText)
+                            if (deltaReasoning.isNotEmpty()) reasoningBuilder.append(deltaReasoning)
+                            if (discoveredTools.isNotEmpty()) toolCallBuilder.addAll(discoveredTools)
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastUiUpdate > 45) {
+                                val currentStr = contentBuilder.toString()
+                                val currentReasoning = reasoningBuilder.toString()
+                                withContext(Dispatchers.Main) {
+                                    updateAssistantMessageState(
+                                        id = assistantMsgId,
+                                        content = currentStr,
+                                        reasoning = currentReasoning,
+                                        tools = toolCallBuilder,
+                                        isStreaming = true,
+                                    )
                                 }
+                                lastUiUpdate = now
                             }
                         }
                     }
                 }
 
+                // Check if the model triggered MCP tool calls
+                if (toolCallBuilder.isNotEmpty() && state.mcpEnabled) {
+                    val executedTools = mutableListOf<ChatToolCall>()
+                    val toolResultsSb = StringBuilder()
+
+                    for (tool in toolCallBuilder) {
+                        withContext(Dispatchers.Main) {
+                            updateAssistantMessageState(
+                                id = assistantMsgId,
+                                content = contentBuilder.toString(),
+                                reasoning = reasoningBuilder.toString(),
+                                tools = toolCallBuilder.map { if (it.name == tool.name) it.copy(isExecuting = true) else it },
+                                isStreaming = true,
+                            )
+                        }
+
+                        val result = McpManager.executeTool(
+                            toolName = tool.name,
+                            argumentsJson = tool.arguments,
+                            servers = state.mcpServers,
+                            exaApiKey = state.exaApiKey,
+                        )
+
+                        executedTools.add(tool.copy(result = result, isExecuting = false))
+                        toolResultsSb.append("\n[工具调用结果: ${tool.name}]\n$result\n")
+                    }
+
+                    // Update assistant with tool results and launch continuation round
+                    withContext(Dispatchers.Main) {
+                        updateAssistantMessageState(
+                            id = assistantMsgId,
+                            content = contentBuilder.toString(),
+                            reasoning = reasoningBuilder.toString(),
+                            tools = executedTools,
+                            isStreaming = false,
+                        )
+
+                        // Add tool message and trigger answer synthesis
+                        val nextAssistantMsgId = java.util.UUID.randomUUID().toString()
+                        val toolResponseMsg = ChatMessage(
+                            role = ChatRole.TOOL,
+                            content = toolResultsSb.toString(),
+                            modelId = targetModelId,
+                        )
+                        val nextAssistantMsg = ChatMessage(
+                            id = nextAssistantMsgId,
+                            role = ChatRole.ASSISTANT,
+                            content = "",
+                            modelId = targetModelId,
+                            isStreaming = true,
+                        )
+                        state = state.copy(
+                            chatMessages = state.chatMessages + toolResponseMsg + nextAssistantMsg,
+                            isChatStreaming = true,
+                        )
+                        dispatchChatStream(targetModelId, nextAssistantMsgId)
+                    }
+                    return@launch
+                }
+
+                // Finalize content without tools
                 val finalContent = contentBuilder.toString()
+                val finalReasoning = reasoningBuilder.toString()
                 withContext(Dispatchers.Main) {
-                    updateAssistantMessageContent(assistantMsgId, finalContent, isStreaming = false)
+                    updateAssistantMessageState(
+                        id = assistantMsgId,
+                        content = finalContent,
+                        reasoning = finalReasoning,
+                        tools = toolCallBuilder,
+                        isStreaming = false,
+                    )
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
@@ -1302,14 +1599,47 @@ class MainActivity : ComponentActivity() {
                 if (delta != null) {
                     val content = delta.optString("content", "")
                     if (content.isNotEmpty()) return@runCatching content
-                    val reasoning = delta.optString("reasoning_content", "")
-                    if (reasoning.isNotEmpty()) return@runCatching reasoning
                 }
                 choice.optString("text", "")
-            } else {
-                ""
-            }
+            } else ""
         }.getOrDefault("")
+    }
+
+    private fun parseDeltaReasoning(data: String): String {
+        return runCatching {
+            val json = org.json.JSONObject(data)
+            val choices = json.optJSONArray("choices")
+            if (choices != null && choices.length() > 0) {
+                val choice = choices.getJSONObject(0)
+                val delta = choice.optJSONObject("delta")
+                if (delta != null) {
+                    delta.optString("reasoning_content", "")
+                } else ""
+            } else ""
+        }.getOrDefault("")
+    }
+
+    private fun parseDeltaToolCalls(data: String): List<ChatToolCall> {
+        return runCatching {
+            val json = org.json.JSONObject(data)
+            val choices = json.optJSONArray("choices") ?: return@runCatching emptyList()
+            if (choices.length() == 0) return@runCatching emptyList()
+            val choice = choices.getJSONObject(0)
+            val delta = choice.optJSONObject("delta") ?: return@runCatching emptyList()
+            val tools = delta.optJSONArray("tool_calls") ?: return@runCatching emptyList()
+
+            val list = mutableListOf<ChatToolCall>()
+            for (i in 0 until tools.length()) {
+                val t = tools.getJSONObject(i)
+                val func = t.optJSONObject("function") ?: continue
+                val name = func.optString("name")
+                val args = func.optString("arguments")
+                if (name.isNotBlank()) {
+                    list.add(ChatToolCall(id = t.optString("id", UUID.randomUUID().toString()), name = name, arguments = args))
+                }
+            }
+            list
+        }.getOrDefault(emptyList())
     }
 
     private suspend fun waitForBridgeReady(port: Int, timeoutMs: Long): Boolean {
@@ -1338,25 +1668,38 @@ class MainActivity : ComponentActivity() {
 
     private fun retryChatMessage() {
         val lastMsg = state.chatMessages.lastOrNull() ?: return
-        val messagesWithoutLast = if (lastMsg.role == ChatRole.ASSISTANT) {
+        val messagesWithoutLast = if (lastMsg.role == ChatRole.ASSISTANT || lastMsg.role == ChatRole.TOOL) {
             state.chatMessages.dropLast(1)
         } else {
             state.chatMessages
         }
         val lastUserMsg = messagesWithoutLast.lastOrNull { it.role == ChatRole.USER } ?: return
         state = state.copy(chatMessages = messagesWithoutLast.dropLast(1))
-        sendChatMessage(lastUserMsg.content)
+        sendChatMessage(lastUserMsg.content, lastUserMsg.attachments)
     }
 
     private fun clearChatMessages() {
         stopChatMessage()
-        state = state.copy(chatMessages = emptyList())
+        state = state.copy(chatMessages = emptyList(), pendingAttachments = emptyList())
     }
 
-    private fun updateAssistantMessageContent(id: String, content: String, isStreaming: Boolean) {
+    private fun updateAssistantMessageState(
+        id: String,
+        content: String,
+        reasoning: String,
+        tools: List<ChatToolCall>,
+        isStreaming: Boolean,
+    ) {
         state = state.copy(
             chatMessages = state.chatMessages.map { msg ->
-                if (msg.id == id) msg.copy(content = content, isStreaming = isStreaming) else msg
+                if (msg.id == id) {
+                    msg.copy(
+                        content = content,
+                        reasoningContent = reasoning,
+                        toolCalls = tools,
+                        isStreaming = isStreaming,
+                    )
+                } else msg
             },
             isChatStreaming = isStreaming,
         )

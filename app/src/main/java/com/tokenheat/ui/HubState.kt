@@ -15,6 +15,7 @@ import com.tokenheat.proto.Provider
 import com.tokenheat.proto.SavedAccount
 import com.tokenheat.proto.HubModel
 import com.tokenheat.proto.Wire
+import com.tokenheat.mcp.McpServerConfig
 
 enum class HubTab(val label: String, val icon: ImageVector) {
     Dashboard("概览", Icons.Outlined.Dashboard),
@@ -24,16 +25,46 @@ enum class HubTab(val label: String, val icon: ImageVector) {
     Calls("记录", Icons.Outlined.History),
 }
 
-enum class ChatRole { USER, ASSISTANT, SYSTEM }
+enum class ChatRole { USER, ASSISTANT, SYSTEM, TOOL }
+
+enum class ThinkingEffort(val label: String, val levelName: String, val budgetTokens: Int) {
+    OFF("关闭", "none", 0),
+    LOW("低强度", "low", 2048),
+    MEDIUM("中等", "medium", 8192),
+    HIGH("高强度", "high", 16384),
+}
+
+enum class AttachmentType { IMAGE, TEXT_FILE }
+
+data class ChatAttachment(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val type: AttachmentType,
+    val name: String,
+    val sizeBytes: Long,
+    val mimeType: String,
+    val textContent: String = "",
+    val base64Data: String = "",
+)
+
+data class ChatToolCall(
+    val id: String,
+    val name: String,
+    val arguments: String,
+    val result: String? = null,
+    val isExecuting: Boolean = false,
+)
 
 data class ChatMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
     val role: ChatRole,
     val content: String,
+    val reasoningContent: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val modelId: String? = null,
     val isError: Boolean = false,
     val isStreaming: Boolean = false,
+    val attachments: List<ChatAttachment> = emptyList(),
+    val toolCalls: List<ChatToolCall> = emptyList(),
 )
 
 /** Everything the screens render; owned by the activity and backed by the service. */
@@ -75,6 +106,11 @@ data class HubState(
     val chatMessages: List<ChatMessage> = emptyList(),
     val selectedChatModelId: String? = null,
     val isChatStreaming: Boolean = false,
+    val thinkingEffort: ThinkingEffort = ThinkingEffort.MEDIUM,
+    val exaApiKey: String = "",
+    val mcpServers: List<McpServerConfig> = emptyList(),
+    val mcpEnabled: Boolean = false,
+    val pendingAttachments: List<ChatAttachment> = emptyList(),
 )
 
 /** Real-time OAuth/CLI login session state for dialog and status rendering. */
