@@ -34,17 +34,9 @@ enum class ThinkingEffort(
     val stepIndex: Int,
 ) {
     OFF("关闭", "none", 0, 0),
-    T512("极速", "low", 512, 1),
-    T1K("微弱", "low", 1024, 2),
-    LOW("轻量", "low", 2048, 3),
-    T4K("适中", "medium", 4096, 4),
-    MEDIUM("均衡", "medium", 8192, 5),
-    T12K("进阶", "medium", 12288, 6),
-    HIGH("深度", "high", 16384, 7),
-    T24K("强力", "high", 24576, 8),
-    T32K("极限", "high", 32768, 9),
-    T48K("极致", "high", 49152, 10),
-    MAX("满血", "high", 65536, 11);
+    LOW("低", "low", 0, 1),
+    MEDIUM("中", "medium", 0, 2),
+    HIGH("高", "high", 0, 3);
 
     val step: Int get() = stepIndex + 1
 
@@ -96,6 +88,8 @@ data class ChatConversation(
     val messages: List<ChatMessage> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
 )
 
 /** Everything the screens render; owned by the activity and backed by the service. */

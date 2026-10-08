@@ -263,6 +263,9 @@ class MainActivity : ComponentActivity() {
                 onRenameConversation = { convId, newTitle -> renameConversation(convId, newTitle) },
                 onDeleteConversation = { convId -> deleteConversation(convId) },
                 onClearAllConversations = { clearAllConversations() },
+                onTogglePinConversation = { convId -> togglePinConversation(convId) },
+                onToggleArchiveConversation = { convId -> toggleArchiveConversation(convId) },
+                onGenerateTitleWithAI = { convId -> generateConversationTitleWithAI(convId) },
             )
         }
 
@@ -1777,6 +1780,87 @@ class MainActivity : ComponentActivity() {
         }
         state = state.copy(conversations = updated)
         chatStore.save(updated)
+    }
+
+    private fun togglePinConversation(convId: String) {
+        val updated = state.conversations.map { conv ->
+            if (conv.id == convId) conv.copy(isPinned = !conv.isPinned) else conv
+        }
+        state = state.copy(conversations = updated)
+        chatStore.save(updated)
+    }
+
+    private fun toggleArchiveConversation(convId: String) {
+        val updated = state.conversations.map { conv ->
+            if (conv.id == convId) conv.copy(isArchived = !conv.isArchived) else conv
+        }
+        state = state.copy(conversations = updated)
+        chatStore.save(updated)
+    }
+
+    private fun generateConversationTitleWithAI(convId: String) {
+        val targetConv = state.conversations.firstOrNull { it.id == convId } ?: return
+        val meaningfulMsgs = targetConv.messages.filter { it.content.isNotBlank() }
+        if (meaningfulMsgs.isEmpty()) return
+
+        val targetModelId = targetConv.modelId ?: state.selectedChatModelId ?: state.models.firstOrNull()?.id ?: return
+        val summary = meaningfulMsgs.take(4).joinToString("\n") { m ->
+            "${if (m.role == ChatRole.USER) "用户" else "助手"}: ${m.content.take(120)}"
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            if (!state.bridgeRunning) {
+                startBridge(state.port, silent = true)
+            }
+            waitForBridgeReady(state.port, 3000)
+
+            runCatching {
+                val url = java.net.URL("http://127.0.0.1:${state.port}/v1/chat/completions")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 8000
+                conn.readTimeout = 15000
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("Authorization", "Bearer ${state.secret}")
+
+                val reqJson = org.json.JSONObject().apply {
+                    put("model", targetModelId)
+                    put("stream", false)
+                    put("messages", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("role", "system")
+                            put("content", "根据以下对话内容，生成一个极简精炼的会话标题。严格要求：只输出标题文字，不超过8个汉字或4个单词，不要包含标点、书名号、引号或任何解释。")
+                        })
+                        put(org.json.JSONObject().apply {
+                            put("role", "user")
+                            put("content", summary)
+                        })
+                    })
+                }
+
+                conn.outputStream.use { os ->
+                    os.write(reqJson.toString().toByteArray())
+                }
+
+                if (conn.responseCode in 200..299) {
+                    val respText = conn.inputStream.bufferedReader().use { it.readText() }
+                    val respObj = org.json.JSONObject(respText)
+                    val choices = respObj.optJSONArray("choices")
+                    val firstChoice = choices?.optJSONObject(0)
+                    val rawTitle = firstChoice?.optJSONObject("message")?.optString("content") ?: ""
+                    val cleanTitle = rawTitle.trim()
+                        .trim('"', '\'', '《', '》', '“', '”', '`', '#', '*', ' ', '\n')
+                        .lines().firstOrNull()?.take(16)
+
+                    if (!cleanTitle.isNullOrBlank()) {
+                        withContext(Dispatchers.Main) {
+                            renameConversation(convId, cleanTitle)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun deleteConversation(convId: String) {

@@ -100,6 +100,8 @@ class ChatConversationStore(context: Context) {
             messages = messages,
             createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
             updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+            isPinned = obj.optBoolean("isPinned", false),
+            isArchived = obj.optBoolean("isArchived", false),
         )
     }
 
@@ -110,6 +112,8 @@ class ChatConversationStore(context: Context) {
         conv.modelId?.let { obj.put("modelId", it) }
         obj.put("createdAt", conv.createdAt)
         obj.put("updatedAt", conv.updatedAt)
+        obj.put("isPinned", conv.isPinned)
+        obj.put("isArchived", conv.isArchived)
 
         val messagesArr = JSONArray()
         conv.messages.forEach { msg ->

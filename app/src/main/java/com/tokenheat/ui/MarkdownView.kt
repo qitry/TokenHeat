@@ -47,6 +47,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,13 +79,15 @@ fun MarkdownView(
                         2 -> MaterialTheme.typography.titleMedium
                         else -> MaterialTheme.typography.titleSmall
                     }
-                    Text(
-                        text = block.text,
-                        style = typography,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = renderInlineMarkdown(block.text, isDark),
+                            style = typography,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                    }
                 }
                 is MarkdownBlock.Code -> {
                     CodeBlockCard(
@@ -109,12 +112,14 @@ fun MarkdownView(
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = block.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontStyle = FontStyle.Italic,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = renderInlineMarkdown(block.text, isDark),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontStyle = FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 is MarkdownBlock.ListItem -> {
@@ -528,15 +533,28 @@ private fun parseMarkdownBlocks(rawText: String): List<MarkdownBlock> {
     return blocks
 }
 
-/** Parses inline markdown syntax: **bold**, *italic*, and `inline code`. */
-private fun renderInlineMarkdown(text: String, isDark: Boolean): AnnotatedString {
+/**
+ * Strips all raw Markdown syntax characters and formats inline styles:
+ * - ***bold italic*** / ___bold italic___ -> Bold + Italic text
+ * - **bold** / __bold__ -> Bold text
+ * - *italic* / _italic_ -> Italic text
+ * - ~~strikethrough~~ -> Strikethrough text
+ * - `code` -> Monospace rounded chip
+ * - [label](url) -> Underlined primary colored label (URL stripped)
+ * - Safe streaming fallback: strips unfinished leading asterisks/underscores
+ */
+private fun renderInlineMarkdown(rawText: String, isDark: Boolean): AnnotatedString {
+    // Strip redundant leading hash symbols if any slipped into the text
+    val text = rawText.trimStart().replace(Regex("""^#{1,6}\s*"""), "")
+    val primaryColor = if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+
     return buildAnnotatedString {
         var i = 0
         val len = text.length
 
         while (i < len) {
             when {
-                // Inline code: `code`
+                // 1. Inline code: `code`
                 text[i] == '`' -> {
                     val end = text.indexOf('`', i + 1)
                     if (end != -1) {
@@ -552,38 +570,123 @@ private fun renderInlineMarkdown(text: String, isDark: Boolean): AnnotatedString
                         }
                         i = end + 1
                     } else {
-                        append(text[i])
-                        i++
+                        // Unclosed code block during streaming: format remaining without raw backtick
+                        val remaining = text.substring(i + 1)
+                        if (remaining.isNotEmpty()) {
+                            withStyle(
+                                SpanStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    background = if (isDark) ZincColors.Zinc800 else ZincColors.Zinc200,
+                                    fontSize = 13.sp,
+                                ),
+                            ) {
+                                append(" $remaining ")
+                            }
+                        }
+                        i = len
                     }
                 }
-                // Bold: **text**
-                i + 1 < len && text[i] == '*' && text[i + 1] == '*' -> {
-                    val end = text.indexOf("**", i + 2)
+
+                // 2. Bold Italic: ***text*** or ___text___
+                (i + 2 < len && text.startsWith("***", i)) || (i + 2 < len && text.startsWith("___", i)) -> {
+                    val delimiter = if (text.startsWith("***", i)) "***" else "___"
+                    val end = text.indexOf(delimiter, i + 3)
                     if (end != -1) {
-                        val bold = text.substring(i + 2, end)
+                        val inner = text.substring(i + 3, end)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                            append(inner)
+                        }
+                        i = end + 3
+                    } else {
+                        val remaining = text.substring(i + 3)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                            append(remaining)
+                        }
+                        i = len
+                    }
+                }
+
+                // 3. Bold: **text** or __text__
+                (i + 1 < len && text.startsWith("**", i)) || (i + 1 < len && text.startsWith("__", i)) -> {
+                    val delimiter = if (text.startsWith("**", i)) "**" else "__"
+                    val end = text.indexOf(delimiter, i + 2)
+                    if (end != -1) {
+                        val inner = text.substring(i + 2, end)
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(bold)
+                            append(inner)
                         }
                         i = end + 2
                     } else {
-                        append(text[i])
-                        i++
+                        val remaining = text.substring(i + 2)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(remaining)
+                        }
+                        i = len
                     }
                 }
-                // Italic: *text*
-                text[i] == '*' -> {
-                    val end = text.indexOf('*', i + 1)
+
+                // 4. Strikethrough: ~~text~~
+                i + 1 < len && text.startsWith("~~", i) -> {
+                    val end = text.indexOf("~~", i + 2)
                     if (end != -1) {
-                        val italic = text.substring(i + 1, end)
+                        val inner = text.substring(i + 2, end)
+                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                            append(inner)
+                        }
+                        i = end + 2
+                    } else {
+                        val remaining = text.substring(i + 2)
+                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                            append(remaining)
+                        }
+                        i = len
+                    }
+                }
+
+                // 5. Italic: *text* or _text_
+                (text[i] == '*' || text[i] == '_') -> {
+                    val delimiter = text[i].toString()
+                    val end = text.indexOf(delimiter, i + 1)
+                    if (end != -1 && end > i + 1) {
+                        val inner = text.substring(i + 1, end)
                         withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                            append(italic)
+                            append(inner)
                         }
                         i = end + 1
+                    } else {
+                        if (i == len - 1) {
+                            i++
+                        } else {
+                            append(text[i])
+                            i++
+                        }
+                    }
+                }
+
+                // 6. Link: [label](url) -> Strip syntax, render label with underline
+                text[i] == '[' -> {
+                    val closeBracket = text.indexOf(']', i + 1)
+                    val openParen = if (closeBracket != -1) text.indexOf('(', closeBracket) else -1
+                    val closeParen = if (openParen == closeBracket + 1) text.indexOf(')', openParen) else -1
+
+                    if (closeBracket != -1 && closeParen != -1 && openParen == closeBracket + 1) {
+                        val label = text.substring(i + 1, closeBracket)
+                        withStyle(
+                            SpanStyle(
+                                color = primaryColor,
+                                textDecoration = TextDecoration.Underline,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                        ) {
+                            append(label)
+                        }
+                        i = closeParen + 1
                     } else {
                         append(text[i])
                         i++
                     }
                 }
+
                 else -> {
                     append(text[i])
                     i++

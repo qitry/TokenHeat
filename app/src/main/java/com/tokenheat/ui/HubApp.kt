@@ -121,6 +121,9 @@ fun HubApp(
     onRenameConversation: (String, String) -> Unit = { _, _ -> },
     onDeleteConversation: (String) -> Unit = {},
     onClearAllConversations: () -> Unit = {},
+    onTogglePinConversation: (String) -> Unit = {},
+    onToggleArchiveConversation: (String) -> Unit = {},
+    onGenerateTitleWithAI: (String) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -279,6 +282,9 @@ fun HubApp(
                             onRenameConversation = onRenameConversation,
                             onDeleteConversation = onDeleteConversation,
                             onClearAllConversations = onClearAllConversations,
+                            onTogglePinConversation = onTogglePinConversation,
+                            onToggleArchiveConversation = onToggleArchiveConversation,
+                            onGenerateTitleWithAI = onGenerateTitleWithAI,
                             isDarkTheme = dark,
                             onToggleDarkTheme = { dark = !dark },
                         )
