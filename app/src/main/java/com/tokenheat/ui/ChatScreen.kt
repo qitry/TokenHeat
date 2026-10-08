@@ -2635,6 +2635,7 @@ private fun ChatInputBar(
         }
     }
 }
+}
 
 /** Thinking Intensity selector bottom sheet with animated slider and quick options. */
 @OptIn(ExperimentalMaterial3Api::class)
