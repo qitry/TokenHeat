@@ -1683,7 +1683,7 @@ private fun ChatInputBar(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, top = 12.dp, bottom = 6.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
             ) {
                 BasicTextField(
                     value = inputText,
