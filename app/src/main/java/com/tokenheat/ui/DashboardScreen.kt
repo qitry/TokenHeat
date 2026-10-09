@@ -119,11 +119,10 @@ fun DashboardScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // 1. Gateway Status & Core Hardware Metrics Card
+        // 1. Gateway Status & Core Hardware Metrics Card (FlClash service_status 目标位)
         item {
-            ShadcnCard {
+            FlCommonCard(info = FlInfo("网关服务")) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Row(
@@ -180,7 +179,7 @@ fun DashboardScreen(
                         if (state.bridgeRunning) {
                             OutlinedButton(
                                 onClick = onStopBridge,
-                                shape = RoundedCornerShape(6.dp),
+                                shape = SquirclePillShape,
                                 modifier = Modifier.weight(1f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                             ) {
@@ -191,7 +190,7 @@ fun DashboardScreen(
                         } else {
                             Button(
                                 onClick = onStartBridge,
-                                shape = RoundedCornerShape(6.dp),
+                                shape = SquirclePillShape,
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
@@ -206,7 +205,7 @@ fun DashboardScreen(
 
                         OutlinedButton(
                             onClick = onCopyEndpoint,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = SquirclePillShape,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
                             Icon(Lucide.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -267,9 +266,8 @@ fun DashboardScreen(
 
         // 3. GitHub-style Request Activity Heatmap Wall
         item {
-            ShadcnCard {
+            FlCommonCard {
                 Column(
-                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     ActivityHeatmap(calls = calls)
@@ -279,9 +277,8 @@ fun DashboardScreen(
 
         // 4. Top Models Distribution
         item {
-            ShadcnCard {
+            FlCommonCard {
                 Column(
-                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
@@ -341,16 +338,10 @@ fun DashboardScreen(
 
         // 5. Account Bundle Backup & Quick Tools
         item {
-            ShadcnCard {
+            FlCommonCard(info = FlInfo("数据包与便捷运维")) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(
-                        text = "数据包与便捷运维",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
                     Text(
                         text = "支持将全量供应商账号加密压缩为 .json.gz 离线文件，便于在不同设备间迁移互备。",
                         style = MaterialTheme.typography.bodySmall,
@@ -363,7 +354,7 @@ fun DashboardScreen(
                     ) {
                         Button(
                             onClick = onExportBackup,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = SquirclePillShape,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
@@ -377,7 +368,7 @@ fun DashboardScreen(
 
                         OutlinedButton(
                             onClick = onImportBackup,
-                            shape = RoundedCornerShape(6.dp),
+                            shape = SquirclePillShape,
                             modifier = Modifier.weight(1f),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
@@ -507,7 +498,7 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
                     selected = isSelected,
                     onClick = { span = s },
                     label = { Text(s.label, style = MaterialTheme.typography.labelSmall) },
-                    shape = RoundedCornerShape(6.dp),
+                    shape = SquircleCornerShape(FlCorner.Sm.dp),
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -594,8 +585,8 @@ private fun MetricSmallBox(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.clip(RoundedCornerShape(6.dp)),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier.clip(SquircleCornerShape(FlCorner.Sm.dp)),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
             Text(
@@ -624,8 +615,11 @@ private fun TokenStatCard(
     modifier: Modifier = Modifier,
     highlight: Boolean = false,
 ) {
-    ShadcnCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(14.dp)) {
+    FlCommonCard(
+        modifier = modifier,
+        type = if (highlight) FlCardType.Filled else FlCardType.Plain,
+    ) {
+        Column {
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
@@ -685,7 +679,7 @@ private fun TopModelRow(stat: ModelCallStat, maxCount: Int) {
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             ) {
                 Box(
                     modifier = Modifier

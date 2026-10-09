@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.tokenheat.data.QLogin
 import com.tokenheat.mcp.McpServerConfig
 import com.tokenheat.proto.Provider
@@ -186,6 +187,12 @@ fun HubApp(
                         FloatingNavigationBar(
                             currentTab = tab,
                             onSelectTab = { tab = it },
+                            showStartTrailing = tab == HubTab.Dashboard.ordinal,
+                            bridgeRunning = state.bridgeRunning,
+                            onToggleBridge = {
+                                if (state.bridgeRunning) onStopBridge()
+                                else onStartBridge(state.port)
+                            },
                         )
                     }
                 },
@@ -348,68 +355,106 @@ private fun getGreetingText(): String {
 }
 
 /**
- * Shadcn/iOS-inspired floating pill bottom navigation bar:
- * - Magnified comfort size (56dp pill height, 20dp vector icons).
- * - Instant tab response without sluggish horizontal layout expansions.
- * - Strict system navigation bar inset avoidance.
- * - n=6 Continuous curvature squircle pill shape.
+ * FlClash 目标模式的悬浮导航坞（对标 lib/widgets/navigation_dock.dart）：
+ * - 全胶囊超椭圆底座，色 surfaceContainer，边距 21dp，.bar 高 62dp；
+ * - 图标 24dp + 10sp 标签常显，选中态 secondaryContainer 镜片；
+ * - Dashboard 页右侧挂圆形启停键（对标 docked StartButton 槽位）。
  */
 @Composable
 private fun FloatingNavigationBar(
     currentTab: Int,
     onSelectTab: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    showStartTrailing: Boolean = false,
+    bridgeRunning: Boolean = false,
+    onToggleBridge: () -> Unit = {},
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(start = 21.dp, end = 21.dp, top = 8.dp, bottom = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            shape = SquirclePillShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-            shadowElevation = 8.dp,
+        Row(
+            modifier = Modifier.height(72.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .height(56.dp)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            Surface(
+                shape = SquirclePillShape,
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shadowElevation = 8.dp,
+                modifier = Modifier.weight(1f),
             ) {
-                HubTab.entries.forEachIndexed { index, item ->
-                    val isSelected = currentTab == index
-                    Surface(
-                        modifier = Modifier
-                            .clip(SquirclePillShape)
-                            .clickable { onSelectTab(index) },
-                        shape = SquirclePillShape,
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else Color.Transparent,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = if (isSelected) 14.dp else 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
+                Row(
+                    modifier = Modifier
+                        .height(64.dp)
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HubTab.entries.forEachIndexed { index, item ->
+                        val isSelected = currentTab == index
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(SquirclePillShape)
+                                .clickable { onSelectTab(index) },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.label,
-                                modifier = Modifier.size(20.dp),
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            )
-                            if (isSelected) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = item.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                            Surface(
+                                shape = SquirclePillShape,
+                                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer
+                                else Color.Transparent,
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = item.icon,
+                                        contentDescription = item.label,
+                                        modifier = Modifier.size(24.dp),
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = item.label,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
+                    }
+                }
+            }
+            if (showStartTrailing) {
+                Surface(
+                    shape = IconSquircleShape,
+                    color = if (bridgeRunning) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.primary,
+                    contentColor = if (bridgeRunning) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onPrimary,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(IconSquircleShape)
+                        .clickable(onClick = onToggleBridge),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (bridgeRunning) Lucide.Square else Lucide.Play,
+                            contentDescription = if (bridgeRunning) "停止服务" else "启动服务",
+                            modifier = Modifier.size(28.dp),
+                        )
                     }
                 }
             }

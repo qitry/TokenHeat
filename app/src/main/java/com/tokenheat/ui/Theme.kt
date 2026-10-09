@@ -1,11 +1,17 @@
 package com.tokenheat.ui
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 object ZincColors {
     val Zinc50 = Color(0xFFFAFAFA)
@@ -91,12 +97,44 @@ val ShadcnDarkScheme = darkColorScheme(
 @Composable
 fun TokenHeatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) ShadcnDarkScheme else ShadcnLightScheme
+    val context = LocalContext.current
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> ShadcnDarkScheme
+        else -> ShadcnLightScheme
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,
+        shapes = FlShapes,
         content = content,
     )
 }
+
+/**
+ * FlClash 目标模式的设计 token（对标 lib/common/shape.dart）：
+ * - 全部圆角走超椭圆连续曲率，禁止 Stadium/RoundedRectangle；
+ * - 卡片 md=16，弹窗 xxl=28，输入框 md=16，按钮全胶囊；
+ * - 容器色阶走 M3 surfaceContainerLow → Highest，选中态 secondaryContainer。
+ */
+object FlCorner {
+    const val Xs = 4
+    const val Sm = 8
+    const val Md = 16
+    const val Lg = 20
+    const val Xl = 24
+    const val Xxl = 28
+}
+
+private val FlShapes = Shapes(
+    extraSmall = SuperellipseShape(exponent = 6f, cornerRadius = 4.dp),
+    small = SuperellipseShape(exponent = 6f, cornerRadius = 8.dp),
+    medium = SuperellipseShape(exponent = 6f, cornerRadius = 16.dp),
+    large = SuperellipseShape(exponent = 6f, cornerRadius = 20.dp),
+    extraLarge = SuperellipseShape(exponent = 6f, cornerRadius = 28.dp),
+)

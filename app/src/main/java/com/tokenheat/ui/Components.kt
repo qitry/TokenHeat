@@ -29,11 +29,19 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -154,15 +162,15 @@ fun StatusDot(
 fun ShadcnCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    border: BorderStroke = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    containerColor: Color = MaterialTheme.colorScheme.surface,
+    border: BorderStroke = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainerHighest),
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     content: @Composable () -> Unit,
 ) {
     if (onClick != null) {
         Card(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = SquircleCornerShape(FlCorner.Md.dp),
             border = border,
             colors = CardDefaults.cardColors(
                 containerColor = containerColor,
@@ -174,7 +182,7 @@ fun ShadcnCard(
     } else {
         Card(
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = SquircleCornerShape(FlCorner.Md.dp),
             border = border,
             colors = CardDefaults.cardColors(
                 containerColor = containerColor,
@@ -365,4 +373,248 @@ fun SquircleCornerShape(cornerRadius: Dp = 12.dp) = SuperellipseShape(exponent =
 
 /** Continuous Curvature Pill Shape (Exponent n = 6) */
 val SquirclePillShape = SuperellipseShape(exponent = 6f)
+
+// -----------------------------------------------------------------------------
+// FlClash 目标模式基础组件（对标 lib/widgets/card.dart + scaffold.dart +
+// views/dashboard/widgets/start_button.dart）。命名以 Fl 开头，避免与现有
+// Shadcn 系组件冲突，迁移完成后 Shadcn* 可整体退役。
+// -----------------------------------------------------------------------------
+
+/** 对标 FlClash `Info`：卡片/分组的标题行数据。 */
+data class FlInfo(val label: String)
+
+/** 对标 FlClash `InfoHeader`：titleSmall + onSurfaceVariant 的分组标题行。 */
+@Composable
+fun FlInfoHeader(
+    info: FlInfo,
+    modifier: Modifier = Modifier,
+    actions: @Composable (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = info.label,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (actions != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) { actions() }
+        }
+    }
+}
+
+/** 对标 FlClash `CommonCardType`。 */
+enum class FlCardType { Plain, Filled }
+
+/**
+ * 对标 FlClash `CommonCard`：
+ * - Plain 背 surfaceContainerLow，Filled 背 surfaceContainerHigh；
+ * - 边框 surfaceContainerHighest，选中态描边 primary、底 secondaryContainer；
+ * - 形状统一超椭圆 md=16。
+ */
+@Composable
+fun FlCommonCard(
+    modifier: Modifier = Modifier,
+    type: FlCardType = FlCardType.Plain,
+    isSelected: Boolean = false,
+    isError: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    info: FlInfo? = null,
+    content: @Composable () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val container = when {
+        isError -> scheme.errorContainer
+        isSelected -> scheme.secondaryContainer
+        type == FlCardType.Filled -> scheme.surfaceContainerHigh
+        else -> scheme.surfaceContainerLow
+    }
+    val borderColor = when {
+        isError -> scheme.error.copy(alpha = 0.6f)
+        isSelected -> scheme.primary
+        else -> scheme.surfaceContainerHighest
+    }
+    val body: @Composable () -> Unit = {
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (info != null) {
+                FlInfoHeader(info = info)
+                Spacer(Modifier.size(8.dp))
+            }
+            content()
+        }
+    }
+    Card(
+        onClick = onClick ?: {},
+        enabled = onClick != null,
+        modifier = modifier.fillMaxWidth(),
+        shape = SquircleCornerShape(FlCorner.Md.dp),
+        border = BorderStroke(1.dp, borderColor),
+        colors = CardDefaults.cardColors(
+            containerColor = container,
+            contentColor = if (isError) scheme.error else scheme.onSurface,
+            disabledContainerColor = container,
+            disabledContentColor = scheme.onSurface,
+        ),
+    ) { body() }
+}
+
+/**
+ * 对标 FlClash `SettingsBlock`：标题 + 整块 surfaceContainer 设置组。
+ */
+@Composable
+fun FlSettingsBlock(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        FlInfoHeader(
+            info = FlInfo(title),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        Surface(
+            shape = SquircleCornerShape(FlCorner.Md.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
+            Column(modifier = Modifier.padding(8.dp)) { content() }
+        }
+    }
+}
+
+/** 顶栏动作：对标 FlClash `IconButtonData`，超量时收进溢出菜单。 */
+data class FlBarAction(
+    val icon: @Composable () -> Unit,
+    val description: String,
+    val onClick: () -> Unit,
+)
+
+/**
+ * 对标 FlClash `CommonScaffold` 精简版：标题 + 最多 3 个顶栏按钮（多余进溢出菜单）
+ * + 顶部线性加载条 + FAB。body 默认 16dp 页面边距。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FlScaffold(
+    title: String,
+    modifier: Modifier = Modifier,
+    actions: List<FlBarAction> = emptyList(),
+    isLoading: Boolean = false,
+    floatingActionButton: @Composable (() -> Unit)? = null,
+    body: @Composable () -> Unit,
+) {
+    var overflowOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val shown = actions.take(3)
+    val overflow = actions.drop(3)
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surface,
+        topBar = {
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    actions = {
+                        shown.forEach { a ->
+                            IconButton(onClick = a.onClick) { a.icon() }
+                        }
+                        if (overflow.isNotEmpty()) {
+                            Box {
+                                IconButton(onClick = { overflowOpen = true }) {
+                                    Icon(
+                                        imageVector = Lucide.MoreVertical,
+                                        contentDescription = "更多",
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = overflowOpen,
+                                    onDismissRequest = { overflowOpen = false },
+                                ) {
+                                    overflow.forEach { a ->
+                                        DropdownMenuItem(
+                                            text = { Text(a.description) },
+                                            leadingIcon = a.icon,
+                                            onClick = { overflowOpen = false; a.onClick() },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+                if (isLoading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+        },
+        floatingActionButton = { floatingActionButton?.invoke() },
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(padding)
+                .padding(16.dp),
+        ) { body() }
+    }
+}
+
+/**
+ * 对标 FlClash `StartButton`：56dp 高扩展式 FAB，未运行时只露图标，
+ * 运行中展开显示计时文本。
+ */
+@Composable
+fun FlStartButton(
+    running: Boolean,
+    runTimeText: String,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FloatingActionButton(
+        onClick = onToggle,
+        modifier = modifier,
+        shape = SquirclePillShape,
+        containerColor = if (running) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.primary,
+        contentColor = if (running) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onPrimary,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = if (running) Lucide.Square else Lucide.Play,
+                contentDescription = if (running) "停止" else "启动",
+                modifier = Modifier.size(24.dp),
+            )
+            if (running) {
+                Text(
+                    text = runTimeText,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
 
