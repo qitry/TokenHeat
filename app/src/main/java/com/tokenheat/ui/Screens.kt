@@ -351,7 +351,7 @@ fun CredentialScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = SquirclePillShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -372,7 +372,7 @@ fun CredentialScreen(
                     OutlinedButton(
                         onClick = onLogout,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = SquirclePillShape,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Text(
@@ -396,8 +396,8 @@ fun CredentialScreen(
             }
 
             ShadcnCard(
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainerHighest),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
             ) {
                 Text(
                     text = noteText,
@@ -438,10 +438,10 @@ fun ProviderDropdownSelector(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)), RoundedCornerShape(12.dp))
+                    .clip(SquircleCornerShape(FlCorner.Md.dp))
+                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainerHighest), SquircleCornerShape(FlCorner.Md.dp))
                     .clickable { expanded = true },
-                color = MaterialTheme.colorScheme.surface,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -482,7 +482,7 @@ fun ProviderDropdownSelector(
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
-                shape = RoundedCornerShape(12.dp),
+                shape = SquircleCornerShape(FlCorner.Md.dp),
                 containerColor = MaterialTheme.colorScheme.surface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 modifier = Modifier
@@ -634,8 +634,8 @@ private fun ActiveCredentialCard(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp)),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                        .clip(SquircleCornerShape(FlCorner.Md.dp)),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -762,9 +762,8 @@ fun BridgeScreen(
     ) {
         // 1. Service Dashboard Header
         item {
-            ShadcnCard {
+            FlCommonCard(info = FlInfo("本地 API 服务")) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
@@ -774,11 +773,6 @@ fun BridgeScreen(
                         StatusDot(active = state.bridgeRunning)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                text = "本地 API 服务",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
                             Text(
                                 text = if (state.bridgeRunning) "运行中 · 127.0.0.1:${state.port}" else "已停止服务",
                                 style = MaterialTheme.typography.bodySmall,
@@ -799,7 +793,7 @@ fun BridgeScreen(
                                 .fillMaxWidth()
                                 .height(2.dp),
                             color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         )
                     }
 
@@ -815,7 +809,7 @@ fun BridgeScreen(
                             label = { Text("服务监听端口", style = MaterialTheme.typography.labelSmall) },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = SquircleCornerShape(FlCorner.Md.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -824,7 +818,7 @@ fun BridgeScreen(
                         if (state.bridgeRunning) {
                             OutlinedButton(
                                 onClick = onCopyEndpoint,
-                                shape = RoundedCornerShape(8.dp),
+                                shape = SquirclePillShape,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             ) {
                                 Text("复制地址")
@@ -855,10 +849,10 @@ fun BridgeScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(BorderStroke(1.dp, ZincColors.Warning.copy(alpha = 0.3f)), RoundedCornerShape(8.dp))
+                                .clip(SquircleCornerShape(FlCorner.Md.dp))
+                                .border(BorderStroke(1.dp, ZincColors.Warning.copy(alpha = 0.3f)), SquircleCornerShape(FlCorner.Md.dp))
                                 .clickable(onClick = onRequestBatteryExemption),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
@@ -891,10 +885,10 @@ fun BridgeScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(BorderStroke(1.dp, ZincColors.Danger.copy(alpha = 0.3f)), RoundedCornerShape(8.dp))
+                                .clip(SquircleCornerShape(FlCorner.Md.dp))
+                                .border(BorderStroke(1.dp, ZincColors.Danger.copy(alpha = 0.3f)), SquircleCornerShape(FlCorner.Md.dp))
                                 .clickable(onClick = onRequestNotifications),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
@@ -958,7 +952,7 @@ fun BridgeScreen(
                         Button(
                             onClick = onRequestOverlay,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = SquirclePillShape,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1052,7 +1046,7 @@ fun BridgeScreen(
                     OutlinedButton(
                         onClick = onRefreshModels,
                         enabled = state.loading != Loading.MODELS,
-                        shape = RoundedCornerShape(6.dp),
+                        shape = SquirclePillShape,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
@@ -1109,7 +1103,7 @@ fun WorkBuddyDailyCheckinCard(
                         onClick = onCheckin,
                         onLongClick = onCheckinAll,
                     ),
-                shape = RoundedCornerShape(8.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1154,7 +1148,7 @@ fun WorkBuddyBalanceCard(
                 OutlinedButton(
                     onClick = onRefreshBalance,
                     enabled = state.loading != Loading.BALANCE,
-                    shape = RoundedCornerShape(6.dp),
+                    shape = SquirclePillShape,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
@@ -1200,8 +1194,8 @@ fun WorkBuddyBalanceCard(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp)),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                            .clip(SquircleCornerShape(FlCorner.Md.dp)),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
@@ -1276,7 +1270,7 @@ fun ZCodeQuotaCard(
                 OutlinedButton(
                     onClick = onRefreshBalance,
                     enabled = state.loading != Loading.BALANCE,
-                    shape = RoundedCornerShape(6.dp),
+                    shape = SquirclePillShape,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
@@ -1311,8 +1305,8 @@ fun ZCodeQuotaCard(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                        .clip(SquircleCornerShape(FlCorner.Md.dp)),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ) {
                     Text(
                         text = quota,
@@ -1346,7 +1340,7 @@ fun AccountBackupCard(
                 OutlinedButton(
                     onClick = onExport,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = SquirclePillShape,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Icon(Lucide.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1356,7 +1350,7 @@ fun AccountBackupCard(
                 OutlinedButton(
                     onClick = onImport,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = SquirclePillShape,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Icon(Lucide.Download, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1513,7 +1507,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                                 .fillMaxWidth()
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(4.dp)),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         ) {
                             Row(modifier = Modifier.fillMaxSize()) {
                                 if (totalReqs > 0 && successReqs > 0) {
@@ -1597,7 +1591,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                                         .fillMaxWidth()
                                         .height(4.dp)
                                         .clip(RoundedCornerShape(2.dp)),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     val ratio = (tokens.toFloat() / maxTokens).coerceIn(0.02f, 1f)
                                     Box(
@@ -1626,7 +1620,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                         selected = filter == "ALL",
                         onClick = { filter = "ALL" },
                         label = { Text("全部 (${calls.size})", style = MaterialTheme.typography.labelSmall) },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = SquircleCornerShape(FlCorner.Sm.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -1636,7 +1630,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                         selected = filter == "OK",
                         onClick = { filter = "OK" },
                         label = { Text("仅成功 ($successReqs)", style = MaterialTheme.typography.labelSmall) },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = SquircleCornerShape(FlCorner.Sm.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -1646,7 +1640,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                         selected = filter == "FAIL",
                         onClick = { filter = "FAIL" },
                         label = { Text("仅失败 ($failReqs)", style = MaterialTheme.typography.labelSmall) },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = SquircleCornerShape(FlCorner.Sm.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -1661,9 +1655,9 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    color = MaterialTheme.colorScheme.surface,
+                    shape = SquircleCornerShape(FlCorner.Md.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceContainerHighest),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
                 ) {
                     Box(
                         modifier = Modifier
@@ -1702,9 +1696,9 @@ private fun StatTile(
 ) {
     Surface(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(8.dp)),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+            .clip(SquircleCornerShape(FlCorner.Md.dp))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), SquircleCornerShape(FlCorner.Md.dp)),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Text(
@@ -1821,7 +1815,7 @@ fun CredentialDetailDrawer(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
     ) {
         if (cred == null) {
             Box(
@@ -1973,9 +1967,9 @@ fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Uni
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), RoundedCornerShape(8.dp)),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                            .clip(SquircleCornerShape(FlCorner.Md.dp))
+                            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), SquircleCornerShape(FlCorner.Md.dp)),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ) {
                         Text(
                             text = snippet,
@@ -1989,7 +1983,7 @@ fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Uni
         confirmButton = {
             Button(
                 onClick = onCopyEndpoint,
-                shape = RoundedCornerShape(6.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2029,7 +2023,7 @@ fun ZenKeyDialog(
                     label = { Text("API Key") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = SquircleCornerShape(FlCorner.Md.dp),
                 )
                 OutlinedTextField(
                     value = label,
@@ -2037,7 +2031,7 @@ fun ZenKeyDialog(
                     label = { Text("备注标签（可选）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = SquircleCornerShape(FlCorner.Md.dp),
                 )
             }
         },
@@ -2045,7 +2039,7 @@ fun ZenKeyDialog(
             Button(
                 onClick = { onConfirm(key, label) },
                 enabled = key.isNotBlank(),
-                shape = RoundedCornerShape(6.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2067,7 +2061,7 @@ fun CheckinDialog(message: String, onDismiss: () -> Unit) {
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(6.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2120,7 +2114,7 @@ fun CheckinDialog(
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(6.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2139,7 +2133,7 @@ fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                shape = RoundedCornerShape(6.dp),
+                shape = SquirclePillShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error,
                     contentColor = MaterialTheme.colorScheme.onError,
@@ -2206,7 +2200,7 @@ fun ActiveLoginCard(
                 if (flow.authUrl.isNotBlank()) {
                     Button(
                         onClick = { onOpenBrowser(flow.authUrl) },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = SquirclePillShape,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
@@ -2224,7 +2218,7 @@ fun ActiveLoginCard(
                 }
                 OutlinedButton(
                     onClick = onCancel,
-                    shape = RoundedCornerShape(6.dp),
+                    shape = SquirclePillShape,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                 ) {
                     Text("取消", color = MaterialTheme.colorScheme.error)
@@ -2321,8 +2315,8 @@ fun LoginProgressDialog(
                 }
             } else {
                 Surface(
-                    shape = SquircleCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = SquircleCornerShape(FlCorner.Sm.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(

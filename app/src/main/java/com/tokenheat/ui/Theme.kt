@@ -3,7 +3,6 @@ package com.tokenheat.ui
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -11,7 +10,6 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 
 object ZincColors {
     val Zinc50 = Color(0xFFFAFAFA)
@@ -111,7 +109,6 @@ fun TokenHeatTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        shapes = FlShapes,
         content = content,
     )
 }
@@ -131,10 +128,9 @@ object FlCorner {
     const val Xxl = 28
 }
 
-private val FlShapes = Shapes(
-    extraSmall = SuperellipseShape(exponent = 6f, cornerRadius = 4.dp),
-    small = SuperellipseShape(exponent = 6f, cornerRadius = 8.dp),
-    medium = SuperellipseShape(exponent = 6f, cornerRadius = 16.dp),
-    large = SuperellipseShape(exponent = 6f, cornerRadius = 20.dp),
-    extraLarge = SuperellipseShape(exponent = 6f, cornerRadius = 28.dp),
-)
+/**
+ * FlClash 形状映射（M3 `Shapes()` 只接受 `CornerBasedShape`，超椭圆无法注入
+ * 主题，只能在各组件 `shape =` 处显式传入）：
+ * - 卡片/容器 `SquircleCornerShape(Md)`，弹窗 `Xxl`，输入框 `Md`，
+ *   小芯片 `Sm`，按钮 `SquirclePillShape`。
+ */
