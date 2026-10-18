@@ -113,6 +113,7 @@ class MainActivity : ComponentActivity() {
             overlayLocked = BridgeSettings.locked(this),
             overlayEnabled = BridgeSettings.overlayEnabled(this),
             overlayMovable = BridgeSettings.overlayMovable(this),
+            overlayPassthrough = BridgeSettings.overlayPassthrough(this),
         )
         // Starting the bridge from the foreground is what makes the foreground
         // promotion legal; a later start from a background caller is refused.
@@ -152,6 +153,11 @@ class MainActivity : ComponentActivity() {
                     BridgeSettings.setOverlayMovable(this, movable)
                     BridgeService.overlayRef?.apply { this.movable = movable }
                     state = state.copy(overlayMovable = movable)
+                },
+                onOverlayPassthrough = { passthrough ->
+                    BridgeSettings.setOverlayPassthrough(this, passthrough)
+                    BridgeService.overlayRef?.apply { this.passthrough = passthrough }
+                    state = state.copy(overlayPassthrough = passthrough)
                 },
                 onCopyApiKey = { key -> copyToClipboard(key, "已复制 API Key") },
                 onToggleApiKeyEnabled = { apiKey, enabled ->

@@ -35,6 +35,8 @@ class BridgeOverlay(
     movable: Boolean = true,
     /** 初始锁定状态；由服务从设置读入，避免在构造期访问属性带来歧义。 */
     lockedInitially: Boolean = false,
+    /** 初始是否完全穿透：不接收任何触摸，纯展示。 */
+    passthroughInitially: Boolean = false,
 ) {
 
     /** 面板不透明度；修改后立即重绘。 */
@@ -46,6 +48,16 @@ class BridgeOverlay(
 
     /** 是否允许拖动。关闭后窗口仍可点击折叠，只是不再移动位置。 */
     var movable: Boolean = movable
+        set(value) {
+            field = value
+            params?.let { applyTouchable(it) }
+        }
+
+    /**
+     * 完全穿透：窗口不接收触摸，点击落到下层应用。
+     * 优先级高于 [movable] 与 [locked]——一旦穿透，拖动与点按都不再响应。
+     */
+    var passthrough: Boolean = passthroughInitially
         set(value) {
             field = value
             params?.let { applyTouchable(it) }
@@ -201,15 +213,20 @@ class BridgeOverlay(
     // ------------------------------------------------------------------ //
 
     /**
-     * 窗口始终接收触摸，以便点按折叠；
-     * [movable] 只决定能否拖动，不再决定是否穿透。
-     * 若需要「完全穿透」的纯展示形态，应使用系统级的穿透设置，
-     * 而不是把点击折叠一并关掉。
+     * 按三种显示模式设置窗口的触摸行为：
+     * 1. 完全穿透（[passthrough]）：加 NOT_TOUCHABLE，所有事件落到下层应用；
+     * 2. 其余两种模式都接收触摸，以便点按折叠；[movable] 只决定能否拖动。
      */
     private fun applyTouchable(lp: WindowManager.LayoutParams) {
-        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-        attachDrag()
+        if (passthrough) {
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
+            root?.setOnTouchListener(null)
+        } else {
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            attachDrag()
+        }
         runCatching { params?.let { windowManager.updateViewLayout(root, it) } }
     }
 

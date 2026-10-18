@@ -40,6 +40,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -369,6 +370,7 @@ fun BridgeScreen(
     onOverlayLocked: (Boolean) -> Unit,
     onOverlayEnabled: (Boolean) -> Unit = {},
     onOverlayMovable: (Boolean) -> Unit = {},
+    onOverlayPassthrough: (Boolean) -> Unit = {},
     onCopyApiKey: (String) -> Unit = {},
     onToggleApiKeyEnabled: (ApiKey, Boolean) -> Unit = { _, _ -> },
     onEditApiKey: (ApiKey) -> Unit = {},
@@ -496,33 +498,49 @@ fun BridgeScreen(
                             valueRange = 0.15f..1f,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("可拖动", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "关闭后悬浮窗完全穿透，不拦截任何点击",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // 三种互斥的交互模式。原先两个独立开关能组合出
+                        // 「不可拖动 + 未锁定」这种语义含糊的状态，这里改成单选。
+                        val passthrough = state.overlayPassthrough
+                        val modeOptions = listOf(
+                            Triple("可拖动", !passthrough && state.overlayMovable && !state.overlayLocked, "可移动位置，点击折叠"),
+                            Triple("锁定", !passthrough && state.overlayLocked, "可点击折叠，不可拖动"),
+                            Triple("穿透", passthrough, "不响应触摸，完全交给下层应用"),
+                        )
+                        modeOptions.forEach { (label, selected, hint) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        when (label) {
+                                            "可拖动" -> {
+                                                onOverlayPassthrough(false)
+                                                onOverlayMovable(true)
+                                                onOverlayLocked(false)
+                                            }
+                                            "锁定" -> {
+                                                onOverlayPassthrough(false)
+                                                onOverlayLocked(true)
+                                                onOverlayMovable(false)
+                                            }
+                                            else -> onOverlayPassthrough(true)
+                                        }
+                                    }
+                                    .padding(vertical = 6.dp),
+                            ) {
+                                RadioButton(
+                                    selected = selected,
+                                    onClick = null,
                                 )
+                                Column(Modifier.weight(1f)) {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        hint,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                            Switch(
-                                checked = state.overlayMovable,
-                                onCheckedChange = onOverlayMovable,
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("锁定位置", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    "开启后不可拖动，避免误触挪位",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Switch(
-                                checked = state.overlayLocked,
-                                onCheckedChange = onOverlayLocked,
-                            )
                         }
                     }
                 }

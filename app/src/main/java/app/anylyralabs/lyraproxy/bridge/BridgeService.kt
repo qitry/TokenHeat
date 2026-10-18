@@ -147,6 +147,7 @@ class BridgeService : Service() {
                 panelOpacity = BridgeSettings.opacity(this),
                 movable = BridgeSettings.overlayMovable(this),
                 lockedInitially = BridgeSettings.locked(this),
+                passthroughInitially = BridgeSettings.overlayPassthrough(this),
             ).also { it.attach() }
         }
         overlay?.show()

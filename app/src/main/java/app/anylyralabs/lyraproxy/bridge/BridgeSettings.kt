@@ -15,6 +15,7 @@ object BridgeSettings {
     private const val KEY_LOCKED = "locked"
     private const val KEY_ENABLED = "overlay_enabled"
     private const val KEY_MOVABLE = "overlay_movable"
+    private const val KEY_PASSTHROUGH = "overlay_passthrough"
     private const val KEY_X = "x"
     private const val KEY_Y = "y"
 
@@ -44,13 +45,27 @@ object BridgeSettings {
             .edit().putBoolean(KEY_ENABLED, value).apply()
     }
 
-    /** 是否允许拖动；关闭即完全穿透。 */
+    /** 是否允许拖动；关闭即不能拖动但仍可点击。 */
     fun overlayMovable(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MOVABLE, true)
 
     fun setOverlayMovable(context: Context, value: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_MOVABLE, value).apply()
+    }
+
+    /**
+     * 完全穿透：窗口不接收任何触摸，事件全部落到下层应用。
+     *
+     * 与「不可拖动」不同：不可拖动仍能点按折叠，穿透模式连点击都放弃，
+     * 悬浮窗退化为纯展示。两者互斥，开启穿透时是否可拖动已无意义。
+     */
+    fun overlayPassthrough(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PASSTHROUGH, false)
+
+    fun setOverlayPassthrough(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_PASSTHROUGH, value).apply()
     }
 
     fun position(context: Context): Pair<Int, Int> {

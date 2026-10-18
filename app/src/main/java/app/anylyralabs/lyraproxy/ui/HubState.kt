@@ -45,6 +45,8 @@ data class HubState(
     val overlayLocked: Boolean = false,
     val overlayEnabled: Boolean = false,
     val overlayMovable: Boolean = true,
+    /** 完全穿透：窗口不接收触摸。 */
+    val overlayPassthrough: Boolean = false,
     /** 是否显示「粘贴凭证导入」对话框。 */
     val showPasteImport: Boolean = false,
     /** 自定义 API Key 列表。 */
