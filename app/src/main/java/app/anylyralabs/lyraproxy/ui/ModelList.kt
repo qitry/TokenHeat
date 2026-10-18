@@ -1,77 +1,28 @@
 package app.anylyralabs.lyraproxy.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.proto.HubModel
 
 /**
- * Vendor mark drawn from the initial rather than fetched artwork: the upstream
- * catalogue carries no logo URL, and a lettered badge stays crisp and available
- * offline.
+ * 模型目录。
+ *
+ * 用 Column 展开而不是嵌套 LazyColumn：外层已经是 LazyColumn，
+ * 再套一层可滚动列表会触发无限高度测量。条目本身很轻，直接铺开没有性能问题。
  */
-@Composable
-fun VendorBadge(model: HubModel, modifier: Modifier = Modifier) {
-    val colors = vendorColors(model)
-    Box(
-        modifier = modifier
-            .size(38.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(colors.background)
-            .border(1.dp, colors.border, RoundedCornerShape(10.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = model.vendor.take(1).ifEmpty { model.name.take(1) },
-            color = colors.foreground,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-private data class VendorColors(val background: Color, val foreground: Color, val border: Color)
-
-@Composable
-private fun vendorColors(model: HubModel): VendorColors {
-    val scheme = MaterialTheme.colorScheme
-    return when (model.vendor.lowercase()) {
-        "混元" -> VendorColors(Color(0xFF0052D9), Color.White, Color(0xFF003FB3))
-        "智谱" -> VendorColors(Color(0xFF12B886), Color.White, Color(0xFF0B9A70))
-        "DeepSeek" -> VendorColors(Color(0xFF4D6BFE), Color.White, Color(0xFF3452C9))
-        "kimi" -> VendorColors(Color(0xFF7C3AED), Color.White, Color(0xFF5B21B6))
-        "minimax" -> VendorColors(Color(0xFFE8590C), Color.White, Color(0xFFBF4909))
-        else -> VendorColors(scheme.surfaceVariant, scheme.onSurfaceVariant, scheme.outlineVariant)
-    }
-}
-
-/** The catalogue the bridge exposes, cheapest first. */
 @Composable
 fun ModelList(
     models: List<HubModel>,
@@ -80,119 +31,52 @@ fun ModelList(
 ) {
     if (models.isEmpty()) {
         Text(
-            "暂无模型数据，启动服务后会自动拉取。",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "还没有读取到模型。启动服务后会自动拉取。",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         return
     }
-    val sorted = models.sortedWith(compareBy({ it.sortKey }, { it.id }))
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            Text(
-                "共 ${sorted.size} 个模型，按倍率从低到高",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        items(sorted, key = { it.id }) { model ->
-            ModelRow(model, onCopy = { onCopyModel(model.id) })
-        }
-    }
-}
 
-@Composable
-private fun ModelRow(model: HubModel, onCopy: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onCopy),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            VendorBadge(model)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), Arrangement.spacedBy(3.dp)) {
+    val sorted = models.sortedWith(compareBy({ it.sortKey }, { it.id }))
+    Column(modifier = modifier.fillMaxWidth()) {
+        sorted.forEach { model ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onCopyModel(model.id) }
+                    .padding(vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     text = model.name.ifBlank { model.id },
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = model.id,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                RateChip(model)
+                Spacer(Modifier.width(10.dp))
+                if (model.isFree) {
+                    Tag("免费", tone = TagTone.Positive)
+                    Spacer(Modifier.width(8.dp))
+                } else if (model.rate.isNotBlank()) {
+                    Text(
+                        text = model.rate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 if (model.supportsImages) {
                     Text(
-                        "图片",
+                        text = "图",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-        }
-        if (model.badges.isNotEmpty()) {
-            Row(
-                modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                model.badges.forEach { badge ->
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = { Text(badge, style = MaterialTheme.typography.labelSmall) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            disabledLabelColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                }
-            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         }
     }
-}
-
-@Composable
-private fun RateChip(model: HubModel) {
-    val label = if (model.isFree) "免费" else model.rate
-    val container = if (model.isFree) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    val content = if (model.isFree) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(container)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = content)
-    }
-}
-
-@Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.SemiBold,
-        modifier = modifier,
-    )
 }

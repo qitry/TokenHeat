@@ -1,0 +1,420 @@
+package app.anylyralabs.lyraproxy.ui
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import java.util.Locale
+
+// -----------------------------------------------------------------------------
+// 原子组件。
+//
+// 设计约定：不用卡片。内容直接落在纸面上，靠间距与一条细线分段。
+// 这既是视觉选择，也省掉了大量 Surface/Border/shadow 的测量与绘制开销。
+// -----------------------------------------------------------------------------
+
+/** 细线：唯一的分段手段。 */
+@Composable
+fun Rule(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.outline) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(color),
+    )
+}
+
+/** 小节标签：不用全大写、不加字距，只把字号压小、颜色压淡。 */
+@Composable
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
+}
+
+/** 标题 + 说明的两行结构，用于每个分组的开头。 */
+@Composable
+fun SectionHeading(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(12.dp))
+            trailing()
+        }
+    }
+}
+
+/**
+ * 主按钮：实底陶土。
+ * 这是页面上最强的操作，一屏最多一个。
+ */
+@Composable
+fun PrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+) {
+    val container by animateColorAsState(
+        targetValue = if (enabled) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        label = "primaryContainer",
+    )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(container)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 13.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
+            Spacer(Modifier.width(7.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
+    }
+}
+
+/** 次按钮：只有一条细边，不抢主操作的注意力。 */
+@Composable
+fun QuietButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    icon: ImageVector? = null,
+    danger: Boolean = false,
+) {
+    val content = if (danger) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Transparent)
+            .then(
+                Modifier.background(
+                    color = Color.Transparent,
+                ),
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = if (enabled) content.copy(alpha = 0.75f) else content.copy(alpha = 0.35f),
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (enabled) content.copy(alpha = 0.85f) else content.copy(alpha = 0.35f),
+        )
+    }
+}
+
+/**
+ * 纯文字操作，用于「清空」「重置」这类低频动作。
+ *
+ * 注意参数顺序：动作函数放在最后，这样 `TextAction("删除", onDelete)` 与
+ * `TextAction("管理") { ... }` 两种写法都能正确绑定。
+ */
+@Composable
+fun TextAction(
+    text: String,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = if (danger) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.primary
+        },
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+    )
+}
+
+/**
+ * 状态点：运行时缓慢呼吸。
+ *
+ * 呼吸用 1400ms 的往返动画，幅度很小——它表示「活着」，不该抢注意力。
+ */
+@Composable
+fun LiveDot(
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    size: Dp = 7.dp,
+) {
+    if (active) {
+        val transition = rememberInfiniteTransition(label = "liveDot")
+        val scale by transition.animateFloat(
+            initialValue = 0.82f,
+            targetValue = 1.18f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1400),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "liveDotScale",
+        )
+        Box(contentAlignment = Alignment.Center, modifier = modifier.size(size + 5.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .scale(scale)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+            )
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            )
+        }
+    } else {
+        Box(
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+        )
+    }
+}
+
+/** 读数：数字在上、标签在下，数字用衬线，是页面唯一的数据重音。 */
+@Composable
+fun Readout(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineMedium,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 横向细进度条，用于预算与占比。无动画，避免无谓的每帧重绘。 */
+@Composable
+fun ThinBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+    height: Dp = 3.dp,
+    fill: Color = MaterialTheme.colorScheme.primary,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(height)
+                .background(fill),
+        )
+    }
+}
+
+/** 短标签：不用胶囊，只用一行小字，避免页面上到处是圆角容器。 */
+@Composable
+fun Tag(text: String, modifier: Modifier = Modifier, tone: TagTone = TagTone.Neutral) {
+    val color = when (tone) {
+        TagTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
+        TagTone.Active -> MaterialTheme.colorScheme.primary
+        TagTone.Danger -> MaterialTheme.colorScheme.error
+        TagTone.Positive -> Claude.Moss
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(color.copy(alpha = 0.09f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+enum class TagTone { Neutral, Active, Danger, Positive }
+
+/** 空状态：一句说明 + 一个可选动作，语气平实，不抒情。 */
+@Composable
+fun EmptyNote(text: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        action?.invoke()
+    }
+}
+
+/** 键值行：左标签右值，值可点按复制。 */
+@Composable
+fun FieldRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    mono: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(96.dp),
+        )
+        Text(
+            text = value,
+            style = if (mono) MonoSmall else MaterialTheme.typography.bodyMedium,
+            color = LocalContentColor.current,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 加载指示：一行文字，不用动画组件，避免持续重绘。 */
+@Composable
+fun InlineLoading(text: String = "读取中") {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** Token 数量缩写。 */
+fun formatTokenCount(count: Long): String = when {
+    count >= 1_000_000_000L -> String.format(Locale.US, "%.2fB", count / 1_000_000_000.0)
+    count >= 1_000_000L -> String.format(Locale.US, "%.2fM", count / 1_000_000.0)
+    count >= 1_000L -> String.format(Locale.US, "%.1fK", count / 1_000.0)
+    else -> count.toString()
+}
+
+/** 积分缩写；整数不显示小数。 */
+fun formatCredits(value: Double): String {
+    if (value == 0.0) return "0"
+    return if (value == value.toLong().toDouble()) {
+        value.toLong().toString()
+    } else {
+        String.format(Locale.US, "%.2f", value)
+    }
+}

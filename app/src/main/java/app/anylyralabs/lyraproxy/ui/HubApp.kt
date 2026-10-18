@@ -1,12 +1,11 @@
 package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -18,21 +17,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.contentColorFor
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,10 +41,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.bridge.ApiKey
-import app.anylyralabs.lyraproxy.data.Login
 import app.anylyralabs.lyraproxy.proto.Wire
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HubApp(
     state: HubState,
@@ -103,35 +95,24 @@ fun HubApp(
     onTabShown: (HubTab) -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(HubTab.Dashboard.ordinal) }
-    // Reporting the visible tab lets the host reload that page's data on entry,
-    // which is what keeps the call history current without a restart.
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
     var dark by remember { mutableStateOf(false) }
 
-    MaterialExpressiveTheme(
-        colorScheme = if (dark) darkColorScheme() else expressiveLightColorScheme(),
-        motionScheme = MotionScheme.expressive(),
-    ) {
+    ClaudeTheme(darkTheme = dark) {
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
-                // 取消 Scaffold 自带的 insets，避免键盘弹起时内容被重复顶起。
+                // 取消 Scaffold 自带 insets，避免键盘弹起时内容被重复顶起。
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
-                    TopAppBar(
-                        title = {
-                            Text("LyraProxy", fontWeight = FontWeight.SemiBold)
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background,
-                        ),
+                    AppHeader(
+                        running = state.bridgeRunning,
+                        dark = dark,
+                        onToggleDark = { dark = !dark },
                     )
                 },
                 bottomBar = {
-                    FloatingNavigationBar(
-                        currentTab = tab,
-                        onSelectTab = { tab = it },
-                    )
+                    BottomTabs(current = tab, onSelect = { tab = it })
                 },
             ) { padding ->
                 Box(
@@ -216,7 +197,6 @@ fun HubApp(
                 onConfirm = onConfirmPasteImport,
             )
         }
-        // 新建 / 编辑密钥
         if (state.creatingApiKey || state.editingApiKey != null) {
             ApiKeyEditorDialog(
                 existing = state.editingApiKey,
@@ -250,8 +230,109 @@ fun HubApp(
 }
 
 /**
+ * 顶栏：左侧一个轻字标，右侧只有亮暗切换。
+ * 运行状态放到页面正文里说，顶栏不重复。
+ */
+@Composable
+private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Lyra",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(2.dp))
+            Text(
+                text = "Proxy",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(10.dp))
+            if (running) {
+                LiveDot(active = true, size = 6.dp)
+            }
+            Spacer(Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onToggleDark),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (dark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                    contentDescription = if (dark) "浅色" else "深色",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+    }
+}
+
+/**
+ * 底栏：纯文字导航，不用图标。
+ * 四个入口字数不多，文字比图标更直接，也省掉 4 个图标的绘制。
+ */
+@Composable
+private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
+    Column {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HubTab.entries.forEach { item ->
+                val selected = current == item.ordinal
+                val color by animateColorAsState(
+                    targetValue = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    label = "tabColor",
+                )
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { onSelect(item.ordinal) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = item.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = color,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(if (selected) 16.dp else 0.dp)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * Dynamic friendly greeting text based on local clock time.
- * Rendered inside the Dashboard hero readout.
  */
 internal fun getGreetingText(): String {
     val cal = java.util.Calendar.getInstance()
@@ -264,94 +345,5 @@ internal fun getGreetingText(): String {
         timeVal < 14.0 -> "中午好，需要干点什么"
         timeVal < 18.5 -> "下午好，来杯咖啡"
         else -> "工作劳累，记得休息"
-    }
-}
-
-/**
- * 悬浮药丸底栏。
- *
- * 选中态用实底药丸 + 反色图标文字，其余只显示图标，避免五个文字标签挤在一起；
- * 底部额外留出导航栏高度，避开系统手势条。
- */
-@Composable
-private fun FloatingNavigationBar(
-    currentTab: Int,
-    onSelectTab: (Int) -> Unit,
-) {
-    // 积分已并入首页，底栏只展示四个真实页面。
-    val visibleTabs = HubTab.entries
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            shadowElevation = 6.dp,
-        ) {
-            Row(
-                modifier = Modifier
-                    .height(56.dp)
-                    .padding(horizontal = 7.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                visibleTabs.forEach { item ->
-                    val index = item.ordinal
-                    val selected = currentTab == index
-                    val horizontal by animateDpAsState(
-                        targetValue = if (selected) 14.dp else 12.dp,
-                        label = "navHorizontalPadding",
-                    )
-                    val contentColor by animateColorAsState(
-                        targetValue = if (selected) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        label = "navContentColor",
-                    )
-
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(22.dp))
-                            .clickable { onSelectTab(index) },
-                        shape = RoundedCornerShape(22.dp),
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            Color.Transparent
-                        },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = horizontal, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.label,
-                                modifier = Modifier.size(20.dp),
-                                tint = contentColor,
-                            )
-                            if (selected) {
-                                Spacer(Modifier.width(7.dp))
-                                Text(
-                                    text = item.label,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = contentColor,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }

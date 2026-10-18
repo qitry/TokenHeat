@@ -2,7 +2,6 @@ package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,20 +11,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,7 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.bridge.BridgeStatus
@@ -51,16 +44,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 首页数据大屏：本机 AI 网关的实时计量面板。
+ * 首页：一台本机网关的账页。
  *
- * 结构（自上而下）：
- * 1. Hero —— 问候、点火状态、今日 Token 读数、24 小时热度条、启动/停止/复制端点；
- * 2. 四格读数 —— 累计总消耗 / 请求 / 输入 / 输出；
- * 3. 请求热力墙 —— 12/26/52 周可切换；
- * 4. 模型热度榜 —— 按调用次数 Top 5；
- * 5. 每日签到与余额（原「积分」页，合并至此）；
- * 6. 网关用量汇总 —— 积分消耗；
- * 7. 账号数据包 —— 导出 / 导入。
+ * 自上而下：问候与运行状态 → 今日读数 → 近 24 小时热度 → 累计四项 →
+ * 请求热力墙（按周惰性组合）→ 模型用量 → 签到与积分 → 账号备份。
+ *
+ * 整页不用卡片，靠细线与留白分段。数字用衬线，是页面上唯一的视觉重音。
  */
 @Composable
 fun DashboardScreen(
@@ -75,7 +64,7 @@ fun DashboardScreen(
     onCheckinAll: () -> Unit,
     onRefreshBalance: () -> Unit,
 ) {
-    // 运行时长每秒推进；熄火时停表，避免无谓重组。
+    // 运行时长每秒推进；熄火后停表，避免无意义重组。
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.bridgeRunning) {
         while (state.bridgeRunning) {
@@ -85,7 +74,6 @@ fun DashboardScreen(
     }
 
     val calls = state.calls
-    val totalRequests = calls.size
     val promptTokens = calls.sumOf { it.promptTokens.toLong() }
     val completionTokens = calls.sumOf { it.completionTokens.toLong() }
     val totalTokens = promptTokens + completionTokens
@@ -103,8 +91,8 @@ fun DashboardScreen(
         calls.filter { it.timestamp >= startOfDay }.sumOf { it.totalTokens.toLong() }
     }
 
-    // 近 24 小时逐时请求计数。
-    val hourlyCounts = remember(calls, now) {
+    // 近 24 小时逐时计数；只遍历一次，结果作为简单数组交给柱子渲染。
+    val hourly = remember(calls, now) {
         val counts = IntArray(24)
         calls.forEach { record ->
             val hoursAgo = ((now - record.timestamp) / 3_600_000L).toInt()
@@ -112,430 +100,309 @@ fun DashboardScreen(
         }
         counts
     }
+    val hourlyPeak = remember(hourly) { (hourly.maxOrNull() ?: 0).coerceAtLeast(1) }
 
-    val uptimeText = remember(state.bridgeRunning, now) {
+    val uptime = remember(state.bridgeRunning, now) {
         if (!state.bridgeRunning || BridgeStatus.startedAt <= 0L) {
             "未运行"
         } else {
-            val diffSec = ((now - BridgeStatus.startedAt) / 1000).coerceAtLeast(0)
-            val hours = diffSec / 3600
-            val minutes = (diffSec % 3600) / 60
-            val seconds = diffSec % 60
-            if (hours > 0) "${hours}h ${minutes}m ${seconds}s" else "${minutes}m ${seconds}s"
+            val sec = ((now - BridgeStatus.startedAt) / 1000).coerceAtLeast(0)
+            val h = sec / 3600
+            val m = (sec % 3600) / 60
+            val s = sec % 60
+            if (h > 0) "${h}h ${m}m ${s}s" else "${m}m ${s}s"
         }
     }
 
+    val modelStats = remember(calls) {
+        calls.groupBy { it.model.ifEmpty { "未知模型" } }
+            .map { (model, list) ->
+                ModelStat(model, list.size, list.sumOf { it.totalTokens.toLong() })
+            }
+            .sortedByDescending { it.count }
+            .take(5)
+    }
+
+    val checkinSupported = state.realm != Wire.Region.GLOBAL
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
     ) {
-        // ---------- 1. Hero ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(Modifier.weight(1f)) {
+        // ---------- 问候与状态 ----------
+        item(key = "hero") {
+            HeroBlock(
+                running = state.bridgeRunning,
+                port = state.port,
+                uptime = uptime,
+                todayTokens = todayTokens,
+                hourly = hourly,
+                hourlyPeak = hourlyPeak,
+                onStartBridge = onStartBridge,
+                onStopBridge = onStopBridge,
+                onCopyEndpoint = onCopyEndpoint,
+            )
+        }
+
+        // ---------- 累计四项 ----------
+        item(key = "totals") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                    Readout(formatTokenCount(totalTokens), "累计消耗", Modifier.weight(1f))
+                    Readout("${calls.size}", "请求数", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Readout(formatTokenCount(promptTokens), "输入", Modifier.weight(1f))
+                    Readout(formatTokenCount(completionTokens), "输出", Modifier.weight(1f))
+                }
+            }
+        }
+
+        // ---------- 请求热力墙 ----------
+        item(key = "heatmap") {
+            HeatmapBlock(calls = calls, modifier = Modifier.padding(top = 26.dp))
+        }
+
+        // ---------- 模型用量 ----------
+        item(key = "models") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "模型用量",
+                    subtitle = "按调用次数排列",
+                    modifier = Modifier.padding(top = 14.dp),
+                    trailing = {
+                        TextAction(text = "全部记录", onClick = onNavigateToCalls)
+                    },
+                )
+                if (modelStats.isEmpty()) {
+                    EmptyNote("还没有调用。客户端连上网关后，这里会按模型累计用量。")
+                } else {
+                    Spacer(Modifier.height(12.dp))
+                    val maxCount = modelStats.first().count
+                    modelStats.forEach { stat ->
+                        ModelStatRow(stat, maxCount)
+                        Spacer(Modifier.height(12.dp))
+                    }
+                }
+            }
+        }
+
+        // ---------- 签到与积分 ----------
+        item(key = "credits") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = if (checkinSupported) "签到与积分" else "积分",
+                    subtitle = if (checkinSupported) {
+                        "长按签到可为当前版本的全部账号依次执行"
+                    } else {
+                        "国际版不提供签到，这里只显示积分"
+                    },
+                    modifier = Modifier.padding(top = 14.dp),
+                    trailing = {
+                        Text(
+                            text = formatCredits(state.balance?.total ?: 0.0),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    },
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (checkinSupported) {
+                        PrimaryButton(
+                            text = if (state.loading == Loading.CHECKIN) "签到中" else "签到",
+                            onClick = onCheckin,
+                            enabled = state.loading != Loading.CHECKIN,
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuietButton(
+                            text = "全部签到",
+                            onClick = onCheckinAll,
+                            enabled = state.loading != Loading.CHECKIN,
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        QuietButton(
+                            text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
+                            onClick = onRefreshBalance,
+                            enabled = state.loading != Loading.BALANCE,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                val balance = state.balance
+                if (balance != null && balance.accounts.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    balance.accounts.forEach { acc ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
-                                text = getGreetingText(),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                text = acc.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                StatusDot(active = state.bridgeRunning)
-                                Spacer(Modifier.width(7.dp))
-                                Text(
-                                    text = if (state.bridgeRunning) {
-                                        "网关运行中 · 127.0.0.1:${state.port}"
-                                    } else {
-                                        "网关未运行 · 数据静默中"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (state.bridgeRunning) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        if (state.bridgeRunning) {
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "运行时长",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = uptimeText,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                        }
-                    }
-
-                    // 今日热量大读数
-                    Column {
-                        Text(
-                            text = "今日 Token 消耗",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = formatTokenCount(todayTokens),
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (todayTokens > 0L) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                        )
-                    }
-
-                    SparkBars(hourlyCounts)
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        if (state.bridgeRunning) {
-                            OutlinedButton(
-                                onClick = onStopBridge,
-                                modifier = Modifier.weight(1f),
-                            ) { Text("停止") }
-                        } else {
-                            Button(
-                                onClick = onStartBridge,
-                                modifier = Modifier.weight(1f),
-                            ) { Text("启动服务") }
-                        }
-                        FilledTonalButton(
-                            onClick = onCopyEndpoint,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("复制端点") }
-                    }
-                }
-            }
-        }
-
-        // ---------- 2. 四格读数 ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    ) {
-                        ReadoutCell("累计总消耗", formatTokenCount(totalTokens), Modifier.weight(1f))
-                        VerticalHairline()
-                        ReadoutCell("累计请求", "$totalRequests 次", Modifier.weight(1f))
-                    }
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    ) {
-                        ReadoutCell("累计输入", formatTokenCount(promptTokens), Modifier.weight(1f))
-                        VerticalHairline()
-                        ReadoutCell("累计输出", formatTokenCount(completionTokens), Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-
-        // ---------- 3. 请求热力墙 ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    ActivityHeatmap(calls = calls)
-                }
-            }
-        }
-
-        // ---------- 4. 模型热度榜 ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
                             Text(
-                                text = "模型热度榜",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "按调用次数排列的前 5 个模型",
+                                text = "${formatCredits(acc.remain)} / ${formatCredits(acc.size)}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Text(
-                            text = "查看流水",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(onClick = onNavigateToCalls),
-                        )
                     }
-
-                    val modelStats = remember(calls) {
-                        calls.groupBy { it.model.ifEmpty { "(未知模型)" } }
-                            .map { (model, list) ->
-                                ModelCallStat(
-                                    model = model,
-                                    count = list.size,
-                                    tokens = list.sumOf { it.totalTokens.toLong() },
-                                )
-                            }
-                            .sortedByDescending { it.count }
-                            .take(5)
-                    }
-
-                    if (modelStats.isEmpty()) {
+                    if (balance.cycleEnd.isNotBlank()) {
                         Text(
-                            text = "暂无调用记录，客户端发起请求后将在此累计热度",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "本期截至 ${balance.cycleEnd}",
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 12.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                         )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            modelStats.forEach { stat ->
-                                TopModelRow(stat = stat, maxCount = modelStats.first().count)
-                            }
-                        }
                     }
                 }
             }
         }
 
-        // ---------- 5. 签到与余额（原积分页） ----------
-        item {
-            // 国际版上游没有签到接口，强行请求只会得到一个错误。
-            // 因此国际版只展示积分余额，不呈现任何签到入口。
-            val checkinSupported = state.realm != Wire.Region.GLOBAL
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                text = if (checkinSupported) "每日签到" else "积分余额",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = if (checkinSupported) {
-                                    "长按可为本版本全部账号依次签到"
-                                } else {
-                                    "国际版不提供签到，此处仅展示当前积分"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = formatCredits(state.balance?.total ?: 0.0),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        if (checkinSupported) {
-                            Button(
-                                onClick = onCheckin,
-                                enabled = state.loading != Loading.CHECKIN,
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(if (state.loading == Loading.CHECKIN) "签到中…" else "签到")
-                            }
-                            FilledTonalButton(
-                                onClick = onCheckinAll,
-                                enabled = state.loading != Loading.CHECKIN,
-                                modifier = Modifier.weight(1f),
-                            ) { Text("全部签到") }
-                        }
-                        OutlinedButton(
-                            onClick = onRefreshBalance,
-                            enabled = state.loading != Loading.BALANCE,
-                            modifier = if (checkinSupported) Modifier.weight(1f) else Modifier.fillMaxWidth(),
-                        ) { Text(if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分") }
-                    }
-
-                    val balance = state.balance
-                    when {
-                        balance == null -> Text(
-                            text = "点「刷新」查询余额",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        balance.accounts.isEmpty() -> Text(
-                            text = "暂无套餐数据",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        else -> Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            balance.accounts.forEach { acc ->
-                                Row(Modifier.fillMaxWidth()) {
-                                    Text(
-                                        text = acc.name,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(
-                                        text = "${formatCredits(acc.remain)} / ${formatCredits(acc.size)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
-                            }
-                            if (balance.cycleEnd.isNotBlank()) {
-                                Text(
-                                    text = "周期截止：${balance.cycleEnd}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
+        // ---------- 账号备份 ----------
+        item(key = "backup") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "账号备份",
+                    subtitle = "导出为 .json.gz，或从备份与凭证字符串恢复",
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
+                    QuietButton("导入", onImportBackup, Modifier.weight(1f))
                 }
-            }
-        }
-
-        // ---------- 6. 用量汇总 ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(
-                        text = "网关用量",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatCell("成功", summary.calls.toString())
-                        StatCell("失败", summary.failures.toString())
-                        StatCell("消耗积分", formatCredits(summary.credits))
-                    }
-                }
-            }
-        }
-
-        // ---------- 7. 账号数据包 ----------
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column {
-                        Text(
-                            text = "账号数据包",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "将全部账号导出为 .json.gz 离线文件，可跨设备迁移或粘贴凭证字符串导入。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = onExportBackup,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("导出账号包") }
-                        OutlinedButton(
-                            onClick = onImportBackup,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("导入账号包") }
-                    }
-                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
 }
 
 // -----------------------------------------------------------------------------
-// 24 小时火花条
+// 问候与今日读数
 // -----------------------------------------------------------------------------
 
 @Composable
-private fun SparkBars(hourlyCounts: IntArray) {
-    val ladder = HeatLadder()
+private fun HeroBlock(
+    running: Boolean,
+    port: Int,
+    uptime: String,
+    todayTokens: Long,
+    hourly: IntArray,
+    hourlyPeak: Int,
+    onStartBridge: () -> Unit,
+    onStopBridge: () -> Unit,
+    onCopyEndpoint: () -> Unit,
+) {
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Text(
+            text = getGreetingText(),
+            style = MaterialTheme.typography.displayLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LiveDot(active = running)
+            Spacer(Modifier.width(8.dp))
             Text(
-                text = "近 24 小时请求热度",
+                text = if (running) "网关运行中 · 127.0.0.1:$port" else "网关未运行",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (running) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            if (running) {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = uptime,
+                    style = MonoSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text(
+            text = "今日 Token",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = formatTokenCount(todayTokens),
+            style = MaterialTheme.typography.displaySmall,
+            color = if (todayTokens > 0L) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+        )
+
+        // 24 小时热度：24 根柱子，高度按峰值归一，颜色只区分「有/无」。
+        Spacer(Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().height(30.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            hourly.forEach { count ->
+                val ratio = count.toFloat() / hourlyPeak
+                val h = (3f + ratio * 27f).dp
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(h)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(
+                            if (count == 0) {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.primary.copy(
+                                    alpha = 0.35f + 0.65f * ratio.coerceAtLeast(0.25f),
+                                )
+                            },
+                        ),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                text = "24 小时前",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "逐时",
+                text = "现在",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(34.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            hourlyCounts.forEach { count ->
-                val level = heatIndex(count)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height((4 + level * 7.5f).dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(ladder[level]),
-                )
+
+        Spacer(Modifier.height(22.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (running) {
+                PrimaryButton("停止服务", onStopBridge, Modifier.weight(1f))
+            } else {
+                PrimaryButton("启动服务", onStartBridge, Modifier.weight(1f))
             }
+            QuietButton("复制地址", onCopyEndpoint, Modifier.weight(1f))
         }
     }
 }
@@ -544,138 +411,127 @@ private fun SparkBars(hourlyCounts: IntArray) {
 // 请求热力墙
 // -----------------------------------------------------------------------------
 
-enum class HeatmapSpan(val weeks: Int, val label: String) {
-    WEEKS_12(12, "3 个月"),
-    WEEKS_26(26, "半年"),
-    WEEKS_52(52, "全年 52 周"),
+private enum class HeatSpan(val weeks: Int, val label: String) {
+    Q(12, "3 个月"),
+    H(26, "半年"),
+    Y(52, "一年"),
 }
 
+/**
+ * 热力墙。
+ *
+ * 用 LazyRow 按周惰性组合：52 周 × 7 格共 364 个格子，若一次性全部组合，
+ * 首帧就要测量三百多个节点。改成惰性后只有可见的十几列参与测量与绘制。
+ */
 @Composable
-fun ActivityHeatmap(calls: List<CallRecord>) {
-    var span by remember { mutableStateOf(HeatmapSpan.WEEKS_52) }
+private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier) {
+    var span by remember { mutableStateOf(HeatSpan.Y) }
 
-    // 对齐到本周六，使网格正好结束在当周。
-    val calendar = Calendar.getInstance()
-    val currentDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-    calendar.add(Calendar.DAY_OF_YEAR, Calendar.SATURDAY - currentDayOfWeek)
-    val endDate = calendar.timeInMillis
-
+    val endOfWeek = remember {
+        Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, Calendar.SATURDAY - get(Calendar.DAY_OF_WEEK))
+        }.timeInMillis
+    }
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val countsByDate = remember(calls) {
         calls.groupingBy { dateFormat.format(Date(it.timestamp)) }.eachCount()
     }
 
-    val weeks = remember(calls, endDate, span) {
-        val cal = Calendar.getInstance().apply { timeInMillis = endDate }
-        val weekList = mutableListOf<List<DayHeat>>()
+    // 每周一列，共 span.weeks 列；只在 span 变化时重算。
+    val weeks = remember(span, countsByDate, endOfWeek) {
+        val cal = Calendar.getInstance().apply { timeInMillis = endOfWeek }
+        val list = ArrayList<List<Pair<String, Int>>>(span.weeks)
         for (w in 0 until span.weeks) {
-            val daysInWeek = mutableListOf<DayHeat>()
+            val days = ArrayList<Pair<String, Int>>(7)
             for (d in 6 downTo 0) {
-                val calDay = Calendar.getInstance().apply {
+                val day = Calendar.getInstance().apply {
                     timeInMillis = cal.timeInMillis
                     add(Calendar.DAY_OF_YEAR, -(w * 7 + (6 - d)))
                 }
-                val dateStr = dateFormat.format(calDay.time)
-                daysInWeek.add(0, DayHeat(dateStr, countsByDate[dateStr] ?: 0))
+                val key = dateFormat.format(day.time)
+                days.add(0, key to (countsByDate[key] ?: 0))
             }
-            weekList.add(0, daysInWeek)
+            list.add(0, days)
         }
-        weekList
+        list
     }
 
-    var selectedDay by remember { mutableStateOf<DayHeat?>(null) }
-    val scrollState = rememberScrollState()
+    var selected by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    val ladder = heatLadder()
 
-    LaunchedEffect(span, weeks.size) {
-        scrollState.scrollTo(scrollState.maxValue)
-    }
-
-    val ladder = HeatLadder()
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
+    Column(modifier = modifier) {
+        Rule()
+        SectionHeading(
+            title = "请求分布",
+            subtitle = "每天有请求就会留下一个格",
+            modifier = Modifier.padding(top = 14.dp),
+            trailing = {
                 Text(
-                    text = "请求热力墙",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "近 ${span.weeks} 周，每天一次请求都会积攒一份热量",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "${calls.size} 次",
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            Text(
-                text = "${span.label} · ${calls.size} 次",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+            },
+        )
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HeatmapSpan.entries.forEach { s ->
-                SpanChip(
-                    label = s.label,
-                    selected = s == span,
-                    onClick = { span = s },
+        // 跨度选择：纯文字，选中项加深并加下划线。
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            HeatSpan.entries.forEach { option ->
+                val active = option == span
+                Text(
+                    text = option.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (active) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .clickable { span = option }
+                        .padding(vertical = 2.dp),
                 )
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState),
+        Spacer(Modifier.height(12.dp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                modifier = Modifier.padding(vertical = 4.dp),
-            ) {
-                weeks.forEach { week ->
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        week.forEach { day ->
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(RoundedCornerShape(2.5.dp))
-                                    .background(ladder[heatIndex(day.count)])
-                                    .clickable { selectedDay = day },
-                            )
-                        }
+            items(weeks) { week ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    week.forEach { (date, count) ->
+                        Box(
+                            modifier = Modifier
+                                .size(11.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(ladder[heatLevel(count)])
+                                .clickable { selected = date to count },
+                        )
                     }
                 }
             }
         }
 
+        Spacer(Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = selectedDay?.let { "${it.date} · ${it.count} 次请求" }
-                    ?: "点选单元格回看当天请求次数，可向左滑动翻阅",
+                text = selected?.let { (date, count) -> "$date · $count 次" }
+                    ?: "点格子查看当天，向左滑动看更早",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ladder.forEach { c ->
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .size(9.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
                             .background(c),
                     )
                 }
@@ -684,47 +540,60 @@ fun ActivityHeatmap(calls: List<CallRecord>) {
     }
 }
 
-private data class DayHeat(val date: String, val count: Int)
+/** 五档热阶：纸 → 陶土，与主色同源。 */
+@Composable
+private fun heatLadder(): List<Color> {
+    val dark = isClaudeDark()
+    return if (dark) {
+        listOf(
+            Color(0xFF30302E),
+            Color(0xFF4A342C),
+            Color(0xFF7A4A38),
+            Color(0xFFB0613F),
+            Color(0xFFD97757),
+        )
+    } else {
+        listOf(
+            Color(0xFFF0EEE6),
+            Color(0xFFE8D3C6),
+            Color(0xFFD9A88F),
+            Color(0xFFC96442),
+            Color(0xFFA84E32),
+        )
+    }
+}
+
+private fun heatLevel(count: Int): Int = when {
+    count <= 0 -> 0
+    count in 1..4 -> 1
+    count in 5..14 -> 2
+    count in 15..39 -> 3
+    else -> 4
+}
 
 // -----------------------------------------------------------------------------
-// 模型热度榜
+// 模型用量
 // -----------------------------------------------------------------------------
 
-private data class ModelCallStat(val model: String, val count: Int, val tokens: Long)
+private data class ModelStat(val model: String, val count: Int, val tokens: Long)
 
 @Composable
-private fun TopModelRow(stat: ModelCallStat, maxCount: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ModelBadge(modelId = stat.model, size = 30.dp)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = stat.model,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(5.dp))
-            HeatBar(
-                fraction = if (maxCount > 0) stat.count.toFloat() / maxCount else 0f,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+private fun ModelStatRow(stat: ModelStat, maxCount: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = stat.model,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         Spacer(Modifier.width(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = "${stat.count} 次",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "${formatTokenCount(stat.tokens)} tok",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = "${stat.count} 次 · ${formatTokenCount(stat.tokens)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
+    Spacer(Modifier.height(6.dp))
+    ThinBar(fraction = stat.count.toFloat() / maxCount.coerceAtLeast(1))
 }

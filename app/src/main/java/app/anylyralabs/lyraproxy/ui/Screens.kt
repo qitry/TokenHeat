@@ -1,5 +1,6 @@
 package app.anylyralabs.lyraproxy.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,37 +11,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularWavyProgressIndicator
-import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,18 +38,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.anylyralabs.lyraproxy.data.Login
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.bridge.CallRecord
+import app.anylyralabs.lyraproxy.bridge.KeepAliveUtils
 import app.anylyralabs.lyraproxy.bridge.UsageSummary
-import java.util.Locale
 import app.anylyralabs.lyraproxy.data.CheckinItem
 import app.anylyralabs.lyraproxy.proto.Wire
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+// -----------------------------------------------------------------------------
+// 凭证
+// -----------------------------------------------------------------------------
+
 @Composable
 fun CredentialScreen(
     state: HubState,
@@ -82,77 +70,75 @@ fun CredentialScreen(
     val regionLabel = realmName(region)
     val active = state.credential
     val saved = state.accounts[region].orEmpty()
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
     ) {
-        item {
-            Card(onClick = onOpenDetails, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "当前账号 · $regionLabel",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
+        // 当前账号
+        item(key = "current") {
+            Column {
+                SectionLabel(regionLabel)
+                Spacer(Modifier.height(8.dp))
+                if (active == null) {
+                    Text(
+                        text = "$regionLabel 还没有登录",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        text = active.nickname.ifBlank { active.uid.take(10) },
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "有效期至 ${state.expiryText.ifBlank { "未知" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuietButton("凭证详情", onOpenDetails, Modifier.weight(1f))
+                    if (state.hasAnyCredential) {
+                        QuietButton("退出登录", onLogout, Modifier.weight(1f), danger = true)
+                    }
+                }
+            }
+        }
+
+        // 版本切换
+        item(key = "realm") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionLabel("版本")
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Wire.Region.entries.forEach { item ->
+                        val count = state.accounts[item].orEmpty().size
+                        SegmentTab(
+                            label = if (count > 0) "${realmName(item)} $count" else realmName(item),
+                            selected = region == item,
+                            onClick = { onSwitchRealm(item) },
                             modifier = Modifier.weight(1f),
                         )
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = "查看详情",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    when {
-                        active == null -> Text(
-                            "$regionLabel 还没有账号，点下面的按钮登录。",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        else -> {
-                            Text("账号：${active.nickname.ifBlank { active.uid.take(8) }}")
-                            Text("有效期：${state.expiryText.ifBlank { "未知" }}")
-                            Text(
-                                "点本卡片查看 Token 等完整信息",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
                     }
                 }
             }
         }
 
-        // Build switch. The dot shows a build has at least one saved account.
-        item {
-            Text("版本", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(6.dp))
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                Wire.Region.entries.forEachIndexed { index, item ->
-                    val count = state.accounts[item].orEmpty().size
-                    SegmentedButton(
-                        selected = region == item,
-                        onClick = { onSwitchRealm(item) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = Wire.Region.entries.size),
-                    ) {
-                        Text(if (count > 0) "${realmName(item)} $count" else realmName(item))
-                    }
-                }
-            }
-        }
-
-        // Accounts of the selected build. Selecting one switches the credential
-        // the bridge serves, so switching never requires signing in again.
+        // 账号列表
         if (saved.isNotEmpty()) {
-            item {
-                Text(
-                    "$regionLabel 账号",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
+            item(key = "accounts-head") {
+                Column(Modifier.padding(top = 22.dp)) {
+                    SectionLabel("$regionLabel 的账号 · ${saved.size}")
+                }
             }
             items(saved, key = { it.id }) { account ->
                 val isActive = account.id == state.activeAccountId
-                AccountRow(
+                AccountLine(
                     label = account.label,
                     uid = account.uid,
                     isActive = isActive,
@@ -162,166 +148,41 @@ fun CredentialScreen(
             }
         }
 
-        item {
-            Button(onClick = { onLogin(region) }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号")
-            }
-        }
-
-        // 账号迁移：文件包与凭证字符串两条路径，互为兜底。
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "账号迁移",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "导出为 .json.gz 压缩包，或在换机后用凭证字符串直接恢复。导入是按账号合并，重复导入只刷新，不会产生重复条目。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        FilledTonalButton(
-                            onClick = onExportBackup,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("导出账号包") }
-                        FilledTonalButton(
-                            onClick = onImportBackup,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("导入账号包") }
-                    }
-                    OutlinedButton(
-                        onClick = onImportFromText,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("粘贴凭证导入") }
-                }
-            }
-        }
-
-        if (state.hasAnyCredential) {
-            item {
-                TextButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
-                    Text("退出登录（清除全部账号）")
-                }
-            }
-        }
-
-        item {
-            Text(
-                "说明：走官方 CLI 的 OAuth 流程，登录后可拿到 API token（网页 cookie 无法调用接口）。" +
-                    "国内版与国际版是两套独立账号体系，各自可以添加多个账号。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** One saved account, with a switch and a delete action. */
-@Composable
-private fun AccountRow(
-    label: String,
-    uid: String,
-    isActive: Boolean,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Card(
-        onClick = onSelect,
-        modifier = Modifier.fillMaxWidth(),
-        colors = if (isActive) {
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        } else {
-            CardDefaults.cardColors()
-        },
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
+        // 登录与迁移
+        item(key = "actions") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                Spacer(Modifier.height(14.dp))
+                PrimaryButton(
+                    text = if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号",
+                    onClick = { onLogin(region) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(18.dp))
+                SectionLabel("账号迁移")
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    label,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = "导出为 .json.gz 备份，或在换机后粘贴凭证直接恢复。导入按账号合并，重复导入只刷新。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (uid.isNotBlank()) {
-                    Text(
-                        uid.take(8),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
+                    QuietButton("导入文件", onImportBackup, Modifier.weight(1f))
                 }
-            }
-            if (isActive) {
-                Text(
-                    "使用中",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "删除账号",
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-/** Full credential detail, including both tokens, in a modal drawer. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CredentialDetailDrawer(
-    state: HubState,
-    onDismiss: () -> Unit,
-    onCopy: (label: String, value: String) -> Unit,
-) {
-    if (state.credential == null) {
-        ModalBottomSheet(onDismissRequest = onDismiss) {
-            Text("尚无凭证", modifier = Modifier.padding(24.dp))
-        }
-        return
-    }
-    val cred = state.credential
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            item {
-                Text(
-                    "凭证详情",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-            }
-            item { detailRow("版本", realmName(Wire.regionOf(cred.domain)), onCopy) }
-            item { detailRow("昵称", cred.nickname.ifBlank { "(无)" }, onCopy) }
-            item { detailRow("UID", cred.uid, onCopy) }
-            item { detailRow("Domain", cred.domain, onCopy) }
-            item { detailRow("来源", cred.source, onCopy) }
-            item { detailRow("有效期", state.expiryText.ifBlank { "未知" }, onCopy) }
-            item { detailRow("Access Token", cred.accessToken, onCopy) }
-            item { detailRow("Refresh Token", cred.refreshToken.ifBlank { "(无)" }, onCopy) }
-            item {
                 Spacer(Modifier.height(8.dp))
+                QuietButton("粘贴凭证导入", onImportFromText, Modifier.fillMaxWidth())
+            }
+        }
+
+        // 说明
+        item(key = "note") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    "点任意一行可复制其内容。Token 属于登录凭据，请勿分享。",
+                    text = "登录走官方 CLI 的 OAuth 流程，需要在本机浏览器完成授权。国内版与国际版是两套独立账号体系，各自可添加多个账号并在其间切换。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -330,30 +191,158 @@ fun CredentialDetailDrawer(
     }
 }
 
-/** One copyable key/value line in the detail drawer. */
+/** 分段切换：两个互斥选项，用底色区分选中，不用描边。 */
 @Composable
-private fun detailRow(label: String, value: String, onCopy: (String, String) -> Unit) {
-    Card(
-        onClick = { onCopy(label, value) },
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+private fun SegmentTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.background
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+/** 账号行：一行文字 + 右侧状态；选中态靠一个小圆点，不用整行换色。 */
+@Composable
+private fun AccountLine(
+    label: String,
+    uid: String,
+    isActive: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSelect)
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isActive) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                    ),
             )
-            Text(
-                value,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (uid.isNotBlank()) {
+                    Text(
+                        text = uid.take(10),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (isActive) {
+                Tag("使用中", tone = TagTone.Active)
+                Spacer(Modifier.width(10.dp))
+            }
+            TextAction(text = "删除", onClick = onDelete, danger = true)
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** 凭证详情抽屉：全部字段可点按复制。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CredentialDetailDrawer(
+    state: HubState,
+    onDismiss: () -> Unit,
+    onCopy: (label: String, value: String) -> Unit,
+) {
+    val cred = state.credential
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        if (cred == null) {
+            Text("尚无凭证", modifier = Modifier.padding(24.dp))
+            return@ModalBottomSheet
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
+        ) {
+            item {
+                SectionHeading(
+                    title = "凭证详情",
+                    subtitle = "点任意一行复制该字段",
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                Rule()
+            }
+            val rows = listOf(
+                "版本" to realmName(Wire.regionOf(cred.domain)),
+                "昵称" to cred.nickname.ifBlank { "无" },
+                "UID" to cred.uid,
+                "域名" to cred.domain,
+                "来源" to cred.source,
+                "有效期" to state.expiryText.ifBlank { "未知" },
+                "Access Token" to cred.accessToken,
+                "Refresh Token" to cred.refreshToken.ifBlank { "无" },
+            )
+            items(rows) { (label, value) ->
+                FieldRow(
+                    label = label,
+                    value = value,
+                    mono = label.contains("Token") || label == "UID",
+                    onClick = { onCopy(label, value) },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            }
+            item {
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = "Token 等同于登录凭据，分享后对方可以你的身份调用接口。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 服务
+// -----------------------------------------------------------------------------
+
 @Composable
 fun BridgeScreen(
     state: HubState,
@@ -379,89 +368,92 @@ fun BridgeScreen(
     onClearApiKeyUsage: (ApiKey) -> Unit = {},
 ) {
     var portText by remember(state.port) { mutableStateOf(state.port.toString()) }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
     ) {
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "本地 API 平台",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(checked = state.bridgeRunning, onCheckedChange = { checked ->
-                            if (checked) onStart(portText.toIntOrNull() ?: 8765) else onStop()
-                        })
-                    }
-                    if (!state.batteryExempt) {
-                        Text(
-                            "电池优化未关闭，后台可能被限制（详见下方「后台保活」）。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (!state.notificationsAllowed) {
-                        Card(
-                            onClick = onRequestNotifications,
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                            ),
-                        ) {
-                            Text(
-                                "通知权限未开启，服务可能被系统回收。点此开启。",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = portText,
-                        onValueChange = { portText = it.filter(Char::isDigit) },
-                        label = { Text("端口") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+        // 服务状态
+        item(key = "status") {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LiveDot(active = state.bridgeRunning)
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        if (state.bridgeRunning) "运行中：http://127.0.0.1:${state.port}/v1" else "未运行",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (state.bridgeRunning) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (state.bridgeRunning) "运行中" else "已停止",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Switch(
+                        checked = state.bridgeRunning,
+                        onCheckedChange = { checked ->
+                            if (checked) onStart(portText.toIntOrNull() ?: 8765) else onStop()
                         },
                     )
-                    if (state.bridgeRunning) {
-                        LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            FilledTonalButton(onClick = onCopyEndpoint) { Text("复制接入信息") }
-                            FilledTonalButton(onClick = onStop) { Text("停止") }
-                        }
-                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "本机回环地址 127.0.0.1:${state.port}，仅接受本机请求。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                if (!state.notificationsAllowed) {
+                    Spacer(Modifier.height(10.dp))
+                    NoticeLine(
+                        text = "通知权限未开启，系统可能回收后台服务",
+                        action = "开启",
+                        onClick = onRequestNotifications,
+                        danger = true,
+                    )
+                }
+                if (!state.batteryExempt) {
+                    Spacer(Modifier.height(8.dp))
+                    NoticeLine(
+                        text = "电池优化未关闭",
+                        action = "去设置",
+                        onClick = onRequestBatteryExemption,
+                    )
                 }
             }
         }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "保活悬浮窗",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                "切到后台时显示运行状态，让系统保持本应用可见",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+
+        // 端口与接入信息
+        item(key = "endpoint") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionLabel("接入信息")
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { portText = it.filter(Char::isDigit) },
+                    label = { Text("端口") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                FieldRow("地址", "http://127.0.0.1:${state.port}/v1", mono = true, onClick = onCopyEndpoint)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                FieldRow("密钥", state.secret, mono = true, onClick = onCopyEndpoint)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuietButton("复制地址", onCopyEndpoint, Modifier.weight(1f))
+                    QuietButton("接入帮助", onShowHelp, Modifier.weight(1f))
+                }
+            }
+        }
+
+        // 悬浮窗
+        item(key = "overlay") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "保活悬浮窗",
+                    subtitle = "切到后台时显示状态，让系统保持本应用可见",
+                    modifier = Modifier.padding(top = 14.dp),
+                    trailing = {
                         Switch(
                             checked = state.overlayEnabled && state.overlayAllowed,
                             onCheckedChange = { checked ->
@@ -472,324 +464,391 @@ fun BridgeScreen(
                                 }
                             },
                         )
-                    }
+                    },
+                )
 
-                    if (!state.overlayAllowed) {
-                        Text(
-                            "尚未授予「显示在其他应用上层」权限。开启开关时会引导授权。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        OutlinedButton(
-                            onClick = onRequestOverlay,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("授予悬浮窗权限") }
-                    }
+                if (!state.overlayAllowed) {
+                    Spacer(Modifier.height(10.dp))
+                    NoticeLine(
+                        text = "未授予「显示在其他应用上层」权限",
+                        action = "授权",
+                        onClick = onRequestOverlay,
+                        danger = true,
+                    )
+                }
 
-                    if (state.overlayEnabled && state.overlayAllowed) {
-                        Text(
-                            "透明度 ${(state.overlayOpacity * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Slider(
-                            value = state.overlayOpacity,
-                            onValueChange = onOverlayOpacity,
-                            valueRange = 0.15f..1f,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        // 三种互斥的交互模式。原先两个独立开关能组合出
-                        // 「不可拖动 + 未锁定」这种语义含糊的状态，这里改成单选。
-                        val passthrough = state.overlayPassthrough
-                        val modeOptions = listOf(
-                            Triple("可拖动", !passthrough && state.overlayMovable && !state.overlayLocked, "可移动位置，点击折叠"),
-                            Triple("锁定", !passthrough && state.overlayLocked, "可点击折叠，不可拖动"),
-                            Triple("穿透", passthrough, "不响应触摸，完全交给下层应用"),
-                        )
-                        modeOptions.forEach { (label, selected, hint) ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        when (label) {
-                                            "可拖动" -> {
-                                                onOverlayPassthrough(false)
-                                                onOverlayMovable(true)
-                                                onOverlayLocked(false)
-                                            }
-                                            "锁定" -> {
-                                                onOverlayPassthrough(false)
-                                                onOverlayLocked(true)
-                                                onOverlayMovable(false)
-                                            }
-                                            else -> onOverlayPassthrough(true)
-                                        }
-                                    }
-                                    .padding(vertical = 6.dp),
-                            ) {
-                                RadioButton(
-                                    selected = selected,
-                                    onClick = null,
-                                )
-                                Column(Modifier.weight(1f)) {
-                                    Text(label, style = MaterialTheme.typography.bodyMedium)
-                                    Text(
-                                        hint,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                if (state.overlayEnabled && state.overlayAllowed) {
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = "不透明度 ${(state.overlayOpacity * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Slider(
+                        value = state.overlayOpacity,
+                        onValueChange = onOverlayOpacity,
+                        valueRange = 0.15f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Spacer(Modifier.height(6.dp))
+                    SectionLabel("交互方式")
+                    Spacer(Modifier.height(4.dp))
+                    val passthrough = state.overlayPassthrough
+                    OverlayMode(
+                        title = "可拖动",
+                        hint = "能移动位置，点一下折叠",
+                        selected = !passthrough && state.overlayMovable && !state.overlayLocked,
+                        onSelect = {
+                            onOverlayPassthrough(false)
+                            onOverlayMovable(true)
+                            onOverlayLocked(false)
+                        },
+                    )
+                    OverlayMode(
+                        title = "锁定",
+                        hint = "能点击折叠，不能拖动",
+                        selected = !passthrough && state.overlayLocked,
+                        onSelect = {
+                            onOverlayPassthrough(false)
+                            onOverlayLocked(true)
+                            onOverlayMovable(false)
+                        },
+                    )
+                    OverlayMode(
+                        title = "完全穿透",
+                        hint = "不响应任何触摸，事件交给下层应用",
+                        selected = passthrough,
+                        onSelect = { onOverlayPassthrough(true) },
+                    )
                 }
             }
         }
 
-        // 后台保活：电池优化与厂商自启限制
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "后台保活",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
+        // 后台保活
+        item(key = "keepalive") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "后台保活",
+                    subtitle = if (state.batteryExempt) {
+                        "已忽略电池优化，后台限制较少"
+                    } else {
+                        "未忽略电池优化，系统可能限制或清理进程"
+                    },
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuietButton(
+                        text = if (state.batteryExempt) "已豁免" else "忽略电池优化",
+                        onClick = onRequestBatteryExemption,
+                        modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        text = if (state.batteryExempt) {
-                            "已忽略电池优化，后台限制较少。"
-                        } else {
-                            "未忽略电池优化，系统可能在后台限制或清理进程。"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (state.batteryExempt) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
+                    QuietButton(
+                        text = if (state.notificationsAllowed) "通知已开启" else "开启通知",
+                        onClick = onRequestNotifications,
+                        modifier = Modifier.weight(1f),
                     )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    ) {
-                        FilledTonalButton(
-                            onClick = onRequestBatteryExemption,
-                            modifier = Modifier.weight(1f),
-                        ) { Text(if (state.batteryExempt) "已豁免" else "忽略电池优化") }
-                        OutlinedButton(
-                            onClick = onRequestNotifications,
-                            modifier = Modifier.weight(1f),
-                        ) { Text(if (state.notificationsAllowed) "通知已开启" else "开启通知") }
-                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = KeepAliveUtils.romHint(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // 自定义密钥
+        item(key = "apikeys") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "自定义密钥",
+                    subtitle = "为客户端分别签发，可限制模型与预算",
+                    modifier = Modifier.padding(top = 14.dp),
+                    trailing = {
+                        TextAction(text = "新建", onClick = onCreateApiKey)
+                    },
+                )
+                Spacer(Modifier.height(12.dp))
+                if (state.apiKeys.isEmpty()) {
                     Text(
-                        "Android 没有开放「加入白名单」的接口，各厂商的自启/后台限制页面也无法深链，需按下面的提示手动设置。",
+                        text = "当前所有客户端共用上面那条共享密钥，无法区分来源，也无法单独限额。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        app.anylyralabs.lyraproxy.bridge.KeepAliveUtils.romHint(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "接入方式",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
+                } else {
+                    state.apiKeys.forEachIndexed { index, key ->
+                        ApiKeyItem(
+                            apiKey = key,
+                            onCopy = { onCopyApiKey(key.key) },
+                            onToggle = { enabled -> onToggleApiKeyEnabled(key, enabled) },
+                            onEdit = { onEditApiKey(key) },
+                            onDelete = { onDeleteApiKey(key) },
+                            onClearUsage = { onClearApiKeyUsage(key) },
                         )
-                        IconButton(onClick = onShowHelp) {
-                            Icon(
-                                Icons.Default.HelpOutline,
-                                contentDescription = "接入帮助",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
+                        if (index < state.apiKeys.lastIndex) {
+                            Spacer(Modifier.height(10.dp))
                         }
                     }
-                    Text("baseUrl: http://127.0.0.1:${state.port}/v1")
-                    Text("apiKey: ${state.secret}")
                 }
             }
         }
 
-        // 自定义密钥：模型白名单与积分预算在此管理
-        item {
-            ApiKeySection(
-                keys = state.apiKeys,
-                onCopyKey = onCopyApiKey,
-                onToggleEnabled = onToggleApiKeyEnabled,
-                onEdit = onEditApiKey,
-                onDelete = onDeleteApiKey,
-                onCreate = onCreateApiKey,
-                onClearUsage = onClearApiKeyUsage,
-            )
-        }
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionLabel("可用模型（点模型名可复制）", Modifier.weight(1f))
-                FilledTonalButton(
-                    onClick = onRefreshModels,
-                    enabled = state.loading != Loading.MODELS,
-                ) {
-                    if (state.loading == Loading.MODELS) {
-                        CircularWavyProgressIndicator(modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("获取中")
-                    } else {
-                        Text("重新获取")
-                    }
-                }
+        // 模型目录
+        item(key = "models-head") {
+            Column(Modifier.padding(top = 26.dp)) {
+                Rule()
+                SectionHeading(
+                    title = "可用模型",
+                    subtitle = "点模型名复制标识",
+                    modifier = Modifier.padding(top = 14.dp),
+                    trailing = {
+                        TextAction(
+                            text = if (state.loading == Loading.MODELS) "获取中" else "刷新",
+                            onClick = onRefreshModels,
+                        )
+                    },
+                )
+                Spacer(Modifier.height(10.dp))
             }
         }
-        item {
-            Box(Modifier.fillMaxWidth()) {
+        item(key = "models") {
+            if (state.loading == Loading.MODELS && state.models.isEmpty()) {
+                InlineLoading("正在读取模型目录")
+            } else {
                 ModelList(
                     models = state.models,
                     onCopyModel = onCopyModel,
-                    modifier = Modifier.heightIn(max = 620.dp),
                 )
-                if (state.loading == Loading.MODELS && state.models.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        ContainedLoadingIndicator()
+            }
+        }
+    }
+}
+
+/** 保活悬浮窗的三种交互方式，单选。 */
+@Composable
+private fun OverlayMode(
+    title: String,
+    hint: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(4.dp))
+        Column(Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = hint,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 一行提示 + 行内动作。 */
+@Composable
+private fun NoticeLine(
+    text: String,
+    action: String,
+    onClick: () -> Unit,
+    danger: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (danger) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (danger) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = action,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (danger) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+        )
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 调用记录
+// -----------------------------------------------------------------------------
+
+@Composable
+fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
+    // 每批 200 条，滚动到底继续追加；配合 LazyColumn 只组合可见项。
+    val pageSize = 200
+    LaunchedEffect(Unit) {
+        while (true) {
+            onRefresh()
+            kotlinx.coroutines.delay(3000L)
+        }
+    }
+
+    val summary = remember(state.calls) { UsageSummary.of(state.calls) }
+    var visibleCount by remember(state.calls.size) {
+        mutableIntStateOf(minOf(pageSize, state.calls.size))
+    }
+    val visible = remember(state.calls, visibleCount) {
+        state.calls.asReversed().take(visibleCount)
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
+    ) {
+        item(key = "summary") {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "调用记录",
+                        style = MaterialTheme.typography.displayMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (state.calls.isNotEmpty()) {
+                        TextAction(text = "清空", onClick = onClear, danger = true)
                     }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "共 ${state.calls.size} 次，按时间倒序",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Readout("${summary.calls}", "成功", Modifier.weight(1f))
+                    Readout("${summary.failures}", "失败", Modifier.weight(1f))
+                    Readout(formatCredits(summary.credits), "积分", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Readout(formatTokenCount(summary.promptTokens.toLong()), "输入", Modifier.weight(1f))
+                    Readout(formatTokenCount(summary.completionTokens.toLong()), "输出", Modifier.weight(1f))
+                    Readout(formatTokenCount(summary.totalTokens.toLong()), "合计", Modifier.weight(1f))
+                }
+            }
+        }
+
+        if (state.calls.isEmpty()) {
+            item(key = "empty") {
+                Column(Modifier.padding(top = 26.dp)) {
+                    Rule()
+                    EmptyNote("还没有记录。客户端通过网关发起请求后，每一次调用都会记在这里。")
+                }
+            }
+        } else {
+            item(key = "head") {
+                Column(Modifier.padding(top = 26.dp)) {
+                    Rule()
+                    SectionLabel("明细")
+                }
+            }
+            items(visible, key = { "${it.timestamp}-${it.model}-${it.detail.hashCode()}" }) { record ->
+                CallLine(record)
+            }
+            if (visibleCount < state.calls.size) {
+                item(key = "more") {
+                    LaunchedEffect(visibleCount) {
+                        visibleCount = (visibleCount + pageSize).coerceAtMost(state.calls.size)
+                    }
+                    Text(
+                        text = "继续加载…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp),
+                    )
                 }
             }
         }
     }
 }
 
-/** Modal shown when a check-in attempt finishes. */
 @Composable
-fun CheckinDialog(message: String, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("签到结果") },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("好") }
-        },
-    )
-}
-
-/**
- * 粘贴导入。
- *
- * 接受三种内容：完整备份包 JSON、账号数组、单个凭证对象。
- * 解析与落盘都在 [app.anylyralabs.lyraproxy.data.AccountBackup] 内完成，这里只负责取文本与回报结果。
- */
-@Composable
-fun PasteImportDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("粘贴凭证导入") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun CallLine(record: CallRecord) {
+    val failed = record.outcome == CallRecord.Outcome.FAILED
+    Column {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Column(Modifier.padding(vertical = 11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "粘贴从「凭证详情」复制的 JSON，或整段备份内容。导入按账号合并，重复导入只刷新。",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = record.model.ifEmpty { "未知模型" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (failed) {
+                    Tag("失败", tone = TagTone.Danger)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = record.timeText,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("凭证内容") },
-                    placeholder = { Text("{\"accessToken\":\"...\"}") },
-                    minLines = 6,
-                    maxLines = 10,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(text) },
-                enabled = text.isNotBlank(),
-            ) { Text("导入") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-/** Integration guide shown from the help icon. */
-@Composable
-fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Unit) {
-    val endpoint = "http://127.0.0.1:${state.port}/v1"
-    val snippet = """
-        {
-          "providers": {
-            "workbuddy": {
-              "baseUrl": "$endpoint",
-              "api": "openai-completions",
-              "apiKey": "${state.secret}",
-              "models": [
-                { "id": "hy3" }
-              ]
-            }
-          }
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = if (failed) {
+                    record.detail
+                } else {
+                    "${record.promptTokens} 入 · ${record.completionTokens} 出 · ${formatCredits(record.credits)} 积分"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (failed) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-    """.trimIndent()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("如何接入") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item {
-                    Text("服务提供 OpenAI 兼容接口，任意支持 openai-completions 的客户端均可直接使用。")
-                }
-                item { Text("1. 在本机启动下方开关"); Text("2. 客户端填入以下地址与密钥") }
-                item {
-                    Card {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("baseUrl: $endpoint", style = MaterialTheme.typography.bodySmall)
-                            Text("apiKey: ${state.secret}", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-                item { Text("3. 模型名称见下方列表，点模型名即可复制") }
-                item {
-                    Card {
-                        Column(Modifier.padding(12.dp)) {
-                            Text("models.json 示例", style = MaterialTheme.typography.labelMedium)
-                            Spacer(Modifier.height(6.dp))
-                            Text(snippet, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-                item {
-                    Text("提示：倍率 x0.00 的模型为免费，列表已按倍率从低到高排序。")
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onCopyEndpoint() }) { Text("复制地址") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
-        },
-    )
+    }
 }
 
+// -----------------------------------------------------------------------------
+// 对话框
+// -----------------------------------------------------------------------------
 
-/** Display name for a build. */
-internal fun realmName(region: Wire.Region): String =
-    if (region == Wire.Region.GLOBAL) "国际版" else "国内版"
-
-
-/** Result of one check-in attempt, or a batch of them. */
 @Composable
 fun CheckinDialog(
     message: String,
@@ -803,22 +862,28 @@ fun CheckinDialog(
             if (items.isEmpty()) {
                 Text(message)
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { Text(message, style = MaterialTheme.typography.bodyMedium) }
                     items(items, key = { it.label }) { entry ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                if (entry.ok) "✓" else "✗",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = if (entry.ok) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.error,
-                                modifier = Modifier.width(20.dp),
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (entry.ok) {
+                                            Claude.Moss
+                                        } else {
+                                            MaterialTheme.colorScheme.error
+                                        },
+                                    ),
                             )
+                            Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(entry.label, style = MaterialTheme.typography.bodyMedium)
                                 Text(
                                     entry.message,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -831,162 +896,96 @@ fun CheckinDialog(
     )
 }
 
-/** Confirms signing out, which discards every stored credential. */
+/** 粘贴导入：接受备份包、账号数组或单个凭证对象。 */
+@Composable
+fun PasteImportDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("粘贴凭证") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "粘贴从「凭证详情」复制的 JSON，或整段备份内容。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("内容") },
+                    placeholder = { Text("{\"accessToken\":\"...\"}") },
+                    minLines = 6,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("导入") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+@Composable
+fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Unit) {
+    val endpoint = "http://127.0.0.1:${state.port}/v1"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("接入方式") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    Text(
+                        text = "网关提供 OpenAI 兼容接口，任何支持自定义 baseURL 的客户端都能接入。",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FieldRow("地址", endpoint, mono = true)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        FieldRow("密钥", state.secret, mono = true)
+                    }
+                }
+                item {
+                    Text(
+                        text = "在客户端的「自定义 OpenAI 接口」里填入上面两项即可。模型名可以在服务页的模型目录里点按复制。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                item {
+                    Text(
+                        text = "倍率为 0 的模型不消耗积分。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onCopyEndpoint() }) { Text("复制地址") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
 @Composable
 fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("退出登录") },
-        text = { Text("将清除已保存的登录凭证（国内版与国际版），需要重新登录才能继续使用。") },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("退出登录") } },
+        text = { Text("将清除国内版与国际版已保存的全部凭证，需要重新登录才能使用。") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("退出", color = MaterialTheme.colorScheme.error) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
-/** Call history with the usage totals derived from it. */
-@Composable
-fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
-    // 每批加载条数：一次追加 200 条，滚动到底继续追加。
-    val pageSize = 200
-    // Calls arrive from the service without the UI being told, so the page
-    // reloads while it is on screen rather than only when it is opened.
-    LaunchedEffect(Unit) {
-        while (true) {
-            onRefresh()
-            kotlinx.coroutines.delay(2000L)
-        }
-    }
-    val summary = UsageSummary.of(state.calls)
-
-    // 列表分批呈现：默认 200 条，滚动到底自动追加下一批。
-    var visibleCount by remember(state.calls.size) {
-        mutableIntStateOf(minOf(200, state.calls.size).coerceAtLeast(0))
-    }
-    val visibleCalls = remember(state.calls, visibleCount) {
-        state.calls.asReversed().take(visibleCount)
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "用量统计",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (state.calls.isNotEmpty()) {
-                            TextButton(onClick = onClear) { Text("清空") }
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatCell("成功调用", summary.calls.toString())
-                        StatCell("失败", summary.failures.toString())
-                        StatCell("消耗积分", formatCredits(summary.credits))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        StatCell("输入 Tokens", summary.promptTokens.toString())
-                        StatCell("输出 Tokens", summary.completionTokens.toString())
-                        StatCell("合计 Tokens", summary.totalTokens.toString())
-                    }
-                }
-            }
-        }
-
-        if (state.calls.isEmpty()) {
-            item {
-                Text(
-                    "还没有调用记录。通过本地 API 平台发起对话后，这里会显示每次调用的模型、Tokens 与积分消耗。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            item {
-                Text(
-                    "共 ${state.calls.size} 次调用（新→旧），滚动到底继续加载",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // 每批 200 条增量追加，配合 LazyColumn 只组合可见项，
-            // 因此记录总量再大也不会有一次性布局全部条目的开销。
-            items(visibleCalls, key = { "${it.timestamp}-${it.model}-${it.detail.hashCode()}" }) { record ->
-                CallRow(record)
-            }
-            if (visibleCount < state.calls.size) {
-                item(key = "loadMore") {
-                    LaunchedEffect(visibleCount) {
-                        visibleCount = (visibleCount + pageSize).coerceAtMost(state.calls.size)
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "正在加载更多…已显示 $visibleCount / ${state.calls.size} 条",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CallRow(record: CallRecord) {
-    val failed = record.outcome == CallRecord.Outcome.FAILED
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    record.model.ifEmpty { "(未知模型)" },
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    record.timeText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (failed) {
-                Text(
-                    "失败 · ${record.detail}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Text(
-                    "${record.promptTokens} 入 / ${record.completionTokens} 出 · 消耗 ${formatCredits(record.credits)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/** Credit figures are multipliers, so trailing zeros are trimmed. */
-internal fun formatCredits(value: Double): String {
-    if (value == 0.0) return "0"
-    return if (value == value.toLong().toDouble()) {
-        value.toLong().toString()
-    } else {
-        String.format(Locale.US, "%.2f", value)
-    }
-}
+/** 版本显示名。 */
+internal fun realmName(region: Wire.Region): String =
+    if (region == Wire.Region.GLOBAL) "国际版" else "国内版"
