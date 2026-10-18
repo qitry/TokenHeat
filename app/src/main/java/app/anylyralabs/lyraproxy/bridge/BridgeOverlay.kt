@@ -70,6 +70,9 @@ class BridgeOverlay(
 
     private var appInForeground = false
 
+    /** 是否展开为三行；收起时只留首行，窗口随之收窄。 */
+    private var expanded = true
+
     private val ticker = object : Runnable {
         override fun run() {
             refresh()
@@ -114,6 +117,8 @@ class BridgeOverlay(
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(dp(7), 0, 0, 0)
+            // 单行显示，收起时窗口宽度就由这一行决定，不会因换行撑高。
+            maxLines = 1
         }
         header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
@@ -131,6 +136,10 @@ class BridgeOverlay(
         container.addView(header)
         container.addView(detail)
         container.addView(log)
+
+        // 重建窗口时沿用当前折叠状态，避免每次重建都跳回展开形态。
+        detail.visibility = if (expanded) View.VISIBLE else View.GONE
+        log.visibility = if (expanded) View.VISIBLE else View.GONE
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -192,8 +201,9 @@ class BridgeOverlay(
     // ------------------------------------------------------------------ //
 
     /**
-     * 可拖动时接受触摸以便移动；穿透模式加上 NOT_TOUCHABLE，
-     * 让所有事件落到下层应用，悬浮窗成为纯展示。
+     * 可拖动时接受触摸，用于拖动与点按折叠；
+     * 穿透模式加上 NOT_TOUCHABLE，让所有事件落到下层应用，悬浮窗成为纯展示，
+     * 此时也无法点按折叠——这是该模式本身的取舍。
      */
     private fun applyTouchable(lp: WindowManager.LayoutParams) {
         if (movable) {
@@ -243,13 +253,52 @@ class BridgeOverlay(
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (dragging) BridgeSettings.setOverlayPosition(context, lp.x, lp.y)
+                    if (dragging) {
+                        BridgeSettings.setOverlayPosition(context, lp.x, lp.y)
+                    } else if (event.action == MotionEvent.ACTION_UP) {
+                        // 没有位移的抬手视为一次点击：在「仅第一行」与「完整三行」之间切换。
+                        toggleExpanded()
+                    }
                     dragging = false
                     true
                 }
                 else -> false
             }
         }
+    }
+
+    /**
+     * 收起时隐藏第二、三行。
+     *
+     * 窗口宽度由内容决定（WRAP_CONTENT），所以隐藏长文本行后，
+     * 窗口自然收缩到第一行的宽度，而不是保留展开时的宽度。
+     */
+    private fun toggleExpanded() {
+        expanded = !expanded
+        detailView?.visibility = if (expanded) View.VISIBLE else View.GONE
+        logView?.visibility = if (expanded) View.VISIBLE else View.GONE
+        refresh()
+        // 内容尺寸变化后立即让窗口重新测量，避免收起后仍占原来的宽度。
+        runCatching {
+            params?.let { lp ->
+                // 展开会变宽，若原本靠右则可能超出屏幕，这里把窗口拉回屏内。
+                clampToScreen(lp)
+                windowManager.updateViewLayout(root, lp)
+            }
+        }
+    }
+
+    /** 把窗口位置约束在屏幕可见范围内，宽度变化后调用。 */
+    private fun clampToScreen(lp: WindowManager.LayoutParams) {
+        val metrics = context.resources.displayMetrics
+        val view = root ?: return
+        val width = if (view.width > 0) view.width else view.measuredWidth
+        val height = if (view.height > 0) view.height else view.measuredHeight
+        if (width <= 0 || height <= 0) return
+        val maxX = (metrics.widthPixels - width - dp(4)).coerceAtLeast(0)
+        val maxY = (metrics.heightPixels - height - dp(4)).coerceAtLeast(0)
+        lp.x = lp.x.coerceIn(0, maxX)
+        lp.y = lp.y.coerceIn(0, maxY)
     }
 
     private fun refresh() {
