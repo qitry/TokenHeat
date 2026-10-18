@@ -43,6 +43,10 @@ class BridgeService : Service() {
     var port: Int = DEFAULT_PORT
         private set
 
+    /** 当前共享密钥；随启动 Intent 更新，供鉴权回调比较。 */
+    @Volatile
+    private var sharedSecret: String = DEFAULT_SECRET
+
     /** Whether the process is protected by a foreground notification. */
     @Volatile
     var foreground: Boolean = false
@@ -59,6 +63,7 @@ class BridgeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         port = intent?.getIntExtra(EXTRA_PORT, DEFAULT_PORT) ?: DEFAULT_PORT
         val secret = intent?.getStringExtra(EXTRA_SECRET) ?: DEFAULT_SECRET
+        sharedSecret = secret
         promoteToForeground()
         acquireWakeLock()
         BridgeStatus.reset(port)
@@ -87,7 +92,7 @@ class BridgeService : Service() {
      */
     private fun authenticateKey(presented: String): BridgeServer.AuthContext? {
         if (presented.isEmpty()) return null
-        if (presented == secret) return BridgeServer.AuthContext.DEFAULT
+        if (presented == sharedSecret) return BridgeServer.AuthContext.DEFAULT
         val matched = apiKeys.load().firstOrNull { it.enabled && it.key == presented } ?: return null
         return BridgeServer.AuthContext(
             keyId = matched.id,
