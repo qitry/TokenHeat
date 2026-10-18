@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -18,46 +19,56 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * A small always-visible panel showing the bridge's state.
+ * 保活悬浮窗。
  *
- * It is a real, readable window rather than a hidden one-pixel view: a window
- * the user can see is what keeps the process at visible importance, which is
- * what stops the system freezing it while it serves requests.
+ * 设计取舍（对照 termux-app 的实现）：
+ * - 保留两种交互模式：[BridgeSettings] 里的 movable 对应「可拖动」，关闭则完全穿透；
+ * - 应用在前台时隐藏（[AppForegroundTracker]），只在后台显示，避免遮挡自己的界面；
+ * - 内容仍是可读的状态面板，而不是 1px 隐形窗口——用户看得见的窗口才能让进程维持可见优先级。
  *
- * Dragging is handled with raw touch deltas. A move threshold separates a drag
- * from a tap, so the panel can be repositioned without accidentally toggling
- * its detail view.
+ * 与旧实现的差异：去掉了「点击收起」的隐式交互（与拖动冲突时容易误触），
+ * 改为纯状态显示 + 拖动；透明度可在设置里调整。
  */
 class BridgeOverlay(
     private val context: Context,
-    private val onClose: () -> Unit,
     panelOpacity: Float = 0.94f,
-    /** When locked the panel cannot be dragged, so it stays where it was put. */
-    locked: Boolean = false,
+    movable: Boolean = true,
+    /** 初始锁定状态；由服务从设置读入，避免在构造期访问属性带来歧义。 */
+    lockedInitially: Boolean = false,
 ) {
 
-    /** Panel opacity; changing it repaints the panel immediately. */
+    /** 面板不透明度；修改后立即重绘。 */
     var panelOpacity: Float = panelOpacity
         set(value) {
             field = value
             applyBackground()
         }
 
-    /** Whether dragging is disabled; toggled live from the settings screen. */
-    var locked: Boolean = locked
+    /** 是否允许拖动。关闭时窗口完全穿透，不拦截任何触摸。 */
+    var movable: Boolean = movable
+        set(value) {
+            field = value
+            params?.let { applyTouchable(it) }
+        }
+
+    /** 锁定位置：仍可拖动模式，但拖动被忽略，避免误触挪位。 */
+    var locked: Boolean = lockedInitially
+        set(value) {
+            field = value
+        }
 
     private val handler = Handler(Looper.getMainLooper())
-    private var view: View? = null
-    private var windowManager: WindowManager? = null
+    private val windowManager =
+        context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var root: LinearLayout? = null
     private var params: WindowManager.LayoutParams? = null
 
-    private lateinit var titleView: TextView
-    private lateinit var detailView: TextView
-    private lateinit var logView: TextView
-    private lateinit var root: LinearLayout
+    private var dotView: View? = null
+    private var titleView: TextView? = null
+    private var detailView: TextView? = null
+    private var logView: TextView? = null
 
-    /** Whether the panel shows its request line; tapping toggles it. */
-    private var expanded = true
+    private var appInForeground = false
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -66,52 +77,60 @@ class BridgeOverlay(
         }
     }
 
-    @SuppressLint("ClickableViewAccessibility")
+    private val foregroundListener: (Boolean) -> Unit = { foreground ->
+        appInForeground = foreground
+        if (foreground) hide() else show()
+    }
+
+    fun attach() {
+        AppForegroundTracker.get()?.setListener(foregroundListener)
+    }
+
+    /** 解除前台监听，避免服务销毁后仍被追踪器持有。 */
+    fun detach() {
+        AppForegroundTracker.get()?.setListener(null)
+        hide()
+    }
+
+    /** 显示窗口；应用在前台或权限缺失时什么都不做。 */
     fun show() {
-        if (view != null) return
-        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        windowManager = wm
+        if (root != null) return
+        if (appInForeground) return
+        if (!KeepAliveUtils.canDrawOverlays(context)) return
+        if (!BridgeSettings.overlayEnabled(context)) return
 
-        root = LinearLayout(context).apply {
+        val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setStroke(dp(1), Color.parseColor("#3A4A63"))
-            }
-        }
-
-        titleView = TextView(context).apply {
-            setTextColor(Color.parseColor("#7FE3A0"))
-            textSize = 12f
-        }
-        detailView = TextView(context).apply {
-            setTextColor(Color.WHITE)
-            textSize = 11f
-        }
-        logView = TextView(context).apply {
-            setTextColor(Color.parseColor("#B9C4D4"))
-            textSize = 10f
-            maxLines = 2
-        }
-        val close = TextView(context).apply {
-            text = "✕"
-            setTextColor(Color.parseColor("#FF8A80"))
-            textSize = 12f
-            setPadding(dp(10), dp(2), 0, 0)
-            setOnClickListener { onClose() }
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
 
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(close)
+        val dot = View(context)
+        header.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)))
+        val title = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(dp(7), 0, 0, 0)
+        }
+        header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        root.addView(header)
-        root.addView(detailView)
-        root.addView(logView)
+        val detail = TextView(context).apply {
+            setTextColor(Color.parseColor("#D9D4CC"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            setPadding(0, dp(2), 0, 0)
+        }
+        val log = TextView(context).apply {
+            setTextColor(Color.parseColor("#A8A199"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            maxLines = 2
+        }
+
+        container.addView(header)
+        container.addView(detail)
+        container.addView(log)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -123,75 +142,109 @@ class BridgeOverlay(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            // Not focusable, so the panel never takes input away from the app
-            // behind it.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            // A previously dragged position wins, so the panel reappears where
-            // the user left it.
-            val (savedX, savedY) = BridgeSettings.position(context)
-            x = if (savedX >= 0) savedX else dp(8)
-            y = if (savedY >= 0) savedY else dp(64)
+            val (savedX, savedY) = BridgeSettings.overlayPosition(context)
+            x = if (savedX >= 0) savedX else dp(10)
+            y = if (savedY >= 0) savedY else dp(80)
         }
+
+        root = container
         params = lp
+        dotView = dot
+        titleView = title
+        detailView = detail
+        logView = log
 
         applyBackground()
-        runCatching { wm.addView(root, lp) }
-            .onFailure { BridgeStatus.recordError("悬浮窗添加失败：${it.message?.take(50)}") }
-
-        attachDrag()
-        view = root
+        applyTouchable(lp)
+        runCatching { windowManager.addView(container, lp) }.onFailure {
+            BridgeStatus.recordError("悬浮窗显示失败：${it.message?.take(40)}")
+            root = null
+            params = null
+            return
+        }
         refresh()
         handler.postDelayed(ticker, REFRESH_MS)
     }
 
-    /** Drag to move, tap to toggle the detail line. */
+    fun hide() {
+        handler.removeCallbacks(ticker)
+        val view = root ?: return
+        runCatching { windowManager.removeView(view) }
+        root = null
+        params = null
+        dotView = null
+        titleView = null
+        detailView = null
+        logView = null
+    }
+
+    fun isShowing(): Boolean = root != null
+
+    /** 按当前前后台状态重新同步一次可见性。 */
+    fun sync() {
+        if (appInForeground) hide() else show()
+    }
+
+    // ------------------------------------------------------------------ //
+
+    /**
+     * 可拖动时接受触摸以便移动；穿透模式加上 NOT_TOUCHABLE，
+     * 让所有事件落到下层应用，悬浮窗成为纯展示。
+     */
+    private fun applyTouchable(lp: WindowManager.LayoutParams) {
+        if (movable) {
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+            attachDrag()
+        } else {
+            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
+            root?.setOnTouchListener(null)
+        }
+        runCatching { params?.let { windowManager.updateViewLayout(root, it) } }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun attachDrag() {
-        var downX = 0f
-        var downY = 0f
+        val view = root ?: return
         var startX = 0
         var startY = 0
-        var moved = false
+        var downRawX = 0f
+        var downRawY = 0f
+        var dragging = false
 
-        root.setOnTouchListener { _, event ->
+        view.setOnTouchListener { _, event ->
             val lp = params ?: return@setOnTouchListener false
-            // The lock is read per gesture rather than at bind time, so
-            // toggling it in the settings screen takes effect immediately.
-            // A locked panel still consumes touches: letting them through would
-            // make the panel a hole the app behind it could be tapped through.
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
                     startX = lp.x
                     startY = lp.y
-                    moved = false
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    dragging = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!locked) {
-                        val dx = event.rawX - downX
-                        val dy = event.rawY - downY
-                        if (abs(dx) > dp(6) || abs(dy) > dp(6)) moved = true
-                        if (moved) {
-                            lp.x = startX + dx.roundToInt()
-                            lp.y = startY + dy.roundToInt()
-                            runCatching { windowManager?.updateViewLayout(root, lp) }
-                        }
-                    }
+                    // 锁定后仍吞掉触摸（否则窗口会变成一个可点穿下层应用的洞），
+                    // 只是不再改变位置。
+                    if (locked) return@setOnTouchListener true
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    // 小位移不触发拖动，避免手指轻微抖动就挪位。
+                    if (!dragging && abs(dx) + abs(dy) < dp(8)) return@setOnTouchListener true
+                    dragging = true
+                    lp.x = startX + dx.roundToInt()
+                    lp.y = startY + dy.roundToInt()
+                    runCatching { windowManager.updateViewLayout(view, lp) }
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    // A tap collapses the panel to its title so it can be tucked
-                    // out of the way; only an actual drag records the position.
-                    if (!moved) {
-                        toggleExpanded()
-                    } else if (!locked) {
-                        BridgeSettings.setPosition(context, lp.x, lp.y)
-                    }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) BridgeSettings.setOverlayPosition(context, lp.x, lp.y)
+                    dragging = false
                     true
                 }
                 else -> false
@@ -199,57 +252,45 @@ class BridgeOverlay(
         }
     }
 
-    private fun toggleExpanded() {
-        expanded = !expanded
-        detailView.visibility = if (expanded) View.VISIBLE else View.GONE
-        logView.visibility = if (expanded) View.VISIBLE else View.GONE
-        refresh()
-    }
-
-    fun hide() {
-        handler.removeCallbacks(ticker)
-        val v = view ?: return
-        runCatching { windowManager?.removeView(v) }
-        view = null
-    }
-
-    fun isShowing(): Boolean = view != null
-
     private fun refresh() {
         val running = BridgeStatus.running
-        titleView.text = if (running) "● 转发中" else "○ 已停止"
-        titleView.setTextColor(
-            if (running) Color.parseColor("#7FE3A0") else Color.parseColor("#FF8A80"),
+        val dot = dotView ?: return
+        (dot.background as? GradientDrawable)?.setColor(
+            if (running) Color.parseColor("#8FBF6A") else Color.parseColor("#C4756A"),
         )
-        if (!expanded) return
+        dot.invalidate()
 
-        detailView.text = if (running) {
+        titleView?.text = if (running) "LyraProxy 运行中" else "LyraProxy 已停止"
+        detailView?.text = if (running) {
             "端口 ${BridgeStatus.port} · 已服务 ${BridgeStatus.requestCount.get()} 次"
         } else {
-            "服务未运行"
+            "本机网关未启动"
         }
-        logView.text = when {
+        logView?.text = when {
             BridgeStatus.lastError.isNotEmpty() -> "⚠ ${BridgeStatus.lastError}"
             BridgeStatus.lastRequest.isNotEmpty() -> "↳ ${BridgeStatus.lastRequest}"
             else -> "等待请求…"
         }
-        logView.setTextColor(
-            if (BridgeStatus.lastError.isNotEmpty()) {
-                Color.parseColor("#FFB4A9")
-            } else {
-                Color.parseColor("#B9C4D4")
-            },
-        )
     }
 
-    /** Paints the panel background at the current opacity. */
     private fun applyBackground() {
-        val drawable = (root.background as? GradientDrawable) ?: return
-        drawable.setColor(withAlpha(Color.parseColor("#1A2233"), panelOpacity))
-        root.invalidate()
+        val container = root ?: return
+        val drawable = GradientDrawable().apply {
+            cornerRadius = dpF(14f)
+            setColor(withAlpha(Color.parseColor("#1E1B19"), panelOpacity))
+            setStroke(dp(1), withAlpha(Color.parseColor("#4A423B"), panelOpacity))
+        }
+        container.background = drawable
+        // 圆点需要独立绘制，重设背景时一并补回。
+        dotView?.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(
+                if (BridgeStatus.running) Color.parseColor("#8FBF6A") else Color.parseColor("#C4756A"),
+            )
+        }
+        container.invalidate()
     }
 
-    /** Applies the configured opacity to a base colour. */
     private fun withAlpha(color: Int, alpha: Float): Int {
         val a = (alpha.coerceIn(0.15f, 1f) * 255).toInt()
         return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
@@ -257,6 +298,8 @@ class BridgeOverlay(
 
     private fun dp(value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
+
+    private fun dpF(value: Float): Float = value * context.resources.displayMetrics.density
 
     private companion object {
         const val REFRESH_MS = 1000L

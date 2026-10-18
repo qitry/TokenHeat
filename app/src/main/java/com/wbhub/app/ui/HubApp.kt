@@ -1,20 +1,34 @@
 package com.wbhub.app.ui
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.expressiveLightColorScheme
@@ -25,12 +39,16 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.wbhub.app.data.Login
 import com.wbhub.app.proto.Wire
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HubApp(
     state: HubState,
@@ -57,13 +75,20 @@ fun HubApp(
     onRequestOverlay: () -> Unit,
     onOverlayOpacity: (Float) -> Unit,
     onOverlayLocked: (Boolean) -> Unit,
+    onOverlayEnabled: (Boolean) -> Unit,
+    onOverlayMovable: (Boolean) -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    onImportFromText: () -> Unit,
+    onDismissPasteImport: () -> Unit,
+    onConfirmPasteImport: (String) -> Unit,
     onDismissCheckin: () -> Unit,
     showHelp: Boolean,
     onShowHelp: () -> Unit,
     onDismissHelp: () -> Unit,
     onTabShown: (HubTab) -> Unit = {},
 ) {
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(HubTab.Dashboard.ordinal) }
     // Reporting the visible tab lets the host reload that page's data on entry,
     // which is what keeps the call history current without a restart.
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
@@ -76,32 +101,46 @@ fun HubApp(
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
+                // 取消 Scaffold 自带的 insets，避免键盘弹起时内容被重复顶起。
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     TopAppBar(
                         title = {
-                            Text("WorkBuddy Hub", fontWeight = FontWeight.SemiBold)
+                            Text("LyraProxy", fontWeight = FontWeight.SemiBold)
                         },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background,
+                        ),
                     )
                 },
                 bottomBar = {
-                    NavigationBar {
-                        HubTab.entries.forEachIndexed { index, item ->
-                            NavigationBarItem(
-                                selected = tab == index,
-                                onClick = { tab = index },
-                                icon = { Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label) },
-                            )
-                        }
-                    }
+                    FloatingNavigationBar(
+                        currentTab = tab,
+                        onSelectTab = { tab = it },
+                    )
                 },
             ) { padding ->
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding),
+                        .padding(
+                            top = padding.calculateTopPadding(),
+                            bottom = padding.calculateBottomPadding(),
+                        ),
                 ) {
                     when (HubTab.entries[tab]) {
+                        HubTab.Dashboard -> DashboardScreen(
+                            state = state,
+                            onStartBridge = { onStartBridge(state.port) },
+                            onStopBridge = onStopBridge,
+                            onCopyEndpoint = onCopyEndpoint,
+                            onExportBackup = onExportBackup,
+                            onImportBackup = onImportBackup,
+                            onNavigateToCalls = { tab = HubTab.Calls.ordinal },
+                            onCheckin = onCheckin,
+                            onCheckinAll = onCheckinAll,
+                            onRefreshBalance = onRefreshBalance,
+                        )
                         HubTab.Credential -> CredentialScreen(
                             state = state,
                             onSwitchRealm = onSwitchRealm,
@@ -110,6 +149,9 @@ fun HubApp(
                             onLogin = onLogin,
                             onLogout = onLogout,
                             onOpenDetails = onOpenCredentialDetails,
+                            onExportBackup = onExportBackup,
+                            onImportBackup = onImportBackup,
+                            onImportFromText = onImportFromText,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,
@@ -124,9 +166,10 @@ fun HubApp(
                             onRequestOverlay = onRequestOverlay,
                             onOverlayOpacity = onOverlayOpacity,
                             onOverlayLocked = onOverlayLocked,
+                            onOverlayEnabled = onOverlayEnabled,
+                            onOverlayMovable = onOverlayMovable,
                         )
                         HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
-                        HubTab.Rewards -> RewardsScreen(state, onCheckin, onCheckinAll, onRefreshBalance)
                     }
                 }
             }
@@ -146,12 +189,125 @@ fun HubApp(
                 onCopy = onCopyField,
             )
         }
+        if (state.showPasteImport) {
+            PasteImportDialog(
+                onDismiss = onDismissPasteImport,
+                onConfirm = onConfirmPasteImport,
+            )
+        }
         if (showHelp) {
             HelpDialog(
                 state = state,
                 onDismiss = onDismissHelp,
                 onCopyEndpoint = onCopyEndpoint,
             )
+        }
+    }
+}
+
+/**
+ * Dynamic friendly greeting text based on local clock time.
+ * Rendered inside the Dashboard hero readout.
+ */
+internal fun getGreetingText(): String {
+    val cal = java.util.Calendar.getInstance()
+    val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val minute = cal.get(java.util.Calendar.MINUTE)
+    val timeVal = hour + minute / 60.0
+    return when {
+        timeVal < 6.0 -> "凌晨好，少熬夜身体好"
+        timeVal < 11.5 -> "早上好，记得吃早餐"
+        timeVal < 14.0 -> "中午好，需要干点什么"
+        timeVal < 18.5 -> "下午好，来杯咖啡"
+        else -> "工作劳累，记得休息"
+    }
+}
+
+/**
+ * 悬浮药丸底栏。
+ *
+ * 选中态用实底药丸 + 反色图标文字，其余只显示图标，避免五个文字标签挤在一起；
+ * 底部额外留出导航栏高度，避开系统手势条。
+ */
+@Composable
+private fun FloatingNavigationBar(
+    currentTab: Int,
+    onSelectTab: (Int) -> Unit,
+) {
+    // 积分已并入首页，底栏只展示四个真实页面。
+    val visibleTabs = HubTab.entries
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .height(56.dp)
+                    .padding(horizontal = 7.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                visibleTabs.forEach { item ->
+                    val index = item.ordinal
+                    val selected = currentTab == index
+                    val horizontal by animateDpAsState(
+                        targetValue = if (selected) 14.dp else 12.dp,
+                        label = "navHorizontalPadding",
+                    )
+                    val contentColor by animateColorAsState(
+                        targetValue = if (selected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        label = "navContentColor",
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(22.dp))
+                            .clickable { onSelectTab(index) },
+                        shape = RoundedCornerShape(22.dp),
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            Color.Transparent
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = horizontal, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(20.dp),
+                                tint = contentColor,
+                            )
+                            if (selected) {
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    text = item.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = contentColor,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -1,8 +1,6 @@
 package com.wbhub.app.ui
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +22,6 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularWavyProgressIndicator
@@ -37,6 +34,7 @@ import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -48,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,6 +72,9 @@ fun CredentialScreen(
     onLogin: (Wire.Region) -> Unit,
     onLogout: () -> Unit,
     onOpenDetails: () -> Unit,
+    onExportBackup: () -> Unit = {},
+    onImportBackup: () -> Unit = {},
+    onImportFromText: () -> Unit = {},
 ) {
     val region = state.realm
     val regionLabel = realmName(region)
@@ -161,6 +163,41 @@ fun CredentialScreen(
         item {
             Button(onClick = { onLogin(region) }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号")
+            }
+        }
+
+        // 账号迁移：文件包与凭证字符串两条路径，互为兜底。
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "账号迁移",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "导出为 .json.gz 压缩包，或在换机后用凭证字符串直接恢复。导入是按账号合并，重复导入只刷新，不会产生重复条目。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = onExportBackup,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("导出账号包") }
+                        FilledTonalButton(
+                            onClick = onImportBackup,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("导入账号包") }
+                    }
+                    OutlinedButton(
+                        onClick = onImportFromText,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("粘贴凭证导入") }
+                }
             }
         }
 
@@ -329,6 +366,8 @@ fun BridgeScreen(
     onRequestOverlay: () -> Unit,
     onOverlayOpacity: (Float) -> Unit,
     onOverlayLocked: (Boolean) -> Unit,
+    onOverlayEnabled: (Boolean) -> Unit = {},
+    onOverlayMovable: (Boolean) -> Unit = {},
 ) {
     var portText by remember(state.port) { mutableStateOf(state.port.toString()) }
     LazyColumn(
@@ -352,10 +391,9 @@ fun BridgeScreen(
                     }
                     if (!state.batteryExempt) {
                         Text(
-                            "建议同时关闭电池优化：点此设置。",
+                            "电池优化未关闭，后台可能被限制（详见下方「后台保活」）。",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable(onClick = onRequestBatteryExemption),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (!state.notificationsAllowed) {
@@ -401,34 +439,45 @@ fun BridgeScreen(
         }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "后台常驻（悬浮窗）",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            if (state.overlayAllowed) "已开启" else "未开启",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = if (state.overlayAllowed) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.error,
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "保活悬浮窗",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "切到后台时显示运行状态，让系统保持本应用可见",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.overlayEnabled && state.overlayAllowed,
+                            onCheckedChange = { checked ->
+                                if (checked && !state.overlayAllowed) {
+                                    onRequestOverlay()
+                                } else {
+                                    onOverlayEnabled(checked)
+                                }
+                            },
                         )
                     }
-                    Text(
-                        if (state.overlayAllowed) {
-                            "服务运行时会在屏幕边缘显示状态面板，让应用保持可见，系统不会在后台冻结它。面板可拖动，点一下可收起。"
-                        } else {
-                            "开启后会在屏幕上显示一个小状态面板，让应用保持可见，避免后台被系统冻结。无需 root，也无需其它工具。"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+
                     if (!state.overlayAllowed) {
-                        Button(onClick = onRequestOverlay, modifier = Modifier.fillMaxWidth()) {
-                            Text("开启悬浮窗")
-                        }
-                    } else {
+                        Text(
+                            "尚未授予「显示在其他应用上层」权限。开启开关时会引导授权。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        OutlinedButton(
+                            onClick = onRequestOverlay,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("授予悬浮窗权限") }
+                    }
+
+                    if (state.overlayEnabled && state.overlayAllowed) {
                         Text(
                             "透明度 ${(state.overlayOpacity * 100).toInt()}%",
                             style = MaterialTheme.typography.labelMedium,
@@ -442,9 +491,23 @@ fun BridgeScreen(
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("固定位置", style = MaterialTheme.typography.bodyMedium)
+                                Text("可拖动", style = MaterialTheme.typography.bodyMedium)
                                 Text(
-                                    "开启后悬浮窗不能被拖动，避免误触。",
+                                    "关闭后悬浮窗完全穿透，不拦截任何点击",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = state.overlayMovable,
+                                onCheckedChange = onOverlayMovable,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("锁定位置", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "开启后不可拖动，避免误触挪位",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -455,6 +518,55 @@ fun BridgeScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        // 后台保活：电池优化与厂商自启限制
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "后台保活",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (state.batteryExempt) {
+                            "已忽略电池优化，后台限制较少。"
+                        } else {
+                            "未忽略电池优化，系统可能在后台限制或清理进程。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.batteryExempt) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        FilledTonalButton(
+                            onClick = onRequestBatteryExemption,
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (state.batteryExempt) "已豁免" else "忽略电池优化") }
+                        OutlinedButton(
+                            onClick = onRequestNotifications,
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (state.notificationsAllowed) "通知已开启" else "开启通知") }
+                    }
+                    Text(
+                        "Android 没有开放「加入白名单」的接口，各厂商的自启/后台限制页面也无法深链，需按下面的提示手动设置。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        com.wbhub.app.bridge.KeepAliveUtils.romHint(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }
@@ -518,103 +630,6 @@ fun BridgeScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
-@Composable
-fun RewardsScreen(
-    state: HubState,
-    onCheckin: () -> Unit,
-    onCheckinAll: () -> Unit,
-    onRefreshBalance: () -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(12.dp)) {
-                    Text("每日签到", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Button(
-                        onClick = onCheckin,
-                        enabled = state.loading != Loading.CHECKIN,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // A long press runs the whole build's accounts, so a
-                            // user with several does not have to tap per account.
-                            .combinedClickable(
-                                onClick = onCheckin,
-                                onLongClick = onCheckinAll,
-                            ),
-                    ) {
-                        if (state.loading == Loading.CHECKIN) {
-                            CircularWavyProgressIndicator(modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("签到中…")
-                        } else {
-                            Text("签到领积分")
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "余额",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        FilledTonalButton(
-                            onClick = onRefreshBalance,
-                            enabled = state.loading != Loading.BALANCE,
-                        ) {
-                            if (state.loading == Loading.BALANCE) {
-                                CircularWavyProgressIndicator(modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("刷新中")
-                            } else {
-                                Text("刷新")
-                            }
-                        }
-                    }
-                    val balance = state.balance
-                    when {
-                        state.loading == Loading.BALANCE && balance == null -> {
-                            CircularWavyProgressIndicator()
-                        }
-                        balance == null -> Text("点“刷新”查询余额")
-                        balance.accounts.isEmpty() -> Text("暂无套餐数据")
-                        else -> {
-                            Text(
-                                "可用合计：${balance.total.toLong()}",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            balance.accounts.forEach { acc ->
-                                Text(
-                                    "${acc.name}：${acc.remain.toLong()} / ${acc.size.toLong()}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                            if (balance.cycleEnd.isNotBlank()) {
-                                Text(
-                                    "周期截止：${balance.cycleEnd}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** Modal shown when a check-in attempt finishes. */
 @Composable
 fun CheckinDialog(message: String, onDismiss: () -> Unit) {
@@ -625,6 +640,49 @@ fun CheckinDialog(message: String, onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("好") }
         },
+    )
+}
+
+/**
+ * 粘贴导入。
+ *
+ * 接受三种内容：完整备份包 JSON、账号数组、单个凭证对象。
+ * 解析与落盘都在 [com.wbhub.app.data.AccountBackup] 内完成，这里只负责取文本与回报结果。
+ */
+@Composable
+fun PasteImportDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("粘贴凭证导入") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "粘贴从「凭证详情」复制的 JSON，或整段备份内容。导入按账号合并，重复导入只刷新。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("凭证内容") },
+                    placeholder = { Text("{\"accessToken\":\"...\"}") },
+                    minLines = 6,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(text) },
+                enabled = text.isNotBlank(),
+            ) { Text("导入") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -750,6 +808,8 @@ fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 /** Call history with the usage totals derived from it. */
 @Composable
 fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
+    // 每批加载条数：一次追加 200 条，滚动到底继续追加。
+    val pageSize = 200
     // Calls arrive from the service without the UI being told, so the page
     // reloads while it is on screen rather than only when it is opened.
     LaunchedEffect(Unit) {
@@ -759,6 +819,15 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
         }
     }
     val summary = UsageSummary.of(state.calls)
+
+    // 列表分批呈现：默认 200 条，滚动到底自动追加下一批。
+    var visibleCount by remember(state.calls.size) {
+        mutableIntStateOf(minOf(200, state.calls.size).coerceAtLeast(0))
+    }
+    val visibleCalls = remember(state.calls, visibleCount) {
+        state.calls.asReversed().take(visibleCount)
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -803,32 +872,36 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
         } else {
             item {
                 Text(
-                    "最近 ${state.calls.size} 次调用（新→旧）",
+                    "共 ${state.calls.size} 次调用（新→旧），滚动到底继续加载",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            items(state.calls.reversed(), key = { it.timestamp.toString() + it.model }) { record ->
+            // 每批 200 条增量追加，配合 LazyColumn 只组合可见项，
+            // 因此记录总量再大也不会有一次性布局全部条目的开销。
+            items(visibleCalls, key = { "${it.timestamp}-${it.model}-${it.detail.hashCode()}" }) { record ->
                 CallRow(record)
             }
+            if (visibleCount < state.calls.size) {
+                item(key = "loadMore") {
+                    LaunchedEffect(visibleCount) {
+                        visibleCount = (visibleCount + pageSize).coerceAtMost(state.calls.size)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "正在加载更多…已显示 $visibleCount / ${state.calls.size} 条",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun StatCell(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -871,7 +944,7 @@ private fun CallRow(record: CallRecord) {
 }
 
 /** Credit figures are multipliers, so trailing zeros are trimmed. */
-private fun formatCredits(value: Double): String {
+internal fun formatCredits(value: Double): String {
     if (value == 0.0) return "0"
     return if (value == value.toLong().toDouble()) {
         value.toLong().toString()

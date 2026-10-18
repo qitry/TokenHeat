@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 账号备份包写入应用外部目录后，通过 FileProvider 分享给其它应用。 -->
+    <external-files-path
+        name="backup"
+        path="Download/" />
+    <cache-path
+        name="cache"
+        path="." />
+</paths>

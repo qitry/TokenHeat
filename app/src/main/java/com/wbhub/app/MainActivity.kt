@@ -21,6 +21,7 @@ import com.wbhub.app.bridge.BridgeService
 import com.wbhub.app.bridge.BridgeSettings
 import com.wbhub.app.bridge.CallLogStore
 import com.wbhub.app.bridge.Notifications
+import com.wbhub.app.data.AccountBackup
 import com.wbhub.app.data.CheckinItem
 import com.wbhub.app.data.Login
 import com.wbhub.app.proto.CheckinOutcome
@@ -106,6 +107,8 @@ class MainActivity : ComponentActivity() {
             notificationsAllowed = Notifications.hasPermission(this),
             overlayOpacity = BridgeSettings.opacity(this),
             overlayLocked = BridgeSettings.locked(this),
+            overlayEnabled = BridgeSettings.overlayEnabled(this),
+            overlayMovable = BridgeSettings.overlayMovable(this),
         )
         // Starting the bridge from the foreground is what makes the foreground
         // promotion legal; a later start from a background caller is refused.
@@ -128,9 +131,29 @@ class MainActivity : ComponentActivity() {
                 },
                 onOverlayLocked = { locked ->
                     BridgeSettings.setLocked(this, locked)
-                    BridgeService.overlayRef?.locked = locked
+                    BridgeService.overlayRef?.apply { this.locked = locked }
                     state = state.copy(overlayLocked = locked)
+                },                onOverlayEnabled = { enabled ->
+                    BridgeSettings.setOverlayEnabled(this, enabled)
+                    state = state.copy(overlayEnabled = enabled)
+                    // 服务已在运行就只同步面板；未运行才需要把服务拉起来。
+                    val running = service
+                    if (running != null) {
+                        running.refreshOverlay()
+                    } else if (enabled) {
+                        startBridge(state.port, silent = true)
+                    }
                 },
+                onOverlayMovable = { movable ->
+                    BridgeSettings.setOverlayMovable(this, movable)
+                    BridgeService.overlayRef?.apply { this.movable = movable }
+                    state = state.copy(overlayMovable = movable)
+                },
+                onExportBackup = { exportBackup() },
+                onImportBackup = { pickBackupFile() },
+                onImportFromText = { state = state.copy(showPasteImport = true) },
+                onDismissPasteImport = { state = state.copy(showPasteImport = false) },
+                onConfirmPasteImport = { text -> importFromText(text) },
                 onSwitchRealm = { region -> switchRealm(region) },
                 onSwitchAccount = { id -> switchAccount(id) },
                 onDeleteAccount = { id -> deleteAccount(id) },
@@ -154,8 +177,11 @@ class MainActivity : ComponentActivity() {
                     // Reload on entry: the service writes records without the
                     // UI knowing, so a snapshot taken at startup goes stale.
                     when (tab) {
+                        HubTab.Dashboard -> {
+                            loadCalls()
+                            loadBalance()
+                        }
                         HubTab.Calls -> loadCalls()
-                        HubTab.Rewards -> loadBalance()
                         else -> Unit
                     }
                 },
@@ -492,6 +518,69 @@ class MainActivity : ComponentActivity() {
     /** Reloads the recorded calls, newest last. */
     private fun loadCalls() {
         state = state.copy(calls = callLog.load())
+    }
+
+    // ------------------------------------------------------------------ //
+    // 账号备份：导出 / 文件导入 / 粘贴导入
+    // ------------------------------------------------------------------ //
+
+    private val importFileLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        AccountBackup.importFromGzipStream(input, store)
+                    } ?: AccountBackup.ImportResult(success = false, message = "无法读取所选文件")
+                }.getOrElse {
+                    AccountBackup.ImportResult(success = false, message = "读取失败：${it.message}")
+                }
+            }
+            onImportFinished(result)
+        }
+    }
+
+    private fun exportBackup() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { AccountBackup.exportToFileAndGetIntent(this@MainActivity, store) }
+            }
+            result.onSuccess { (file, intent) ->
+                runCatching { startActivity(Intent.createChooser(intent, "分享账号备份")) }
+                    .onFailure { toast("已保存到 ${file.absolutePath}") }
+            }.onFailure { toast("导出失败：${it.message?.take(40)}") }
+        }
+    }
+
+    private fun pickBackupFile() {
+        runCatching {
+            importFileLauncher.launch(arrayOf("application/gzip", "application/json", "text/plain", "*/*"))
+        }.onFailure { toast("无法打开文件选择器") }
+    }
+
+    private fun importFromText(text: String) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                AccountBackup.importFromJsonText(text, store)
+            }
+            state = state.copy(showPasteImport = false)
+            onImportFinished(result)
+        }
+    }
+
+    /** 导入结束后统一刷新账号状态并回报结果。 */
+    private fun onImportFinished(result: AccountBackup.ImportResult) {
+        if (result.success) {
+            refreshCredential()
+            loadModels()
+            loadBalance()
+            val detail = result.breakdown.entries.joinToString("，") { "${it.key} ${it.value} 个" }
+            toast(if (detail.isBlank()) result.message else "${result.message}（$detail）")
+        } else {
+            toast(result.message.ifBlank { "导入失败" })
+        }
     }
 
     /** Discards the whole call history. */

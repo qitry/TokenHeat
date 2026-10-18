@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">WorkBuddy Hub</string>
+    <!-- 应用显示名。applicationId 保持不变，保证可覆盖安装并保留已有账号数据。 -->
+    <string name="app_name">LyraProxy</string>
 </resources>

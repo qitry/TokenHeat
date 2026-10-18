@@ -74,6 +74,8 @@ tasks.configureEach {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.05.00"))
     implementation("androidx.activity:activity-compose:1.10.1")
+    // FileProvider 用于把账号备份包分享出去，需要显式声明 core。
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.ui:ui-tooling-preview")

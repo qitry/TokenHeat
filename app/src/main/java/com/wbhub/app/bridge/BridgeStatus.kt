@@ -28,9 +28,14 @@ object BridgeStatus {
     @Volatile
     var region: String = ""
 
+    /** 本次启动的时间戳（毫秒），首页据此计算运行时长。 */
+    @Volatile
+    var startedAt: Long = 0L
+
     fun reset(port: Int) {
         running = true
         this.port = port
+        startedAt = System.currentTimeMillis()
         requestCount.set(0)
         lastRequest = ""
         lastError = ""

@@ -1,8 +1,8 @@
 package com.wbhub.app.ui
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.LayoutDashboard
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -15,10 +15,10 @@ import com.wbhub.app.proto.HubModel
 import com.wbhub.app.proto.Wire
 
 enum class HubTab(val label: String, val icon: ImageVector) {
+    Dashboard("概览", Icons.Default.LayoutDashboard),
     Credential("凭证", Icons.Default.Key),
     Bridge("API 平台", Icons.Default.Hub),
     Calls("调用记录", Icons.Default.ReceiptLong),
-    Rewards("积分", Icons.Default.CardGiftcard),
 }
 
 /** Everything the screens render; owned by the activity and backed by the service. */
@@ -42,6 +42,10 @@ data class HubState(
     val calls: List<CallRecord> = emptyList(),
     val overlayOpacity: Float = 0.94f,
     val overlayLocked: Boolean = false,
+    val overlayEnabled: Boolean = false,
+    val overlayMovable: Boolean = true,
+    /** 是否显示「粘贴凭证导入」对话框。 */
+    val showPasteImport: Boolean = false,
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,

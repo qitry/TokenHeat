@@ -102,32 +102,49 @@ class BridgeService : Service() {
     }
 
     /**
-     * Shows the status panel when the user granted overlay permission.
+     * Shows the status panel when the user enabled it and granted overlay permission.
      *
      * The panel is what keeps the process at visible importance, so the system
      * does not freeze it while it serves requests. Without the permission the
      * bridge still runs; it is simply subject to the usual background policy.
      */
     private fun showOverlay() {
+        if (!BridgeSettings.overlayEnabled(this)) return
         if (overlay?.isShowing() == true) return
-        if (!android.provider.Settings.canDrawOverlays(this)) {
-            android.util.Log.i("WBHub", "overlay permission not granted; bridge runs without the panel")
+        if (!KeepAliveUtils.canDrawOverlays(this)) {
+            android.util.Log.i("LyraProxy", "overlay permission not granted; running without the panel")
             return
         }
-        overlay = BridgeOverlay(
-            context = this,
-            onClose = { removeOverlay() },
-            panelOpacity = BridgeSettings.opacity(this),
-            locked = BridgeSettings.locked(this),
-        ).also { it.show() }
+        if (overlay == null) {
+            overlay = BridgeOverlay(
+                context = this,
+                panelOpacity = BridgeSettings.opacity(this),
+                movable = BridgeSettings.overlayMovable(this),
+                lockedInitially = BridgeSettings.locked(this),
+            ).also { it.attach() }
+        }
+        overlay?.show()
         overlayRef = overlay
     }
 
     /** Hides the panel; the service itself keeps running. */
     fun removeOverlay() {
-        overlay?.hide()
+        overlay?.detach()
         overlay = null
         overlayRef = null
+    }
+
+    /**
+     * 设置页改变开关后调用，让面板立刻跟随，而不必等下一次服务启动。
+     * 关闭时直接隐藏；开启时按前后台状态重新判断。
+     */
+    fun refreshOverlay() {
+        if (!BridgeSettings.overlayEnabled(this)) {
+            removeOverlay()
+            return
+        }
+        showOverlay()
+        overlay?.sync()
     }
 
     private suspend fun refreshModelsLoop() {
