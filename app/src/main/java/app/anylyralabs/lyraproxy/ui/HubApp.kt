@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -98,11 +99,22 @@ fun HubApp(
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
     var dark by remember { mutableStateOf(false) }
 
+    // 状态栏图标跟随应用内的亮暗，否则暗色模式下黑色图标看不见。
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(dark) {
+        val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
     ClaudeTheme(darkTheme = dark) {
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
-                // 取消 Scaffold 自带 insets，避免键盘弹起时内容被重复顶起。
+                // 交给顶栏与底栏各自避让系统栏：Scaffold 若同时消费 insets，
+                // 会与栏内的 statusBarsPadding / navigationBarsPadding 叠加成双倍留白。
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     AppHeader(
@@ -239,6 +251,8 @@ private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // 顶栏自己避让状态栏：Scaffold 只提供 padding，不会替 topBar 处理。
+                .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -318,12 +332,20 @@ private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
                         color = color,
                     )
                     Spacer(Modifier.height(3.dp))
+                    // 指示条固定宽度，只切换颜色：若宽度随选中变化，
+                    // 文字会被挤动，切换标签时整行会抖一下。
                     Box(
                         modifier = Modifier
-                            .width(if (selected) 16.dp else 0.dp)
+                            .width(16.dp)
                             .height(2.dp)
                             .clip(RoundedCornerShape(1.dp))
-                            .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                            .background(
+                                if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.Transparent
+                                },
+                            ),
                     )
                 }
             }

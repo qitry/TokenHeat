@@ -172,7 +172,7 @@ fun DashboardScreen(
                 SectionHeading(
                     title = "模型用量",
                     subtitle = "按调用次数排列",
-                    modifier = Modifier.padding(top = 14.dp),
+                    
                     trailing = {
                         TextAction(text = "全部记录", onClick = onNavigateToCalls)
                     },
@@ -201,7 +201,7 @@ fun DashboardScreen(
                     } else {
                         "国际版不提供签到，这里只显示积分"
                     },
-                    modifier = Modifier.padding(top = 14.dp),
+                    
                     trailing = {
                         Text(
                             text = formatCredits(state.balance?.total ?: 0.0),
@@ -273,7 +273,7 @@ fun DashboardScreen(
                 SectionHeading(
                     title = "账号备份",
                     subtitle = "导出为 .json.gz，或从备份与凭证字符串恢复",
-                    modifier = Modifier.padding(top = 14.dp),
+                    
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -464,7 +464,7 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
         SectionHeading(
             title = "请求分布",
             subtitle = "每天有请求就会留下一个格",
-            modifier = Modifier.padding(top = 14.dp),
+            
             trailing = {
                 Text(
                     text = "${calls.size} 次",
@@ -476,7 +476,7 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
 
         // 跨度选择：纯文字，选中项加深并加下划线。
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             HeatSpan.entries.forEach { option ->
                 val active = option == span
                 Text(
@@ -488,8 +488,16 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (active) {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            } else {
+                                Color.Transparent
+                            },
+                        )
                         .clickable { span = option }
-                        .padding(vertical = 2.dp),
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
         }

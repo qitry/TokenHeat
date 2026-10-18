@@ -45,29 +45,45 @@ import java.util.Locale
 // 这既是视觉选择，也省掉了大量 Surface/Border/shadow 的测量与绘制开销。
 // -----------------------------------------------------------------------------
 
-/** 细线：唯一的分段手段。 */
+/**
+ * 细线：唯一的分段手段。
+ *
+ * 自带下方留白：它是分组的起点，紧接其后的标题或标签需要一点呼吸空间，
+ * 否则文字会贴在线上。上方的间距由各分组的外层 padding 提供。
+ */
 @Composable
 fun Rule(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.outline) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(1.dp)
-            .background(color),
-    )
+            .padding(top = 2.dp, bottom = 4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(color),
+        )
+    }
 }
 
-/** 小节标签：不用全大写、不加字距，只把字号压小、颜色压淡。 */
+/**
+ * 小节标签。
+ *
+ * 自带上方留白：它通常紧跟在一条分隔线之后，若不留空隙，
+ * 文字会贴在线上，显得拥挤。
+ */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier,
+        modifier = modifier.padding(top = 14.dp),
     )
 }
 
-/** 标题 + 说明的两行结构，用于每个分组的开头。 */
+/** 标题 + 说明的两行结构，用于每个分组的开头；自带上方留白。 */
 @Composable
 fun SectionHeading(
     title: String,
@@ -76,7 +92,7 @@ fun SectionHeading(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().padding(top = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -148,7 +164,7 @@ fun PrimaryButton(
     }
 }
 
-/** 次按钮：只有一条细边，不抢主操作的注意力。 */
+/** 次按钮：浅纸底 + 细描边，明确可点，但不抢主操作。 */
 @Composable
 fun QuietButton(
     text: String,
@@ -163,34 +179,45 @@ fun QuietButton(
     } else {
         MaterialTheme.colorScheme.onSurface
     }
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Transparent)
-            .then(
-                Modifier.background(
-                    color = Color.Transparent,
-                ),
-            )
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+    val border = if (danger) {
+        MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
+    } else {
+        MaterialTheme.colorScheme.outline
+    }
+    androidx.compose.material3.Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = if (enabled) {
+            MaterialTheme.colorScheme.surfaceVariant
+        } else {
+            Color.Transparent
+        },
+        border = androidx.compose.foundation.BorderStroke(1.dp, border),
+        onClick = onClick,
+        enabled = enabled,
     ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(15.dp),
-                tint = if (enabled) content.copy(alpha = 0.75f) else content.copy(alpha = 0.35f),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = if (enabled) content.copy(alpha = 0.8f) else content.copy(alpha = 0.35f),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (enabled) content else content.copy(alpha = 0.35f),
             )
-            Spacer(Modifier.width(6.dp))
         }
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (enabled) content.copy(alpha = 0.85f) else content.copy(alpha = 0.35f),
-        )
     }
 }
 
@@ -207,18 +234,21 @@ fun TextAction(
     danger: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val color = if (danger) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,
-        color = if (danger) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.primary
-        },
+        color = color,
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(7.dp))
+            // 极淡的底色，让文字操作看起来是能点的，而不是普通说明文字。
+            .background(color.copy(alpha = 0.08f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
     )
 }
 
@@ -323,11 +353,12 @@ fun ThinBar(
 /** 短标签：不用胶囊，只用一行小字，避免页面上到处是圆角容器。 */
 @Composable
 fun Tag(text: String, modifier: Modifier = Modifier, tone: TagTone = TagTone.Neutral) {
+    // 语义色一律取主题色，暗色模式下才不会因为固定深色而看不清。
     val color = when (tone) {
         TagTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
         TagTone.Active -> MaterialTheme.colorScheme.primary
         TagTone.Danger -> MaterialTheme.colorScheme.error
-        TagTone.Positive -> Claude.Moss
+        TagTone.Positive -> MaterialTheme.colorScheme.tertiary
     }
     Text(
         text = text,
