@@ -44,7 +44,7 @@ class BridgeOverlay(
             applyBackground()
         }
 
-    /** 是否允许拖动。关闭时窗口完全穿透，不拦截任何触摸。 */
+    /** 是否允许拖动。关闭后窗口仍可点击折叠，只是不再移动位置。 */
     var movable: Boolean = movable
         set(value) {
             field = value
@@ -201,20 +201,15 @@ class BridgeOverlay(
     // ------------------------------------------------------------------ //
 
     /**
-     * 可拖动时接受触摸，用于拖动与点按折叠；
-     * 穿透模式加上 NOT_TOUCHABLE，让所有事件落到下层应用，悬浮窗成为纯展示，
-     * 此时也无法点按折叠——这是该模式本身的取舍。
+     * 窗口始终接收触摸，以便点按折叠；
+     * [movable] 只决定能否拖动，不再决定是否穿透。
+     * 若需要「完全穿透」的纯展示形态，应使用系统级的穿透设置，
+     * 而不是把点击折叠一并关掉。
      */
     private fun applyTouchable(lp: WindowManager.LayoutParams) {
-        if (movable) {
-            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            attachDrag()
-        } else {
-            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL.inv()
-            root?.setOnTouchListener(null)
-        }
+        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        attachDrag()
         runCatching { params?.let { windowManager.updateViewLayout(root, it) } }
     }
 
@@ -226,6 +221,9 @@ class BridgeOverlay(
         var downRawX = 0f
         var downRawY = 0f
         var dragging = false
+        // 手指是否发生过明显位移。锁定位置时不允许拖动，但也不应把
+        // 「滑动了一下」误判成点击，所以单独记录位移而不是复用 dragging。
+        var moved = false
 
         view.setOnTouchListener { _, event ->
             val lp = params ?: return@setOnTouchListener false
@@ -236,16 +234,18 @@ class BridgeOverlay(
                     downRawX = event.rawX
                     downRawY = event.rawY
                     dragging = false
+                    moved = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // 锁定后仍吞掉触摸（否则窗口会变成一个可点穿下层应用的洞），
-                    // 只是不再改变位置。
-                    if (locked) return@setOnTouchListener true
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
-                    // 小位移不触发拖动，避免手指轻微抖动就挪位。
-                    if (!dragging && abs(dx) + abs(dy) < dp(8)) return@setOnTouchListener true
+                    // 小位移不算移动，避免手指轻微抖动就判定为滑动。
+                    if (!moved && abs(dx) + abs(dy) < dp(8)) return@setOnTouchListener true
+                    moved = true
+                    // 锁定位置：吞掉触摸（否则窗口会变成可点穿下层应用的洞），
+                    // 但不改变坐标，只保留点击折叠能力。
+                    if (locked) return@setOnTouchListener true
                     dragging = true
                     lp.x = startX + dx.roundToInt()
                     lp.y = startY + dy.roundToInt()
@@ -255,11 +255,12 @@ class BridgeOverlay(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (dragging) {
                         BridgeSettings.setOverlayPosition(context, lp.x, lp.y)
-                    } else if (event.action == MotionEvent.ACTION_UP) {
+                    } else if (event.action == MotionEvent.ACTION_UP && !moved) {
                         // 没有位移的抬手视为一次点击：在「仅第一行」与「完整三行」之间切换。
                         toggleExpanded()
                     }
                     dragging = false
+                    moved = false
                     true
                 }
                 else -> false

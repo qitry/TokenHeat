@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.bridge.BridgeStatus
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.bridge.UsageSummary
+import app.anylyralabs.lyraproxy.proto.Wire
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -335,6 +336,9 @@ fun DashboardScreen(
 
         // ---------- 5. 签到与余额（原积分页） ----------
         item {
+            // 国际版上游没有签到接口，强行请求只会得到一个错误。
+            // 因此国际版只展示积分余额，不呈现任何签到入口。
+            val checkinSupported = state.realm != Wire.Region.GLOBAL
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -343,12 +347,16 @@ fun DashboardScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = "每日签到",
+                                text = if (checkinSupported) "每日签到" else "积分余额",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = "长按可为本版本全部账号依次签到",
+                                text = if (checkinSupported) {
+                                    "长按可为本版本全部账号依次签到"
+                                } else {
+                                    "国际版不提供签到，此处仅展示当前积分"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -365,23 +373,25 @@ fun DashboardScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
-                        Button(
-                            onClick = onCheckin,
-                            enabled = state.loading != Loading.CHECKIN,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (state.loading == Loading.CHECKIN) "签到中…" else "签到")
+                        if (checkinSupported) {
+                            Button(
+                                onClick = onCheckin,
+                                enabled = state.loading != Loading.CHECKIN,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(if (state.loading == Loading.CHECKIN) "签到中…" else "签到")
+                            }
+                            FilledTonalButton(
+                                onClick = onCheckinAll,
+                                enabled = state.loading != Loading.CHECKIN,
+                                modifier = Modifier.weight(1f),
+                            ) { Text("全部签到") }
                         }
-                        FilledTonalButton(
-                            onClick = onCheckinAll,
-                            enabled = state.loading != Loading.CHECKIN,
-                            modifier = Modifier.weight(1f),
-                        ) { Text("全部签到") }
                         OutlinedButton(
                             onClick = onRefreshBalance,
                             enabled = state.loading != Loading.BALANCE,
-                            modifier = Modifier.weight(1f),
-                        ) { Text(if (state.loading == Loading.BALANCE) "刷新中" else "刷新") }
+                            modifier = if (checkinSupported) Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                        ) { Text(if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分") }
                     }
 
                     val balance = state.balance

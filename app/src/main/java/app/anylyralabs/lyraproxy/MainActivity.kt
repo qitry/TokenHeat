@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import app.anylyralabs.lyraproxy.bridge.ApiKeyStore
 import app.anylyralabs.lyraproxy.bridge.BridgeService
 import app.anylyralabs.lyraproxy.bridge.BridgeSettings
 import app.anylyralabs.lyraproxy.bridge.CallLogStore
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var store: CredentialStore
     private lateinit var callLog: CallLogStore
+    private lateinit var apiKeyStore: ApiKeyStore
     private var service: BridgeService? = null
     private var bound by mutableStateOf(false)
     private var pollJob: Job? = null
@@ -95,6 +97,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = CredentialStore(this)
         callLog = CallLogStore(this)
+        apiKeyStore = ApiKeyStore(this)
         Notifications.ensureChannel(this)
         refreshCredential()
         // Keep the daemon's credential copy current, including the first run
@@ -103,6 +106,7 @@ class MainActivity : ComponentActivity() {
         loadBalance()
         loadModels()
         loadCalls()
+        loadApiKeys()
         state = state.copy(
             notificationsAllowed = Notifications.hasPermission(this),
             overlayOpacity = BridgeSettings.opacity(this),
@@ -149,6 +153,55 @@ class MainActivity : ComponentActivity() {
                     BridgeService.overlayRef?.apply { this.movable = movable }
                     state = state.copy(overlayMovable = movable)
                 },
+                onCopyApiKey = { key -> copyToClipboard(key, "已复制 API Key") },
+                onToggleApiKeyEnabled = { apiKey, enabled ->
+                    apiKeyStore.update(apiKey.copy(enabled = enabled))
+                    loadApiKeys()
+                },
+                onEditApiKey = { apiKey -> state = state.copy(editingApiKey = apiKey) },
+                onCreateApiKey = { state = state.copy(creatingApiKey = true, editingApiKey = null) },
+                onDeleteApiKey = { apiKey -> state = state.copy(deletingApiKey = apiKey) },
+                onClearApiKeyUsage = { apiKey ->
+                    apiKeyStore.clearUsage(apiKey.id)
+                    loadApiKeys()
+                    toast("已重置用量")
+                },
+                onSaveApiKey = { label, allowedModels, budget, enabled ->
+                    val editing = state.editingApiKey
+                    if (editing == null) {
+                        val created = apiKeyStore.create(
+                            label = label,
+                            allowedModels = allowedModels,
+                            budget = budget,
+                        )
+                        state = state.copy(
+                            creatingApiKey = false,
+                            justCreatedApiKey = created,
+                        )
+                    } else {
+                        apiKeyStore.update(
+                            editing.copy(
+                                label = label.ifBlank { editing.label },
+                                allowedModels = allowedModels.distinct(),
+                                budget = budget,
+                                enabled = enabled,
+                            ),
+                        )
+                        state = state.copy(editingApiKey = null)
+                    }
+                    loadApiKeys()
+                },
+                onDismissApiKeyEditor = {
+                    state = state.copy(creatingApiKey = false, editingApiKey = null)
+                },
+                onDismissApiKeyCreated = { state = state.copy(justCreatedApiKey = null) },
+                onConfirmDeleteApiKey = { apiKey ->
+                    apiKeyStore.delete(apiKey.id)
+                    state = state.copy(deletingApiKey = null)
+                    loadApiKeys()
+                    toast("已删除密钥")
+                },
+                onDismissDeleteApiKey = { state = state.copy(deletingApiKey = null) },
                 onExportBackup = { exportBackup() },
                 onImportBackup = { pickBackupFile() },
                 onImportFromText = { state = state.copy(showPasteImport = true) },
@@ -399,6 +452,10 @@ class MainActivity : ComponentActivity() {
      */
     private fun checkinAllAccounts() {
         val region = state.realm
+        if (region == Wire.Region.GLOBAL) {
+            state = state.copy(checkinMessage = "国际版不支持签到，仅可查看积分余额")
+            return
+        }
         val targets = state.accounts[region].orEmpty()
         if (targets.isEmpty()) {
             state = state.copy(checkinMessage = "${regionLabel(region)}还没有账号")
@@ -432,6 +489,11 @@ class MainActivity : ComponentActivity() {
         val cred = state.credential
         if (cred == null) {
             state = state.copy(checkinMessage = "请先登录获取凭证")
+            return
+        }
+        // 国际版上游没有签到接口，直接拦下，避免发出必然失败的请求。
+        if (cred.region == Wire.Region.GLOBAL) {
+            state = state.copy(checkinMessage = "国际版不支持签到，仅可查看积分余额")
             return
         }
         lifecycleScope.launch {
@@ -518,6 +580,11 @@ class MainActivity : ComponentActivity() {
     /** Reloads the recorded calls, newest last. */
     private fun loadCalls() {
         state = state.copy(calls = callLog.load())
+    }
+
+    /** 重新读取自定义密钥列表。 */
+    private fun loadApiKeys() {
+        state = state.copy(apiKeys = apiKeyStore.load())
     }
 
     // ------------------------------------------------------------------ //

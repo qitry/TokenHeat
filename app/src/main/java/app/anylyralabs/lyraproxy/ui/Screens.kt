@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.data.Login
+import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.bridge.UsageSummary
 import java.util.Locale
@@ -368,6 +369,12 @@ fun BridgeScreen(
     onOverlayLocked: (Boolean) -> Unit,
     onOverlayEnabled: (Boolean) -> Unit = {},
     onOverlayMovable: (Boolean) -> Unit = {},
+    onCopyApiKey: (String) -> Unit = {},
+    onToggleApiKeyEnabled: (ApiKey, Boolean) -> Unit = { _, _ -> },
+    onEditApiKey: (ApiKey) -> Unit = {},
+    onDeleteApiKey: (ApiKey) -> Unit = {},
+    onCreateApiKey: () -> Unit = {},
+    onClearApiKeyUsage: (ApiKey) -> Unit = {},
 ) {
     var portText by remember(state.port) { mutableStateOf(state.port.toString()) }
     LazyColumn(
@@ -592,6 +599,19 @@ fun BridgeScreen(
                     Text("apiKey: ${state.secret}")
                 }
             }
+        }
+
+        // 自定义密钥：模型白名单与积分预算在此管理
+        item {
+            ApiKeySection(
+                keys = state.apiKeys,
+                onCopyKey = onCopyApiKey,
+                onToggleEnabled = onToggleApiKeyEnabled,
+                onEdit = onEditApiKey,
+                onDelete = onDeleteApiKey,
+                onCreate = onCreateApiKey,
+                onClearUsage = onClearApiKeyUsage,
+            )
         }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {

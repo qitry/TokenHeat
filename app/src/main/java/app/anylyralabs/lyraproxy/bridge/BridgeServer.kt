@@ -33,7 +33,36 @@ class BridgeServer(
     private val credential: () -> Credential?,
     private val models: () -> List<String>,
     private val onCall: (CallRecord) -> Unit = {},
+    /**
+     * 解析请求携带的密钥。
+     *
+     * 返回 null 表示不认这个密钥，请求被拒；返回 [AuthContext] 表示放行，
+     * 并带上该密钥的模型白名单与预算约束。默认实现只认共享密钥，
+     * 保持既有行为，便于单独使用。
+     */
+    private val authenticate: (String) -> AuthContext? = { presented ->
+        if (presented == secret) AuthContext.DEFAULT else null
+    },
+    /** 调用结束后按密钥记账。 */
+    private val onKeyUsage: (String, Double) -> Unit = { _, _ -> },
 ) {
+
+    /** 通过鉴权后携带的约束。 */
+    data class AuthContext(
+        val keyId: String,
+        val allowedModels: List<String>,
+        val budgetRemaining: Double,
+    ) {
+        fun modelAllowed(model: String): Boolean =
+            allowedModels.isEmpty() || allowedModels.any { it.equals(model, ignoreCase = true) }
+
+        fun budgetAllows(): Boolean = budgetRemaining > 0.0
+
+        companion object {
+            /** 共享密钥：不限制模型与预算。 */
+            val DEFAULT = AuthContext("shared", emptyList(), Double.MAX_VALUE)
+        }
+    }
 
     /** Host values a loopback-addressed request may carry. */
     private val loopbackHosts = setOf("127.0.0.1", "localhost", "[::1]")
@@ -109,8 +138,17 @@ class BridgeServer(
 
             val header = headers["authorization"].orEmpty().trim()
             val presented = if (header.startsWith("Bearer ", ignoreCase = true)) header.substring(7).trim() else header
-            if (presented != secret) {
+            val auth = authenticate(presented)
+            if (auth == null) {
                 sendJson(output, 401, """{"error":{"message":"invalid api key","type":"unauthorized"}}""")
+                return
+            }
+            if (!auth.budgetAllows()) {
+                sendJson(
+                    output,
+                    402,
+                    """{"error":{"message":"api key budget exhausted","type":"budget_exhausted"}}""",
+                )
                 return
             }
 
@@ -139,12 +177,15 @@ class BridgeServer(
                     sendJson(output, 200, """{"ok":true,"region":"$region"}""")
                 }
                 requestLine.startsWith("GET /v1/models") -> {
-                    val list = models().joinToString(",") {
+                    // 只列出该密钥可用的模型，避免客户端选到一个必然被拒的模型。
+                    val allowed = models().filter { auth.modelAllowed(it) }
+                    val list = allowed.joinToString(",") {
                         """{"id":"$it","object":"model","owned_by":"workbuddy"}"""
                     }
                     sendJson(output, 200, """{"object":"list","data":[$list]}""")
                 }
-                requestLine.startsWith("POST /v1/chat/completions") -> chat(output, body, headers["content-type"])
+                requestLine.startsWith("POST /v1/chat/completions") ->
+                    chat(output, body, headers["content-type"], auth)
                 else -> sendJson(output, 404, """{"error":{"message":"not found","type":"not_found"}}""")
             }
         } catch (e: Exception) {
@@ -166,7 +207,12 @@ class BridgeServer(
         }
     }
 
-    private fun chat(output: OutputStream, body: String, contentType: String?) {
+    private fun chat(
+        output: OutputStream,
+        body: String,
+        contentType: String?,
+        auth: AuthContext = AuthContext.DEFAULT,
+    ) {
         // The upstream rejects non-JSON, and allowing form posts would let a
         // simple cross-site request drive a paid model call.
         if (contentType == null || !contentType.trim().lowercase().startsWith("application/json")) {
@@ -183,6 +229,17 @@ class BridgeServer(
             return
         }
         val model = runCatching { JSONObject(body).optString("model") }.getOrDefault("")
+
+        // 白名单校验放在调用上游之前：不合规的模型不应产生任何上游开销。
+        if (model.isNotBlank() && !auth.modelAllowed(model)) {
+            sendJson(
+                output,
+                403,
+                """{"error":{"message":"model '$model' is not allowed for this api key","type":"model_not_allowed"}}""",
+            )
+            return
+        }
+
         val started = System.currentTimeMillis()
         when (val result = client.chatStream(cred, body)) {
             is UpstreamClient.ChatResult.Failed -> {
@@ -219,6 +276,9 @@ class BridgeServer(
                             credits = usage.credits,
                         ),
                     )
+                    // 只有成功调用才计入该密钥的积分消耗，
+                    // 失败不扣预算，避免上游抖动把用户额度吃掉。
+                    onKeyUsage(auth.keyId, usage.credits)
                 } finally {
                     runCatching { result.connection.disconnect() }
                 }

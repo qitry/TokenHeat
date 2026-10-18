@@ -47,10 +47,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // The config only exists when keystore.properties was found, so a
-            // clone without signing material still produces an unsigned build
-            // instead of failing the build.
-            signingConfig = signingConfigs.getByName("release")
+            // 只有 keystore.properties 存在且 storeFile 有效时才挂上签名配置。
+            // 若直接赋一个空的 signingConfig，AGP 会在打包阶段抛
+            // `SigningConfig "release" is missing required property "storeFile"`，
+            // 而不是像注释所说的那样回退成未签名产物。
+            val releaseStore = keystoreProperties.getProperty("storeFile")
+            if (!releaseStore.isNullOrBlank() && rootProject.file(releaseStore).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

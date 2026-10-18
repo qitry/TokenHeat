@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.ui.graphics.vector.ImageVector
+import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.data.CheckinItem
 import app.anylyralabs.lyraproxy.proto.Balance
@@ -46,6 +47,16 @@ data class HubState(
     val overlayMovable: Boolean = true,
     /** 是否显示「粘贴凭证导入」对话框。 */
     val showPasteImport: Boolean = false,
+    /** 自定义 API Key 列表。 */
+    val apiKeys: List<ApiKey> = emptyList(),
+    /** 正在编辑的密钥；非空则显示编辑面板。 */
+    val editingApiKey: ApiKey? = null,
+    /** 是否处于新建密钥状态。 */
+    val creatingApiKey: Boolean = false,
+    /** 新建成功后展示一次完整密钥。 */
+    val justCreatedApiKey: ApiKey? = null,
+    /** 待确认删除的密钥。 */
+    val deletingApiKey: ApiKey? = null,
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,

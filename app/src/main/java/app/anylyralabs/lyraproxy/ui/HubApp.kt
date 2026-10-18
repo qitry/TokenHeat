@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.data.Login
 import app.anylyralabs.lyraproxy.proto.Wire
 
@@ -78,6 +79,17 @@ fun HubApp(
     onOverlayLocked: (Boolean) -> Unit,
     onOverlayEnabled: (Boolean) -> Unit,
     onOverlayMovable: (Boolean) -> Unit,
+    onCopyApiKey: (String) -> Unit,
+    onToggleApiKeyEnabled: (ApiKey, Boolean) -> Unit,
+    onEditApiKey: (ApiKey) -> Unit,
+    onCreateApiKey: () -> Unit,
+    onDeleteApiKey: (ApiKey) -> Unit,
+    onClearApiKeyUsage: (ApiKey) -> Unit,
+    onSaveApiKey: (label: String, allowedModels: List<String>, budget: Double, enabled: Boolean) -> Unit,
+    onDismissApiKeyEditor: () -> Unit,
+    onDismissApiKeyCreated: () -> Unit,
+    onConfirmDeleteApiKey: (ApiKey) -> Unit,
+    onDismissDeleteApiKey: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onImportFromText: () -> Unit,
@@ -169,6 +181,12 @@ fun HubApp(
                             onOverlayLocked = onOverlayLocked,
                             onOverlayEnabled = onOverlayEnabled,
                             onOverlayMovable = onOverlayMovable,
+                            onCopyApiKey = onCopyApiKey,
+                            onToggleApiKeyEnabled = onToggleApiKeyEnabled,
+                            onEditApiKey = onEditApiKey,
+                            onDeleteApiKey = onDeleteApiKey,
+                            onCreateApiKey = onCreateApiKey,
+                            onClearApiKeyUsage = onClearApiKeyUsage,
                         )
                         HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
                     }
@@ -194,6 +212,29 @@ fun HubApp(
             PasteImportDialog(
                 onDismiss = onDismissPasteImport,
                 onConfirm = onConfirmPasteImport,
+            )
+        }
+        // 新建 / 编辑密钥
+        if (state.creatingApiKey || state.editingApiKey != null) {
+            ApiKeyEditorDialog(
+                existing = state.editingApiKey,
+                availableModels = state.models.map { it.id },
+                onDismiss = onDismissApiKeyEditor,
+                onSave = onSaveApiKey,
+            )
+        }
+        state.justCreatedApiKey?.let { created ->
+            ApiKeyCreatedDialog(
+                apiKey = created,
+                onCopy = { onCopyApiKey(created.key) },
+                onDismiss = onDismissApiKeyCreated,
+            )
+        }
+        state.deletingApiKey?.let { target ->
+            ApiKeyDeleteDialog(
+                apiKey = target,
+                onConfirm = { onConfirmDeleteApiKey(target) },
+                onDismiss = onDismissDeleteApiKey,
             )
         }
         if (showHelp) {

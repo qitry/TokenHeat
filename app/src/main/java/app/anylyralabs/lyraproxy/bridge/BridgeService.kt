@@ -37,6 +37,7 @@ class BridgeService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var overlay: BridgeOverlay? = null
     private lateinit var callLog: CallLogStore
+    private lateinit var apiKeys: ApiKeyStore
 
     /** Loopback port the bridge serves. */
     var port: Int = DEFAULT_PORT
@@ -51,6 +52,7 @@ class BridgeService : Service() {
         super.onCreate()
         store = CredentialStore(this)
         callLog = CallLogStore(this)
+        apiKeys = ApiKeyStore(this)
         Notifications.ensureChannel(this)
     }
 
@@ -69,10 +71,29 @@ class BridgeService : Service() {
                 credential = { store.resolve { c -> upstream.refreshToken(c) } },
                 models = { models },
                 onCall = { record -> callLog.append(record) },
+                authenticate = { presented -> authenticateKey(presented) },
+                onKeyUsage = { keyId, credits -> apiKeys.recordUsage(keyId, credits) },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
         }
         return START_STICKY
+    }
+
+    /**
+     * 解析请求携带的密钥。
+     *
+     * 共享密钥始终有效（应用内复制端点用的是它），自定义密钥则按其开关、
+     * 模型白名单与预算判定。返回 null 即拒绝。
+     */
+    private fun authenticateKey(presented: String): BridgeServer.AuthContext? {
+        if (presented.isEmpty()) return null
+        if (presented == secret) return BridgeServer.AuthContext.DEFAULT
+        val matched = apiKeys.load().firstOrNull { it.enabled && it.key == presented } ?: return null
+        return BridgeServer.AuthContext(
+            keyId = matched.id,
+            allowedModels = matched.allowedModels,
+            budgetRemaining = matched.budgetRemaining,
+        )
     }
 
     /**
