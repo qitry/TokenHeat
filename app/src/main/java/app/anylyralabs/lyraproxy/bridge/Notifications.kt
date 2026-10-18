@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package app.anylyralabs.lyraproxy.bridge
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,8 +8,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import com.wbhub.app.MainActivity
-import com.wbhub.app.R
+import app.anylyralabs.lyraproxy.MainActivity
+import app.anylyralabs.lyraproxy.R
 
 /** Notification plumbing: the bridge's ongoing notification and login alerts. */
 object Notifications {

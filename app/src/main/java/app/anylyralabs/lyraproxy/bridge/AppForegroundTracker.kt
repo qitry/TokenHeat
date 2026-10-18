@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package app.anylyralabs.lyraproxy.bridge
 
 import android.app.Activity
 import android.app.Application

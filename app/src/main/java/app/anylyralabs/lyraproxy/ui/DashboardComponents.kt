@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode

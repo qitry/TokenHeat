@@ -1,7 +1,7 @@
-package com.wbhub.app
+package app.anylyralabs.lyraproxy
 
 import android.app.Application
-import com.wbhub.app.bridge.AppForegroundTracker
+import app.anylyralabs.lyraproxy.bridge.AppForegroundTracker
 
 /**
  * 应用入口。

@@ -1,8 +1,8 @@
-package com.wbhub.app.bridge
+package app.anylyralabs.lyraproxy.bridge
 
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.UpstreamClient
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.proto.Credential
+import app.anylyralabs.lyraproxy.proto.UpstreamClient
+import app.anylyralabs.lyraproxy.proto.Wire
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -375,7 +375,7 @@ class BridgeServer(
     }
 
     private companion object {
-        const val TAG = "WBHub"
+        const val TAG = "LyraProxy"
 
         /** How much of the stream tail is kept for usage scanning. */
         const val USAGE_SCAN_BYTES = 8192

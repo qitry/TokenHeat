@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,12 +55,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wbhub.app.data.Login
-import com.wbhub.app.bridge.CallRecord
-import com.wbhub.app.bridge.UsageSummary
+import app.anylyralabs.lyraproxy.data.Login
+import app.anylyralabs.lyraproxy.bridge.CallRecord
+import app.anylyralabs.lyraproxy.bridge.UsageSummary
 import java.util.Locale
-import com.wbhub.app.data.CheckinItem
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.data.CheckinItem
+import app.anylyralabs.lyraproxy.proto.Wire
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -563,7 +563,7 @@ fun BridgeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        com.wbhub.app.bridge.KeepAliveUtils.romHint(),
+                        app.anylyralabs.lyraproxy.bridge.KeepAliveUtils.romHint(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -647,7 +647,7 @@ fun CheckinDialog(message: String, onDismiss: () -> Unit) {
  * 粘贴导入。
  *
  * 接受三种内容：完整备份包 JSON、账号数组、单个凭证对象。
- * 解析与落盘都在 [com.wbhub.app.data.AccountBackup] 内完成，这里只负责取文本与回报结果。
+ * 解析与落盘都在 [app.anylyralabs.lyraproxy.data.AccountBackup] 内完成，这里只负责取文本与回报结果。
  */
 @Composable
 fun PasteImportDialog(

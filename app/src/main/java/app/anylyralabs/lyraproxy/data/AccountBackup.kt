@@ -1,14 +1,14 @@
-package com.wbhub.app.data
+package app.anylyralabs.lyraproxy.data
 
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.CredentialStore
-import com.wbhub.app.proto.SavedAccount
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.proto.Credential
+import app.anylyralabs.lyraproxy.proto.CredentialStore
+import app.anylyralabs.lyraproxy.proto.SavedAccount
+import app.anylyralabs.lyraproxy.proto.Wire
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File

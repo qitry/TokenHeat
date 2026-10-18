@@ -1,7 +1,7 @@
-package com.wbhub.app.data
+package app.anylyralabs.lyraproxy.data
 
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.proto.Credential
+import app.anylyralabs.lyraproxy.proto.Wire
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader

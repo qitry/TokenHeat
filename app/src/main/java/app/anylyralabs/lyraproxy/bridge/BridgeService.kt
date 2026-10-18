@@ -1,12 +1,12 @@
-package com.wbhub.app.bridge
+package app.anylyralabs.lyraproxy.bridge
 
 import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
-import com.wbhub.app.proto.CredentialStore
-import com.wbhub.app.proto.UpstreamClient
+import app.anylyralabs.lyraproxy.proto.CredentialStore
+import app.anylyralabs.lyraproxy.proto.UpstreamClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -84,7 +84,7 @@ class BridgeService : Service() {
             startForeground(Notifications.bridgeId(), Notifications.buildBridge(this, port))
             true
         }.onFailure {
-            android.util.Log.e("WBHub", "startForeground refused; bridge is unprotected", it)
+            android.util.Log.e("LyraProxy", "startForeground refused; bridge is unprotected", it)
         }.getOrDefault(false)
     }
 
@@ -96,9 +96,9 @@ class BridgeService : Service() {
         if (wakeLock?.isHeld == true) return
         wakeLock = runCatching {
             (getSystemService(POWER_SERVICE) as PowerManager)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WBHub:bridge")
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LyraProxy:bridge")
                 .apply { setReferenceCounted(false); acquire() }
-        }.onFailure { android.util.Log.w("WBHub", "wake lock unavailable", it) }.getOrNull()
+        }.onFailure { android.util.Log.w("LyraProxy", "wake lock unavailable", it) }.getOrNull()
     }
 
     /**

@@ -1,4 +1,4 @@
-package com.wbhub.app.bridge
+package app.anylyralabs.lyraproxy.bridge
 
 import java.util.concurrent.atomic.AtomicInteger
 

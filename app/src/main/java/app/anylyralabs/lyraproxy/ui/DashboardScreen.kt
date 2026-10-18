@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,9 +40,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wbhub.app.bridge.BridgeStatus
-import com.wbhub.app.bridge.CallRecord
-import com.wbhub.app.bridge.UsageSummary
+import app.anylyralabs.lyraproxy.bridge.BridgeStatus
+import app.anylyralabs.lyraproxy.bridge.CallRecord
+import app.anylyralabs.lyraproxy.bridge.UsageSummary
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar

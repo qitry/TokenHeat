@@ -1,4 +1,4 @@
-package com.wbhub.app.proto
+package app.anylyralabs.lyraproxy.proto
 
 import android.content.Context
 import org.json.JSONArray
@@ -277,7 +277,7 @@ class CredentialStore(context: Context) {
             // A failed renewal still returns the existing token when it has not
             // yet expired, so an unreachable refresh endpoint does not take a
             // working session down.
-            android.util.Log.w("WBHub", "token refresh failed; using existing token", it)
+            android.util.Log.w("LyraProxy", "token refresh failed; using existing token", it)
             account.toCredential()
         }
     }

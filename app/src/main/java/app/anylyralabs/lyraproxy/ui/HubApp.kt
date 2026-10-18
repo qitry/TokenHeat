@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -45,8 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.wbhub.app.data.Login
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.data.Login
+import app.anylyralabs.lyraproxy.proto.Wire
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

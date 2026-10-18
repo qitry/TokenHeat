@@ -1,4 +1,4 @@
-package com.wbhub.app.ui
+package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Hub
@@ -6,13 +6,13 @@ import androidx.compose.material.icons.filled.LayoutDashboard
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.wbhub.app.bridge.CallRecord
-import com.wbhub.app.data.CheckinItem
-import com.wbhub.app.proto.Balance
-import com.wbhub.app.proto.Credential
-import com.wbhub.app.proto.SavedAccount
-import com.wbhub.app.proto.HubModel
-import com.wbhub.app.proto.Wire
+import app.anylyralabs.lyraproxy.bridge.CallRecord
+import app.anylyralabs.lyraproxy.data.CheckinItem
+import app.anylyralabs.lyraproxy.proto.Balance
+import app.anylyralabs.lyraproxy.proto.Credential
+import app.anylyralabs.lyraproxy.proto.SavedAccount
+import app.anylyralabs.lyraproxy.proto.HubModel
+import app.anylyralabs.lyraproxy.proto.Wire
 
 enum class HubTab(val label: String, val icon: ImageVector) {
     Dashboard("概览", Icons.Default.LayoutDashboard),

@@ -1,4 +1,4 @@
-package com.wbhub.app.proto
+package app.anylyralabs.lyraproxy.proto
 
 import org.json.JSONArray
 import org.json.JSONObject

@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.wbhub.app"
+    namespace = "app.anylyralabs.lyraproxy"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.wbhub.app"
+        applicationId = "app.anylyralabs.lyraproxy"
         minSdk = 26
         targetSdk = 35
         versionCode = 2
