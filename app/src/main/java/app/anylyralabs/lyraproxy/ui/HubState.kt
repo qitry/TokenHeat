@@ -1,8 +1,8 @@
 package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.LayoutDashboard
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -15,7 +15,7 @@ import app.anylyralabs.lyraproxy.proto.HubModel
 import app.anylyralabs.lyraproxy.proto.Wire
 
 enum class HubTab(val label: String, val icon: ImageVector) {
-    Dashboard("概览", Icons.Default.LayoutDashboard),
+    Dashboard("概览", Icons.Default.Home),
     Credential("凭证", Icons.Default.Key),
     Bridge("API 平台", Icons.Default.Hub),
     Calls("调用记录", Icons.Default.ReceiptLong),
