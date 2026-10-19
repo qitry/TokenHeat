@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import app.anylyralabs.lyraproxy.bridge.ApiKeyStore
 import app.anylyralabs.lyraproxy.bridge.BridgeService
+import app.anylyralabs.lyraproxy.bridge.CheckinStore
 import app.anylyralabs.lyraproxy.bridge.BridgeSettings
 import app.anylyralabs.lyraproxy.bridge.CallLogStore
 import app.anylyralabs.lyraproxy.bridge.Notifications
@@ -54,6 +55,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var store: CredentialStore
     private lateinit var callLog: CallLogStore
     private lateinit var apiKeyStore: ApiKeyStore
+    private lateinit var checkinStore: CheckinStore
+
+    /** 上次读取日志时的文件指纹，用于跳过无变化的重读。 */
+    private var lastCallStamp: String = ""
     private var service: BridgeService? = null
     private var bound by mutableStateOf(false)
     private var pollJob: Job? = null
@@ -98,6 +103,7 @@ class MainActivity : ComponentActivity() {
         store = CredentialStore(this)
         callLog = CallLogStore(this)
         apiKeyStore = ApiKeyStore(this)
+        checkinStore = CheckinStore(this)
         Notifications.ensureChannel(this)
         refreshCredential()
         // Keep the daemon's credential copy current, including the first run
@@ -127,7 +133,8 @@ class MainActivity : ComponentActivity() {
                 onLogin = { region -> startLogin(region) },
                 onLogout = { state = state.copy(showLogoutConfirm = true) },
                 onClearCalls = { clearCalls() },
-                onRefreshCalls = { loadCalls() },
+                // 轮询会用这个回调；内部按文件指纹跳过无变化的重读。
+                onRefreshCalls = { refreshCallsIfChanged() },
                 onOverlayOpacity = { value ->
                     BridgeSettings.setOpacity(this, value)
                     // Applied to the live panel, so the slider is visible as it moves.
@@ -303,6 +310,7 @@ class MainActivity : ComponentActivity() {
             expiryText = account?.let { formatExpiry(it.toCredential()) } ?: "",
             accounts = Wire.Region.entries.associateWith { store.accounts(it) },
             activeAccountId = account?.id,
+            checkedInToday = account?.let { checkinStore.isCheckedToday(it.id) } ?: false,
         )
     }
 
@@ -479,13 +487,16 @@ class MainActivity : ComponentActivity() {
                     targets.map { account ->
                         val outcome = runCatching { upstream.checkin(account.toCredential()) }
                             .getOrElse { CheckinOutcome(false, it.message ?: "签到失败") }
+                        if (outcome.ok) checkinStore.markChecked(account.id)
                         CheckinItem(label = account.label, ok = outcome.ok, message = outcome.message)
                     }
                 }
             }
+            val activeChecked = state.activeAccountId?.let { checkinStore.isCheckedToday(it) } ?: false
             state = state.copy(
                 checkinItems = results,
-                checkinMessage = "已为 ${results.size} 个账号完成签到",
+                checkinMessage = "已为 ${results.count { it.ok }} / ${results.size} 个账号完成签到",
+                checkedInToday = activeChecked,
             )
             loadBalance()
         }
@@ -502,6 +513,11 @@ class MainActivity : ComponentActivity() {
             state = state.copy(checkinMessage = "国际版不支持签到，仅可查看积分余额")
             return
         }
+        // 界面在已签到时隐藏了入口，这里再拦一次，防止外部再次触发。
+        if (state.checkedInToday) {
+            state = state.copy(checkinMessage = "今天已经签到过了")
+            return
+        }
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 withLoading(Loading.CHECKIN) {
@@ -509,7 +525,14 @@ class MainActivity : ComponentActivity() {
                         .getOrElse { CheckinOutcome(false, it.message ?: "签到失败") }
                 }
             }
-            state = state.copy(checkinMessage = result.message)
+            // 只有成功才记「今天已签到」；失败写进去会让按钮永远显示已签到。
+            if (result.ok) {
+                state.activeAccountId?.let { checkinStore.markChecked(it) }
+            }
+            state = state.copy(
+                checkinMessage = result.message,
+                checkedInToday = result.ok || state.checkedInToday,
+            )
             loadBalance()
         }
     }
@@ -585,7 +608,22 @@ class MainActivity : ComponentActivity() {
 
     /** Reloads the recorded calls, newest last. */
     private fun loadCalls() {
+        lastCallStamp = callLog.stamp()
         state = state.copy(calls = callLog.load())
+    }
+
+    /**
+     * 高频轮询用的轻量刷新：只有日志文件真的变了才重新解析。
+     *
+     * 调用记录是追加写入的 NDJSON，文件可能上万行；每两秒全量解析一次
+     * 在低端机上足以造成可感知的卡顿。用文件长度 + 修改时间做判据，
+     * 没有新记录时不读盘。
+     */
+    private fun refreshCallsIfChanged() {
+        val stamp = callLog.stamp()
+        if (stamp == lastCallStamp) return
+        lastCallStamp = stamp
+        loadCalls()
     }
 
     /** 重新读取自定义密钥列表。 */
@@ -666,6 +704,8 @@ class MainActivity : ComponentActivity() {
     /** Signs the user out everywhere, discarding both stored credentials. */
     private fun logout() {
         Wire.Region.entries.forEach { store.clear(it) }
+        // 账号都清掉了，签到记录也一并清除，避免下次登录复用旧状态。
+        checkinStore.clearAll()
         refreshCredential()
         state = state.copy(models = emptyList(), balance = null, status = "已退出登录")
         toast("已退出登录")

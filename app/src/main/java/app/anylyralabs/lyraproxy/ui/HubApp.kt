@@ -97,7 +97,15 @@ fun HubApp(
 ) {
     var tab by remember { mutableIntStateOf(HubTab.Dashboard.ordinal) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
-    var dark by remember { mutableStateOf(false) }
+    // 深色模式默认跟随系统；用户手动切换后以手动选择为准，
+    // 直到系统主题再次改变（此时重新回到跟随状态）。
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    var darkOverride by remember { mutableStateOf<Boolean?>(null) }
+    val dark = darkOverride ?: systemDark
+    LaunchedEffect(systemDark) {
+        // 系统主题变化时清除手动选择，让界面重新跟随系统。
+        darkOverride = null
+    }
 
     // 状态栏图标跟随应用内的亮暗，否则暗色模式下黑色图标看不见。
     val view = androidx.compose.ui.platform.LocalView.current
@@ -120,7 +128,7 @@ fun HubApp(
                     AppHeader(
                         running = state.bridgeRunning,
                         dark = dark,
-                        onToggleDark = { dark = !dark },
+                        onToggleDark = { darkOverride = !dark },
                     )
                 },
                 bottomBar = {
@@ -147,6 +155,7 @@ fun HubApp(
                             onCheckin = onCheckin,
                             onCheckinAll = onCheckinAll,
                             onRefreshBalance = onRefreshBalance,
+                            onRefreshCalls = onRefreshCalls,
                         )
                         HubTab.Credential -> CredentialScreen(
                             state = state,

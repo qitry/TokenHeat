@@ -63,6 +63,7 @@ fun DashboardScreen(
     onCheckin: () -> Unit,
     onCheckinAll: () -> Unit,
     onRefreshBalance: () -> Unit,
+    onRefreshCalls: () -> Unit = {},
 ) {
     // 运行时长每秒推进；熄火后停表，避免无意义重组。
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -70,6 +71,15 @@ fun DashboardScreen(
         while (state.bridgeRunning) {
             delay(1000)
             now = System.currentTimeMillis()
+        }
+    }
+
+    // 首页实时刷新：每 2 秒问一次后端「日志有没有变」。
+    // 后端用文件指纹判断，没有新记录时不读盘，因此这个频率开销很低。
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2000)
+            onRefreshCalls()
         }
     }
 
@@ -172,7 +182,6 @@ fun DashboardScreen(
                 SectionHeading(
                     title = "模型用量",
                     subtitle = "按调用次数排列",
-                    
                     trailing = {
                         TextAction(text = "全部记录", onClick = onNavigateToCalls)
                     },
@@ -201,7 +210,6 @@ fun DashboardScreen(
                     } else {
                         "国际版不提供签到，这里只显示积分"
                     },
-                    
                     trailing = {
                         Text(
                             text = formatCredits(state.balance?.total ?: 0.0),
@@ -211,27 +219,47 @@ fun DashboardScreen(
                     },
                 )
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (checkinSupported) {
-                        PrimaryButton(
-                            text = if (state.loading == Loading.CHECKIN) "签到中" else "签到",
-                            onClick = onCheckin,
-                            enabled = state.loading != Loading.CHECKIN,
-                            modifier = Modifier.weight(1f),
+                // 今天已签到就不再提供签到入口，避免重复请求与重复弹窗。
+                if (checkinSupported && state.checkedInToday) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Tag("已签到", tone = TagTone.Positive)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "今天已签到，明天再来",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        QuietButton(
-                            text = "全部签到",
-                            onClick = onCheckinAll,
-                            enabled = state.loading != Loading.CHECKIN,
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        QuietButton(
-                            text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
-                            onClick = onRefreshBalance,
-                            enabled = state.loading != Loading.BALANCE,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    QuietButton(
+                        text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
+                        onClick = onRefreshBalance,
+                        enabled = state.loading != Loading.BALANCE,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (checkinSupported) {
+                            PrimaryButton(
+                                text = if (state.loading == Loading.CHECKIN) "签到中" else "签到",
+                                onClick = onCheckin,
+                                enabled = state.loading != Loading.CHECKIN,
+                                modifier = Modifier.weight(1f),
+                            )
+                            QuietButton(
+                                text = "全部签到",
+                                onClick = onCheckinAll,
+                                enabled = state.loading != Loading.CHECKIN,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            QuietButton(
+                                text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
+                                onClick = onRefreshBalance,
+                                enabled = state.loading != Loading.BALANCE,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
 
@@ -464,7 +492,6 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
         SectionHeading(
             title = "请求分布",
             subtitle = "每天有请求就会留下一个格",
-            
             trailing = {
                 Text(
                     text = "${calls.size} 次",
@@ -503,7 +530,13 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
         }
 
         Spacer(Modifier.height(12.dp))
+        val gridState = androidx.compose.foundation.lazy.rememberLazyListState()
+        // 默认停在最右侧：热力墙读的是「最近」的节奏，一进页面就该看到今天。
+        LaunchedEffect(span, weeks.size) {
+            if (weeks.isNotEmpty()) gridState.scrollToItem(weeks.lastIndex)
+        }
         LazyRow(
+            state = gridState,
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {

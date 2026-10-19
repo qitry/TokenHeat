@@ -27,6 +27,8 @@ data class HubState(
     val balance: Balance? = null,
     val checkinMessage: String = "",
     val checkinItems: List<CheckinItem> = emptyList(),
+    /** 当前账号今天是否已签到。 */
+    val checkedInToday: Boolean = false,
     val models: List<HubModel> = emptyList(),
     val notificationsAllowed: Boolean = true,
     val batteryExempt: Boolean = false,

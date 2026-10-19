@@ -117,9 +117,15 @@ fun SectionHeading(
     }
 }
 
+/** 按钮统一高度。主次按钮并排时必须同高，否则描边与内边距的差异会让它们错位。 */
+private val BUTTON_HEIGHT = 46.dp
+
 /**
  * 主按钮：实底陶土。
  * 这是页面上最强的操作，一屏最多一个。
+ *
+ * 高度固定为 [BUTTON_HEIGHT]，与 [QuietButton] 完全一致：
+ * 两者经常并排出现，若各自用内边距撑高，差 1~2dp 就会明显错位。
  */
 @Composable
 fun PrimaryButton(
@@ -139,10 +145,11 @@ fun PrimaryButton(
     )
     Row(
         modifier = modifier
+            .height(BUTTON_HEIGHT)
             .clip(RoundedCornerShape(12.dp))
             .background(container)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -160,6 +167,7 @@ fun PrimaryButton(
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onPrimary,
+            maxLines = 1,
         )
     }
 }
@@ -185,7 +193,7 @@ fun QuietButton(
         MaterialTheme.colorScheme.outline
     }
     androidx.compose.material3.Surface(
-        modifier = modifier,
+        modifier = modifier.height(BUTTON_HEIGHT),
         shape = RoundedCornerShape(12.dp),
         color = if (enabled) {
             MaterialTheme.colorScheme.surfaceVariant
@@ -199,7 +207,7 @@ fun QuietButton(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -216,6 +224,7 @@ fun QuietButton(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
                 color = if (enabled) content else content.copy(alpha = 0.35f),
+                maxLines = 1,
             )
         }
     }

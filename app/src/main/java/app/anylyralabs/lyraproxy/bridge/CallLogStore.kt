@@ -162,6 +162,17 @@ class CallLogStore(context: Context) {
         synchronized(lock) { runCatching { file.delete() } }
     }
 
+    /**
+     * 文件指纹：长度 + 修改时间。
+     *
+     * 供界面轮询判断「有没有新记录」，避免每次轮询都全量解析整个日志。
+     * 追加写入必然改变长度，因此长度是最可靠的判据；时间戳作为补充。
+     */
+    fun stamp(): String {
+        if (!file.exists()) return "0:0"
+        return "${file.length()}:${file.lastModified()}"
+    }
+
     private companion object {
         /**
          * 磁盘保护上限。这不是「只留 500 条」的功能性截断：按每行约 200 字节估算，

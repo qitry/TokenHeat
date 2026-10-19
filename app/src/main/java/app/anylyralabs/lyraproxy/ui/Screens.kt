@@ -452,7 +452,6 @@ fun BridgeScreen(
                 SectionHeading(
                     title = "保活悬浮窗",
                     subtitle = "切到后台时显示状态，让系统保持本应用可见",
-                    
                     trailing = {
                         Switch(
                             checked = state.overlayEnabled && state.overlayAllowed,
@@ -567,7 +566,6 @@ fun BridgeScreen(
                 SectionHeading(
                     title = "自定义密钥",
                     subtitle = "为客户端分别签发，可限制模型与预算",
-                    
                     trailing = {
                         TextAction(text = "新建", onClick = onCreateApiKey)
                     },
@@ -604,7 +602,6 @@ fun BridgeScreen(
                 SectionHeading(
                     title = "可用模型",
                     subtitle = "点模型名复制标识",
-                    
                     trailing = {
                         TextAction(
                             text = if (state.loading == Loading.MODELS) "获取中" else "刷新",
