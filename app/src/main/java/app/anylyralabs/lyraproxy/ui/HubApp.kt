@@ -189,7 +189,6 @@ fun HubApp(
                             onImportFromText = onImportFromText,
                             onQoderLogin = onQoderLogin,
                             onQoderPatLogin = onQoderPatLogin,
-                            onQoderRefreshModels = onQoderRefreshModels,
                             onQoderLogout = onQoderLogout,
                             onQoderSwitchAccount = onQoderSwitchAccount,
                             onQoderDeleteAccount = onQoderDeleteAccount,

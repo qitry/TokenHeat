@@ -818,6 +818,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 切换网关上游。
+     *
+     * 上游是在服务启动时选定的，切换后必须重建服务；否则要等下次冷启动才生效。
+     */
+    private fun switchGatewayProvider(provider: GatewayProvider) {
+        state = state.copy(provider = provider)
+        BridgeSettings.setGatewayProvider(
+            this,
+            if (provider == GatewayProvider.QODER) "qoder" else "workbuddy",
+        )
+        if (state.bridgeRunning) {
+            stopBridge()
+            startBridge(state.port, silent = true)
+        }
+    }
+
     private fun onQoderLoggedIn(account: QoderAccount) {
         qoderStore.save(account)
         state = state.copy(
