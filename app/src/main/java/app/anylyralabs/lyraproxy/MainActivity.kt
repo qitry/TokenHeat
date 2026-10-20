@@ -137,6 +137,7 @@ class MainActivity : ComponentActivity() {
             overlayLocked = BridgeSettings.locked(this),
             overlayEnabled = BridgeSettings.overlayEnabled(this),
             overlayMovable = BridgeSettings.overlayMovable(this),
+            forwardReasoning = BridgeSettings.reasoningEnabled(this),
             overlayPassthrough = BridgeSettings.overlayPassthrough(this),
         )
         // Starting the bridge from the foreground is what makes the foreground
@@ -259,6 +260,10 @@ class MainActivity : ComponentActivity() {
                 onDismissQoderLogout = { state = state.copy(showQoderLogoutConfirm = false) },
                 onCopyQoderField = { label, value -> copyToClipboard(value, "已复制 $label") },
                 onSwitchProvider = { provider -> switchGatewayProvider(provider) },
+                onForwardReasoning = { enabled ->
+                    BridgeSettings.setReasoningEnabled(this, enabled)
+                    state = state.copy(forwardReasoning = enabled)
+                },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
                 onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
                 onCopyQoderUrl = { copyToClipboard(state.qoderLoginUrl, "已复制授权链接") },

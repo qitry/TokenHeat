@@ -413,6 +413,7 @@ fun BridgeScreen(
     onDeleteApiKey: (ApiKey) -> Unit = {},
     onCreateApiKey: () -> Unit = {},
     onClearApiKeyUsage: (ApiKey) -> Unit = {},
+    onForwardReasoning: (Boolean) -> Unit = {},
 ) {
     var portText by remember(state.port) { mutableStateOf(state.port.toString()) }
     // 模型目录跟随供应商：切到 Qoder 时展示 Qoder 的目录，避免两套模型混在一起。
@@ -641,6 +642,35 @@ fun BridgeScreen(
                         if (index < state.apiKeys.lastIndex) {
                             Spacer(Modifier.height(10.dp))
                         }
+                    }
+                }
+            }
+        }
+
+        // 网关行为
+        if (state.provider == GatewayProvider.QODER) {
+            item(key = "gateway-behavior") {
+                Column(Modifier.padding(top = 26.dp)) {
+                    Rule()
+                    SectionHeading(
+                        title = "网关行为",
+                        subtitle = "控制转发给客户端的字段",
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("转发思考过程", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "reasoning_content 不是 OpenAI 标准字段，部分客户端会解析失败；默认关闭",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.forwardReasoning,
+                            onCheckedChange = onForwardReasoning,
+                        )
                     }
                 }
             }

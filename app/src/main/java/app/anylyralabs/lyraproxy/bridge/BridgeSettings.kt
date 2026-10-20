@@ -17,6 +17,7 @@ object BridgeSettings {
     private const val KEY_MOVABLE = "overlay_movable"
     private const val KEY_PASSTHROUGH = "overlay_passthrough"
     private const val KEY_GATEWAY_PROVIDER = "gateway_provider"
+    private const val KEY_FORWARD_REASONING = "forward_reasoning"
     private const val KEY_X = "x"
     private const val KEY_Y = "y"
 
@@ -77,6 +78,21 @@ object BridgeSettings {
     fun setGatewayProvider(context: Context, value: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_GATEWAY_PROVIDER, value).apply()
+    }
+
+    /**
+     * 是否把上游的思考过程转发给客户端。
+     *
+     * 默认关闭：`reasoning_content` 不是 OpenAI 标准字段，部分客户端会因此
+     * 解析失败。需要看思考过程时再手动打开。
+     */
+    fun reasoningEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FORWARD_REASONING, false)
+
+    fun setReasoningEnabled(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FORWARD_REASONING, value).apply()
     }
 
     fun position(context: Context): Pair<Int, Int> {

@@ -84,6 +84,7 @@ class BridgeService : Service() {
                 useQoder = { BridgeSettings.gatewayProvider(this) == "qoder" },
                 qoderAccount = { qoderStore.active() },
                 qoderModels = { qoderStore.loadModels() },
+                forwardReasoning = { BridgeSettings.reasoningEnabled(this) },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
         }

@@ -54,6 +54,8 @@ class BridgeServer(
     private val qoderAccount: () -> QoderAccount? = { null },
     /** Qoder 模型目录，用于模型名映射。 */
     private val qoderModels: () -> List<QoderModel> = { emptyList() },
+    /** 是否转发思考过程（非标准字段，默认关闭）。 */
+    private val forwardReasoning: () -> Boolean = { false },
 ) {
 
     /** 通过鉴权后携带的约束。 */
@@ -260,9 +262,9 @@ class BridgeServer(
                 JSONObject(body).optBoolean("stream", false)
             }.getOrDefault(false)
             val result = if (wantsStream) {
-                QoderChat.open(account, body, qoderModels())
+                QoderChat.open(account, body, qoderModels(), forwardReasoning())
             } else {
-                QoderChat.complete(account, body, qoderModels())
+                QoderChat.complete(account, body, qoderModels(), forwardReasoning())
             }
             when (result) {
                 is QoderChat.Result.Failed -> {

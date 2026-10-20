@@ -101,6 +101,7 @@ fun HubApp(
     onDismissQoderLogout: () -> Unit = {},
     onCopyQoderField: (String, String) -> Unit = { _, _ -> },
     onSwitchProvider: (GatewayProvider) -> Unit = {},
+    onForwardReasoning: (Boolean) -> Unit = {},
     onQoderPatConfirm: (String) -> Unit = {},
     onDismissQoderPat: () -> Unit = {},
     onDismissQoderLogin: () -> Unit = {},
@@ -222,6 +223,7 @@ fun HubApp(
                             onDeleteApiKey = onDeleteApiKey,
                             onCreateApiKey = onCreateApiKey,
                             onClearApiKeyUsage = onClearApiKeyUsage,
+                            onForwardReasoning = onForwardReasoning,
                         )
                         HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
                     }

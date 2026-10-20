@@ -37,6 +37,7 @@ object QoderChat {
         account: QoderAccount,
         openAiBody: String,
         models: List<QoderModel>,
+        forwardReasoning: Boolean = false,
     ): Result {
         val request = runCatching { JSONObject(openAiBody) }.getOrElse {
             return Result.Failed(400, "invalid json")
@@ -48,6 +49,12 @@ object QoderChat {
 
         val (messages, systemText, lastUserText) = convertMessages(request.optJSONArray("messages"))
         val maxTokens = request.optInt("max_tokens", 0).takeIf { it > 0 } ?: 8192
+        // 客户端要求思考时才打开上游的 thinking，否则保持关闭。
+        val effort = normalizeEffort(
+            request.optString("reasoning_effort").ifBlank {
+                if (request.optBoolean("thinking", false)) "medium" else ""
+            },
+        )
         val tools = request.optJSONArray("tools")?.let { normalizeTools(it) } ?: JSONArray()
 
         val recordId = UUID.randomUUID().toString().replace("-", "").take(16)
@@ -73,7 +80,8 @@ object QoderChat {
             put("tools", tools)
             put("parameters", JSONObject().apply {
                 put("max_tokens", maxTokens)
-                put("enable_thinking", false)
+                put("enable_thinking", effort.isNotBlank())
+                if (effort.isNotBlank()) put("reasoning_effort", effort)
             })
         }.toString()
 
@@ -134,7 +142,12 @@ object QoderChat {
         thread(isDaemon = true, name = "qoder-chat-relay") {
             try {
                 OutputStreamWriter(pipeOut, StandardCharsets.UTF_8).use { writer ->
-                    relayFrames(upstream, writer, modelId.ifEmpty { model.id })
+                    relayFrames(
+                        upstream = upstream,
+                        writer = writer,
+                        model = modelId.ifEmpty { model.id },
+                        forwardReasoning = forwardReasoning,
+                    )
                 }
             } catch (_: Exception) {
                 // 客户端断开或上游中断：关掉流即可，错误已经在帧里表达。
@@ -157,8 +170,9 @@ object QoderChat {
         account: QoderAccount,
         openAiBody: String,
         models: List<QoderModel>,
+        forwardReasoning: Boolean = false,
     ): Result {
-        val opened = open(account, openAiBody, models)
+        val opened = open(account, openAiBody, models, forwardReasoning)
         if (opened !is Result.Ok) return opened
 
         val requestedModel = runCatching { JSONObject(openAiBody).optString("model") }
@@ -204,7 +218,10 @@ object QoderChat {
         val message = JSONObject().apply {
             put("role", "assistant")
             put("content", content.toString())
-            if (reasoning.isNotEmpty()) put("reasoning_content", reasoning.toString())
+            // reasoning_content 不是 OpenAI 标准字段，只有显式开启才回传。
+            if (forwardReasoning && reasoning.isNotEmpty()) {
+                put("reasoning_content", reasoning.toString())
+            }
         }
         val json = JSONObject().apply {
             put("id", id)
@@ -366,7 +383,12 @@ object QoderChat {
      * 表现为「思考完、输出到一半突然停住」。现在只有「整个流没有任何
      * 内容」才报错，单帧异常会被记录并跳过。
      */
-    private fun relayFrames(upstream: InputStream, writer: OutputStreamWriter, model: String) {
+    private fun relayFrames(
+        upstream: InputStream,
+        writer: OutputStreamWriter,
+        model: String,
+        forwardReasoning: Boolean,
+    ) {
         val reader = upstream.bufferedReader(StandardCharsets.UTF_8)
         val id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").take(24)
         val created = System.currentTimeMillis() / 1000
@@ -428,7 +450,7 @@ object QoderChat {
             val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: continue
 
             val reasoning = delta.optString("reasoning_content")
-            if (reasoning.isNotEmpty()) {
+            if (forwardReasoning && reasoning.isNotEmpty()) {
                 sawContent = true
                 emit(
                     writer,
@@ -495,6 +517,15 @@ object QoderChat {
         )
         writer.write("data: [DONE]\n\n")
         writer.flush()
+    }
+
+    /** 把客户端可能使用的思考档位映射到上游接受的值。 */
+    private fun normalizeEffort(value: String): String = when (value.trim().lowercase()) {
+        "low", "minimal" -> "low"
+        "high", "xhigh", "max" -> "high"
+        "medium" -> "medium"
+        "" , "none", "off", "disabled" -> ""
+        else -> "medium"
     }
 
     /** Qoder 的控制帧：额度提示与通知，不承载回答内容。 */

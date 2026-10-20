@@ -87,6 +87,8 @@ data class HubState(
     val showQoderDetail: Boolean = false,
     /** 是否显示 Qoder 退出确认。 */
     val showQoderLogoutConfirm: Boolean = false,
+    /** 是否把思考过程转发给客户端。 */
+    val forwardReasoning: Boolean = false,
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,
