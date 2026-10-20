@@ -400,6 +400,7 @@ object QoderChat {
                             put("name", function.optString("name"))
                             put("description", function.optString("description"))
                             put("parameters", function.optJSONObject("parameters") ?: JSONObject())
+                            if (function.has("strict")) put("strict", function.optBoolean("strict"))
                         },
                     )
                 },
@@ -525,6 +526,11 @@ object QoderChat {
                 }
             }
 
+            // 流式 tool_calls 必须带 index，客户端按它把增量拼回同一条调用。
+            // 上游偶尔省略 index，缺了就会把两段参数拼错、甚至截断。
+            val patched = patchToolCallIndexes(inner)
+            if (patched != null) inner = patched
+
             if (!forwardReasoning) {
                 inner = stripReasoning(inner)
             }
@@ -570,6 +576,25 @@ object QoderChat {
 
         writer.write("data: [DONE]\n\n")
         writer.flush()
+    }
+
+    /** 给缺失 index 的流式 tool_calls 补上下标；没有工具调用时返回 null。 */
+    private fun patchToolCallIndexes(inner: String): String? {
+        val json = runCatching { JSONObject(inner) }.getOrNull() ?: return null
+        val delta = json.optJSONArray("choices")
+            ?.optJSONObject(0)
+            ?.optJSONObject("delta")
+            ?: return null
+        val calls = delta.optJSONArray("tool_calls") ?: return null
+        var changed = false
+        for (i in 0 until calls.length()) {
+            val call = calls.optJSONObject(i) ?: continue
+            if (!call.has("index")) {
+                call.put("index", i)
+                changed = true
+            }
+        }
+        return if (changed) json.toString() else null
     }
 
     /** 关闭思考转发时，从 chunk 的 delta 里移除推理字段。 */
