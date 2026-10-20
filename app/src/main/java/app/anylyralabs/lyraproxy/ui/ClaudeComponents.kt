@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import ui.feice.mochi.basic.MochiButton
 import ui.feice.mochi.basic.MochiButtonStyle
-import ui.feice.mochi.theme.MochiTheme
 
 /** 用 Compose 的 Image 画 ImageVector，避免再依赖 material3 的 Icon。 */
 @Composable

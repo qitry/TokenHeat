@@ -56,7 +56,6 @@ import ui.feice.mochi.basic.MochiTabItem
 import ui.feice.mochi.basic.MochiSwitch
 import ui.feice.mochi.effect.overscroll.ProvideMochiOverscroll
 import ui.feice.mochi.shape.MochiCapsule
-import ui.feice.mochi.theme.MochiTheme
 
 /** 底部标签栏：图标 + 文字，交给 Mochi 的胶囊栏做选中块滑动与触感。 */
 private val LyraTabs = persistentListOf(
