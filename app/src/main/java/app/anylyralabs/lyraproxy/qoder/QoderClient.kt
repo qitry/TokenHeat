@@ -212,11 +212,21 @@ class QoderClient {
     // 模型
     // --------------------------------------------------------------------- //
 
-    fun fetchModels(token: String, machineId: String): List<QoderModel> {
+    fun fetchModels(account: QoderAccount): List<QoderModel> {
+        val signed = CosySigner.sign(
+            method = "GET",
+            path = "/api/v2/model/list",
+            body = "",
+            token = account.accessToken,
+            uid = account.id,
+            name = account.name,
+            email = account.email,
+            machineId = account.machineId,
+        )
         val response = call(
             "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
-            algoHeaders(token, machineId) + ("Accept" to "application/json"),
+            signed.headers + ("Accept" to "application/json"),
         )
         if (response.status !in 200..299) {
             throw IllegalStateException("模型列表失败：HTTP ${response.status} ${response.body.take(200)}")
@@ -277,10 +287,20 @@ class QoderClient {
             "Authorization" to "Bearer ${account.accessToken}",
         )
         val openApiUser = call("${QoderConfig.OPENAPI_URL}/api/v1/userinfo", "GET", bearer)
+        val signed = CosySigner.sign(
+            method = "GET",
+            path = "/api/v2/model/list",
+            body = "",
+            token = account.accessToken,
+            uid = account.id,
+            name = account.name,
+            email = account.email,
+            machineId = account.machineId,
+        )
         val cliModels = call(
             "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
-            algoHeaders(account.accessToken, account.machineId) + ("Accept" to "application/json"),
+            signed.headers + ("Accept" to "application/json"),
         )
         val cloudUser = call("${QoderConfig.CLOUD_URL}/api/v1/userinfo", "GET", bearer)
         val cloudModels = call(
@@ -289,17 +309,16 @@ class QoderClient {
             bearer,
         )
 
-        val ok = openApiUser.status in 200..299 &&
-            (cliModels.status in 200..299 || cloudModels.status in 200..299)
+        val ok = openApiUser.status in 200..299 && cliModels.status in 200..299
         val summary = buildString {
             append("userinfo ").append(openApiUser.status)
-            append(" · CLI 模型 ").append(cliModels.status)
+            append(" · COSY 模型 ").append(cliModels.status)
             append(" · Cloud 模型 ").append(cloudModels.status)
         }
         val detail = buildString {
             append("[1] openapi userinfo -> ").append(openApiUser.status).append('\n')
             append(openApiUser.body.take(160)).append("\n\n")
-            append("[2] api3 model/list -> ").append(cliModels.status).append('\n')
+            append("[2] COSY model/list -> ").append(cliModels.status).append('\n')
             append(cliModels.body.take(160)).append("\n\n")
             append("[3] api.qoder.com userinfo -> ").append(cloudUser.status).append('\n')
             append(cloudUser.body.take(160)).append("\n\n")
@@ -350,23 +369,6 @@ class QoderClient {
             runCatching { connection?.disconnect() }
         }
     }
-
-    /**
-     * 算法接口的请求头。
-     *
-     * 当前网关不再校验 COSY 加密签名，但仍要求客户端声明身份与版本；
-     * 缺少这些头时会被判定为非法客户端。
-     */
-    private fun algoHeaders(token: String, machineId: String): Map<String, String> = mapOf(
-        "Authorization" to "Bearer $token",
-        "Cosy-Version" to QoderConfig.CLI_VERSION,
-        "Cosy-ClientType" to QoderConfig.CLIENT_TYPE,
-        "Cosy-MachineOS" to machineOs(),
-        "Cosy-MachineId" to machineId,
-        "Cosy-MachineToken" to machineId,
-        "Cosy-MachineType" to QoderConfig.CLIENT_TYPE,
-        "User-Agent" to "qodercli/${QoderConfig.CLI_VERSION}",
-    )
 
     private fun machineOs(): String {
         val arch = when (System.getProperty("os.arch").orEmpty()) {

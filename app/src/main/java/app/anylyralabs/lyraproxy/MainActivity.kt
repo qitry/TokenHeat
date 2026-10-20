@@ -812,7 +812,7 @@ class MainActivity : ComponentActivity() {
         state = state.copy(qoderBusy = true, qoderStatus = "正在读取模型…")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { qoderClient.fetchModels(account.accessToken, account.machineId) }
+                runCatching { qoderClient.fetchModels(account) }
             }
             result.onSuccess { models ->
                 qoderStore.saveModels(models)
