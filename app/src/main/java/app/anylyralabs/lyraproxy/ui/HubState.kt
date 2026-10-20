@@ -8,6 +8,8 @@ import app.anylyralabs.lyraproxy.proto.Credential
 import app.anylyralabs.lyraproxy.proto.SavedAccount
 import app.anylyralabs.lyraproxy.proto.HubModel
 import app.anylyralabs.lyraproxy.proto.Wire
+import app.anylyralabs.lyraproxy.qoder.QoderAccount
+import app.anylyralabs.lyraproxy.qoder.QoderProbe
 
 enum class HubTab(val label: String) {
     Dashboard("概览"),
@@ -55,6 +57,20 @@ data class HubState(
     val justCreatedApiKey: ApiKey? = null,
     /** 待确认删除的密钥。 */
     val deletingApiKey: ApiKey? = null,
+    /** Qoder 国际版账号。 */
+    val qoderAccount: QoderAccount? = null,
+    /** Qoder 模型目录。 */
+    val qoderModels: List<HubModel> = emptyList(),
+    /** Qoder 操作进行中。 */
+    val qoderBusy: Boolean = false,
+    /** Qoder 状态提示。 */
+    val qoderStatus: String = "",
+    /** 连通性测试结果；非空时弹窗展示。 */
+    val qoderProbe: QoderProbe? = null,
+    /** 是否显示粘贴 PAT 对话框。 */
+    val qoderShowPatDialog: Boolean = false,
+    /** 浏览器授权地址；非空时显示等待授权提示。 */
+    val qoderLoginUrl: String = "",
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,

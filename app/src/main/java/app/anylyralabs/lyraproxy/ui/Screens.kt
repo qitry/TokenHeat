@@ -65,6 +65,11 @@ fun CredentialScreen(
     onExportBackup: () -> Unit = {},
     onImportBackup: () -> Unit = {},
     onImportFromText: () -> Unit = {},
+    onQoderLogin: () -> Unit = {},
+    onQoderPatLogin: () -> Unit = {},
+    onQoderTest: () -> Unit = {},
+    onQoderRefreshModels: () -> Unit = {},
+    onQoderLogout: () -> Unit = {},
 ) {
     val region = state.realm
     val regionLabel = realmName(region)
@@ -75,6 +80,25 @@ fun CredentialScreen(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
     ) {
+        // Qoder 放在最上方：它是一套独立账号体系，先给出入口再谈 WorkBuddy。
+        item(key = "qoder") {
+            Column {
+                QoderSection(
+                    account = state.qoderAccount,
+                    modelCount = state.qoderModels.size,
+                    busy = state.qoderBusy,
+                    status = state.qoderStatus,
+                    onLogin = onQoderLogin,
+                    onPatLogin = onQoderPatLogin,
+                    onTest = onQoderTest,
+                    onRefreshModels = onQoderRefreshModels,
+                    onLogout = onQoderLogout,
+                )
+                Spacer(Modifier.height(18.dp))
+                Rule()
+            }
+        }
+
         // 当前账号
         item(key = "current") {
             Column {

@@ -1,0 +1,414 @@
+package app.anylyralabs.lyraproxy.qoder
+
+import org.json.JSONObject
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.UUID
+
+/**
+ * Qoder 国际版客户端。
+ *
+ * 端点依据 2026-10 的实际探测：国际版网关已迁到 `api.qoder.com`，
+ * 认证是普通 `Authorization: Bearer`，不再需要旧版那套 COSY 加密签名。
+ * 设备码登录仍走 `qoder.com/device/selectAccounts`，轮询走 OpenAPI。
+ */
+object QoderConfig {
+    /** 国际版新网关；同一主机同时提供 /api/v1 与 /algo 两类接口。 */
+    const val BASE_URL = "https://api.qoder.com"
+
+    /** 浏览器授权页。 */
+    const val DEVICE_PAGE = "https://qoder.com/device/selectAccounts"
+
+    /** 官方 CLI 使用的 OAuth 客户端 ID。 */
+    const val CLIENT_ID = "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb"
+
+    /** 与官方 CLI 对齐的版本号，部分接口会按它做兼容分支。 */
+    const val CLI_VERSION = "1.1.62"
+
+    const val CLIENT_TYPE = "5"
+
+    /** 设备码有效期 5 分钟，轮询间隔 1 秒。 */
+    const val LOGIN_TIMEOUT_MS = 5 * 60 * 1000L
+    const val POLL_INTERVAL_MS = 1000L
+}
+
+class QoderClient {
+
+    // --------------------------------------------------------------------- //
+    // 设备码登录
+    // --------------------------------------------------------------------- //
+
+    fun startDeviceFlow(machineId: String): QoderDeviceFlow {
+        val verifier = randomVerifier()
+        val challenge = challengeOf(verifier)
+        val nonce = UUID.randomUUID().toString()
+        val url = buildString {
+            append(QoderConfig.DEVICE_PAGE)
+            append("?challenge=").append(challenge)
+            append("&challenge_method=S256")
+            append("&nonce=").append(nonce)
+            append("&machine_id=").append(machineId)
+            append("&client_id=").append(QoderConfig.CLIENT_ID)
+        }
+        return QoderDeviceFlow(authUrl = url, nonce = nonce, verifier = verifier, machineId = machineId)
+    }
+
+    /**
+     * 轮询一次。
+     *
+     * 404 表示「还没完成授权」，是官方 CLI 约定的等待状态；
+     * 其它非 2xx 都视为失败，并把响应体带出去便于排查。
+     */
+    fun poll(flow: QoderDeviceFlow): QoderPoll {
+        val url = "${QoderConfig.BASE_URL}/api/v1/deviceToken/poll" +
+            "?nonce=${enc(flow.nonce)}&verifier=${enc(flow.verifier)}&challenge_method=S256"
+        val response = call(url, "GET", emptyMap())
+        if (response.status == 404) return QoderPoll.Pending
+        if (response.status !in 200..299) {
+            return QoderPoll.Failed("轮询失败：HTTP ${response.status} ${response.body.take(160)}")
+        }
+        val json = runCatching { JSONObject(response.body) }.getOrNull()
+            ?: return QoderPoll.Failed("授权响应不是 JSON")
+        val token = json.optString("token")
+        if (token.isEmpty()) return QoderPoll.Pending
+        val account = accountFrom(
+            json = json,
+            token = token,
+            machineId = flow.machineId,
+            fallbackName = "",
+            fallbackEmail = "",
+            source = "oauth",
+        )
+        return QoderPoll.Done(enrich(account))
+    }
+
+    // --------------------------------------------------------------------- //
+    // PAT 登录
+    // --------------------------------------------------------------------- //
+
+    /**
+     * 用个人访问令牌登录。
+     *
+     * 先尝试直接把 PAT 当 Bearer 用；若被拒，再按官方 CLI 的方式
+     * 走一次 jobToken 交换。两条路径都失败才报错，这样无论服务端
+     * 采用哪种语义都能工作。
+     */
+    fun loginWithPat(pat: String, machineId: String): Result<QoderAccount> {
+        val trimmed = pat.trim()
+        if (trimmed.isEmpty()) return Result.failure(IllegalStateException("令牌为空"))
+
+        // 路径一：PAT 直接作为 Bearer
+        val direct = fetchUserInfo(trimmed)
+        if (direct != null) {
+            val account = QoderAccount(
+                id = direct.id.ifEmpty { "qoder" },
+                name = direct.name,
+                email = direct.email,
+                accessToken = trimmed,
+                refreshToken = "",
+                expiresAt = 0L,
+                machineId = machineId,
+                source = "pat",
+            )
+            return Result.success(account)
+        }
+
+        // 路径二：PAT 换取 job token
+        val exchange = call(
+            "${QoderConfig.BASE_URL}/api/v1/jobToken/exchange",
+            "POST",
+            mapOf("Content-Type" to "application/json", "Accept" to "application/json"),
+            JSONObject().put("personal_token", trimmed).toString(),
+        )
+        if (exchange.status !in 200..299) {
+            return Result.failure(
+                IllegalStateException("令牌无效：HTTP ${exchange.status} ${exchange.body.take(160)}"),
+            )
+        }
+        val json = runCatching { JSONObject(exchange.body) }.getOrNull()
+            ?: return Result.failure(IllegalStateException("令牌交换响应不是 JSON"))
+        val token = json.optString("token")
+        if (token.isEmpty()) return Result.failure(IllegalStateException("令牌交换未返回 token"))
+        val account = accountFrom(json, token, machineId, "", "", "pat")
+        return Result.success(enrich(account))
+    }
+
+    // --------------------------------------------------------------------- //
+    // 刷新与用户信息
+    // --------------------------------------------------------------------- //
+
+    /** 刷新访问令牌；失败时返回原账号，让上层决定是否提示重新登录。 */
+    fun refresh(account: QoderAccount): QoderAccount {
+        if (account.refreshToken.isBlank()) return account
+        val response = call(
+            "${QoderConfig.BASE_URL}/api/v1/deviceToken/refresh",
+            "POST",
+            mapOf(
+                "Content-Type" to "application/json",
+                "Accept" to "application/json",
+                "Authorization" to "Bearer ${account.accessToken}",
+            ),
+            JSONObject().put("refresh_token", account.refreshToken).toString(),
+        )
+        if (response.status !in 200..299) return account
+        val json = runCatching { JSONObject(response.body) }.getOrNull() ?: return account
+        val token = json.optString("token").ifEmpty { return account }
+        return accountFrom(
+            json = json,
+            token = token,
+            machineId = account.machineId,
+            fallbackName = account.name,
+            fallbackEmail = account.email,
+            source = account.source,
+        )
+    }
+
+    private data class UserInfo(val id: String, val name: String, val email: String)
+
+    private fun fetchUserInfo(token: String): UserInfo? {
+        val response = call(
+            "${QoderConfig.BASE_URL}/api/v1/userinfo",
+            "GET",
+            mapOf(
+                "Accept" to "application/json",
+                "Authorization" to "Bearer $token",
+            ),
+        )
+        if (response.status !in 200..299) return null
+        val json = runCatching { JSONObject(response.body) }.getOrNull() ?: return null
+        return UserInfo(
+            id = json.optString("id").ifEmpty { json.optString("uid") },
+            name = json.optString("name").ifEmpty { json.optString("username") },
+            email = json.optString("email"),
+        )
+    }
+
+    /** 补全昵称与邮箱；失败不影响登录本身。 */
+    private fun enrich(account: QoderAccount): QoderAccount {
+        val info = fetchUserInfo(account.accessToken) ?: return account
+        return account.copy(
+            name = info.name.ifBlank { account.name },
+            email = info.email.ifBlank { account.email },
+        )
+    }
+
+    // --------------------------------------------------------------------- //
+    // 模型
+    // --------------------------------------------------------------------- //
+
+    fun fetchModels(token: String, machineId: String): List<QoderModel> {
+        val response = call(
+            "${QoderConfig.BASE_URL}/algo/api/v2/model/list?Encode=1",
+            "GET",
+            algoHeaders(token, machineId) + ("Accept" to "application/json"),
+        )
+        if (response.status !in 200..299) {
+            throw IllegalStateException("模型列表失败：HTTP ${response.status} ${response.body.take(200)}")
+        }
+        val root = runCatching { JSONObject(response.body) }.getOrElse {
+            throw IllegalStateException("模型列表不是 JSON")
+        }
+        val chat = root.optJSONArray("chat") ?: return emptyList()
+        val result = ArrayList<QoderModel>(chat.length())
+        for (index in 0 until chat.length()) {
+            val item = chat.optJSONObject(index) ?: continue
+            if (!item.optBoolean("enable", true)) continue
+            val key = item.optString("key")
+            val display = item.optString("display_name")
+            if (key.isEmpty() && display.isEmpty()) continue
+            result.add(
+                QoderModel(
+                    key = key,
+                    displayName = display.ifEmpty { key },
+                    supportsImages = item.optBoolean("is_vl", false),
+                    supportsReasoning = item.optBoolean("is_reasoning", false) ||
+                        item.has("thinking_config"),
+                    contextWindow = maxContext(item.optJSONObject("context_config")),
+                ),
+            )
+        }
+        return result
+    }
+
+    private fun maxContext(config: JSONObject?): Int {
+        if (config == null) return 0
+        var max = 0
+        val keys = config.keys()
+        while (keys.hasNext()) {
+            val entry = config.optJSONObject(keys.next()) ?: continue
+            val count = entry.optInt("token_count", 0)
+            if (count > max) max = count
+        }
+        return max
+    }
+
+    // --------------------------------------------------------------------- //
+    // 连通性测试
+    // --------------------------------------------------------------------- //
+
+    /**
+     * 依次探测用户信息与模型列表，把原始状态码带回来。
+     *
+     * 认证方案是否被接受只能靠真实请求验证，所以这里不做「看起来成功」的
+     * 包装，直接把 HTTP 状态和响应片段交出去。
+     */
+    fun probe(account: QoderAccount): QoderProbe {
+        val user = call(
+            "${QoderConfig.BASE_URL}/api/v1/userinfo",
+            "GET",
+            mapOf(
+                "Accept" to "application/json",
+                "Authorization" to "Bearer ${account.accessToken}",
+            ),
+        )
+        val models = call(
+            "${QoderConfig.BASE_URL}/algo/api/v2/model/list?Encode=1",
+            "GET",
+            algoHeaders(account.accessToken, account.machineId) + ("Accept" to "application/json"),
+        )
+        val ok = user.status in 200..299 && models.status in 200..299
+        val summary = if (ok) {
+            "认证与模型接口均可用"
+        } else {
+            "userinfo HTTP ${user.status} · models HTTP ${models.status}"
+        }
+        val detail = buildString {
+            append("GET /api/v1/userinfo -> ").append(user.status).append('\n')
+            append(user.body.take(300)).append("\n\n")
+            append("GET /algo/api/v2/model/list -> ").append(models.status).append('\n')
+            append(models.body.take(300))
+        }
+        return QoderProbe(ok = ok, summary = summary, detail = detail)
+    }
+
+    // --------------------------------------------------------------------- //
+    // 内部
+    // --------------------------------------------------------------------- //
+
+    private data class Response(val status: Int, val body: String)
+
+    private fun call(
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        body: String? = null,
+        readTimeoutMs: Int = 30_000,
+    ): Response {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 15_000
+                readTimeout = readTimeoutMs
+                instanceFollowRedirects = true
+                headers.forEach { (key, value) -> setRequestProperty(key, value) }
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+                }
+            }
+            val status = connection.responseCode
+            val stream: InputStream = if (status in 200..299) {
+                connection.inputStream
+            } else {
+                connection.errorStream ?: connection.inputStream
+            }
+            val text = stream?.use { it.readBytes().toString(StandardCharsets.UTF_8) }.orEmpty()
+            Response(status, text)
+        } catch (error: Exception) {
+            Response(0, error.message ?: "transport error")
+        } finally {
+            runCatching { connection?.disconnect() }
+        }
+    }
+
+    /**
+     * 算法接口的请求头。
+     *
+     * 当前网关不再校验 COSY 加密签名，但仍要求客户端声明身份与版本；
+     * 缺少这些头时会被判定为非法客户端。
+     */
+    private fun algoHeaders(token: String, machineId: String): Map<String, String> = mapOf(
+        "Authorization" to "Bearer $token",
+        "Cosy-Version" to QoderConfig.CLI_VERSION,
+        "Cosy-ClientType" to QoderConfig.CLIENT_TYPE,
+        "Cosy-MachineOS" to machineOs(),
+        "Cosy-MachineId" to machineId,
+        "Cosy-MachineToken" to machineId,
+        "Cosy-MachineType" to QoderConfig.CLIENT_TYPE,
+        "User-Agent" to "qodercli/${QoderConfig.CLI_VERSION}",
+    )
+
+    private fun machineOs(): String {
+        val arch = when (System.getProperty("os.arch").orEmpty()) {
+            "aarch64", "arm64" -> "aarch64"
+            "x86_64", "amd64" -> "x86_64"
+            else -> System.getProperty("os.arch").orEmpty()
+        }
+        return "${arch}_android"
+    }
+
+    private fun accountFrom(
+        json: JSONObject,
+        token: String,
+        machineId: String,
+        fallbackName: String,
+        fallbackEmail: String,
+        source: String,
+    ): QoderAccount {
+        val expiresAt = parseExpiry(json)
+        val uid = json.optString("user_id").ifEmpty { json.optString("uid") }
+        return QoderAccount(
+            id = uid.ifEmpty { "qoder" },
+            name = json.optString("name").ifEmpty { fallbackName },
+            email = json.optString("email").ifEmpty { fallbackEmail },
+            accessToken = token,
+            refreshToken = json.optString("refresh_token"),
+            expiresAt = expiresAt,
+            machineId = machineId,
+            source = source,
+        )
+    }
+
+    /**
+     * Qoder 的过期字段在不同响应里有三种写法：ISO 时间串、epoch 秒、
+     * 以及 expires_in 时长。统一归一成毫秒时间戳。
+     */
+    private fun parseExpiry(json: JSONObject): Long {
+        val absolute = json.optString("expires_at")
+        if (absolute.isNotBlank()) {
+            runCatching { java.time.Instant.parse(absolute).toEpochMilli() }
+                .getOrNull()?.let { return it }
+            absolute.toLongOrNull()?.let { value ->
+                return if (value > 100_000_000_000L) value else value * 1000L
+            }
+        }
+        val expiresIn = json.optLong("expires_in", 0L)
+        if (expiresIn > 0) {
+            return System.currentTimeMillis() +
+                (if (expiresIn > 100_000L) expiresIn else expiresIn * 1000L)
+        }
+        return 0L
+    }
+
+    private fun randomVerifier(): String {
+        val bytes = ByteArray(48)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    }
+
+    private fun challengeOf(verifier: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(verifier.toByteArray(StandardCharsets.US_ASCII))
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+    }
+
+    private fun enc(value: String): String =
+        java.net.URLEncoder.encode(value, "UTF-8")
+}

@@ -87,6 +87,16 @@ fun HubApp(
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onImportFromText: () -> Unit,
+    onQoderLogin: () -> Unit = {},
+    onQoderPatLogin: () -> Unit = {},
+    onQoderTest: () -> Unit = {},
+    onQoderRefreshModels: () -> Unit = {},
+    onQoderLogout: () -> Unit = {},
+    onQoderPatConfirm: (String) -> Unit = {},
+    onDismissQoderPat: () -> Unit = {},
+    onDismissQoderProbe: () -> Unit = {},
+    onDismissQoderLogin: () -> Unit = {},
+    onCopyQoderUrl: () -> Unit = {},
     onDismissPasteImport: () -> Unit,
     onConfirmPasteImport: (String) -> Unit,
     onDismissCheckin: () -> Unit,
@@ -168,6 +178,11 @@ fun HubApp(
                             onExportBackup = onExportBackup,
                             onImportBackup = onImportBackup,
                             onImportFromText = onImportFromText,
+                            onQoderLogin = onQoderLogin,
+                            onQoderPatLogin = onQoderPatLogin,
+                            onQoderTest = onQoderTest,
+                            onQoderRefreshModels = onQoderRefreshModels,
+                            onQoderLogout = onQoderLogout,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,
@@ -217,6 +232,22 @@ fun HubApp(
                 onDismiss = onDismissPasteImport,
                 onConfirm = onConfirmPasteImport,
             )
+        }
+        if (state.qoderShowPatDialog) {
+            QoderPatDialog(
+                onDismiss = onDismissQoderPat,
+                onConfirm = onQoderPatConfirm,
+            )
+        }
+        if (state.qoderLoginUrl.isNotBlank()) {
+            QoderLoginDialog(
+                authUrl = state.qoderLoginUrl,
+                onCopy = onCopyQoderUrl,
+                onDismiss = onDismissQoderLogin,
+            )
+        }
+        state.qoderProbe?.let { probe ->
+            QoderProbeDialog(probe = probe, onDismiss = onDismissQoderProbe)
         }
         if (state.creatingApiKey || state.editingApiKey != null) {
             ApiKeyEditorDialog(

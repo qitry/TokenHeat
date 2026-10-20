@@ -32,6 +32,12 @@ import app.anylyralabs.lyraproxy.proto.CredentialStore
 import app.anylyralabs.lyraproxy.proto.UpstreamClient
 import app.anylyralabs.lyraproxy.proto.Wire
 import app.anylyralabs.lyraproxy.proto.toHubModel
+import app.anylyralabs.lyraproxy.qoder.QoderAccount
+import app.anylyralabs.lyraproxy.qoder.QoderAccountStore
+import app.anylyralabs.lyraproxy.qoder.QoderClient
+import app.anylyralabs.lyraproxy.qoder.QoderConfig
+import app.anylyralabs.lyraproxy.qoder.QoderPoll
+import app.anylyralabs.lyraproxy.qoder.asHubModel
 import app.anylyralabs.lyraproxy.ui.CheckinDialog
 import app.anylyralabs.lyraproxy.ui.HubApp
 import app.anylyralabs.lyraproxy.ui.Loading
@@ -56,6 +62,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var callLog: CallLogStore
     private lateinit var apiKeyStore: ApiKeyStore
     private lateinit var checkinStore: CheckinStore
+    private lateinit var qoderStore: QoderAccountStore
+
+    private val qoderClient = QoderClient()
+    private var qoderPollJob: Job? = null
 
     /** 上次读取日志时的文件指纹，用于跳过无变化的重读。 */
     private var lastCallStamp: String = ""
@@ -104,6 +114,7 @@ class MainActivity : ComponentActivity() {
         callLog = CallLogStore(this)
         apiKeyStore = ApiKeyStore(this)
         checkinStore = CheckinStore(this)
+        qoderStore = QoderAccountStore(this)
         Notifications.ensureChannel(this)
         refreshCredential()
         // Keep the daemon's credential copy current, including the first run
@@ -113,6 +124,11 @@ class MainActivity : ComponentActivity() {
         loadModels()
         loadCalls()
         loadApiKeys()
+        // Qoder 的账号与模型是独立缓存，启动时直接读本地，失败也不影响主流程。
+        state = state.copy(
+            qoderAccount = qoderStore.load(),
+            qoderModels = qoderStore.loadModels().map { it.asHubModel() },
+        )
         state = state.copy(
             notificationsAllowed = Notifications.hasPermission(this),
             overlayOpacity = BridgeSettings.opacity(this),
@@ -220,6 +236,19 @@ class MainActivity : ComponentActivity() {
                 onImportFromText = { state = state.copy(showPasteImport = true) },
                 onDismissPasteImport = { state = state.copy(showPasteImport = false) },
                 onConfirmPasteImport = { text -> importFromText(text) },
+                onQoderLogin = { startQoderLogin() },
+                onQoderPatLogin = { state = state.copy(qoderShowPatDialog = true) },
+                onQoderPatConfirm = { pat ->
+                    state = state.copy(qoderShowPatDialog = false)
+                    loginQoderWithPat(pat)
+                },
+                onQoderTest = { testQoder() },
+                onQoderRefreshModels = { refreshQoderModels() },
+                onQoderLogout = { logoutQoder() },
+                onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
+                onDismissQoderProbe = { state = state.copy(qoderProbe = null) },
+                onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
+                onCopyQoderUrl = { copyToClipboard(state.qoderLoginUrl, "已复制授权链接") },
                 onSwitchRealm = { region -> switchRealm(region) },
                 onSwitchAccount = { id -> switchAccount(id) },
                 onDeleteAccount = { id -> deleteAccount(id) },
@@ -692,6 +721,135 @@ class MainActivity : ComponentActivity() {
         } else {
             toast(result.message.ifBlank { "导入失败" })
         }
+    }
+
+    // ------------------------------------------------------------------ //
+    // Qoder 国际版
+    // ------------------------------------------------------------------ //
+
+    /** 走设备码：打开浏览器，同时轮询授权结果。 */
+    private fun startQoderLogin() {
+        if (state.qoderBusy) return
+        val flow = runCatching { qoderClient.startDeviceFlow(qoderStore.machineId()) }.getOrElse {
+            state = state.copy(qoderStatus = "无法创建授权链接：${it.message?.take(60)}")
+            return
+        }
+        state = state.copy(
+            qoderBusy = true,
+            qoderLoginUrl = flow.authUrl,
+            qoderStatus = "等待浏览器授权…",
+        )
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(flow.authUrl)))
+        }.onFailure {
+            state = state.copy(qoderStatus = "无法打开浏览器，请复制授权链接手动打开")
+        }
+
+        qoderPollJob?.cancel()
+        qoderPollJob = loginScope.launch {
+            val deadline = System.currentTimeMillis() + QoderConfig.LOGIN_TIMEOUT_MS
+            while (isActive && System.currentTimeMillis() < deadline) {
+                delay(QoderConfig.POLL_INTERVAL_MS)
+                when (val result = withContext(Dispatchers.IO) { qoderClient.poll(flow) }) {
+                    QoderPoll.Pending -> Unit
+                    is QoderPoll.Done -> {
+                        onQoderLoggedIn(result.account)
+                        return@launch
+                    }
+                    is QoderPoll.Failed -> {
+                        state = state.copy(qoderBusy = false, qoderStatus = result.message)
+                        return@launch
+                    }
+                }
+            }
+            state = state.copy(qoderBusy = false, qoderStatus = "授权超时，请重试")
+        }
+    }
+
+    private fun loginQoderWithPat(pat: String) {
+        if (pat.isBlank()) return
+        state = state.copy(qoderBusy = true, qoderStatus = "正在验证令牌…")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                qoderClient.loginWithPat(pat, qoderStore.machineId())
+            }
+            result.onSuccess { onQoderLoggedIn(it) }
+                .onFailure {
+                    state = state.copy(
+                        qoderBusy = false,
+                        qoderStatus = it.message?.take(120) ?: "登录失败",
+                    )
+                }
+        }
+    }
+
+    private fun onQoderLoggedIn(account: QoderAccount) {
+        qoderStore.save(account)
+        state = state.copy(
+            qoderAccount = account,
+            qoderLoginUrl = "",
+            qoderBusy = false,
+            qoderStatus = "已登录 ${account.name.ifBlank { account.email }}",
+        )
+        refreshQoderModels()
+    }
+
+    private fun refreshQoderModels() {
+        val account = state.qoderAccount
+        if (account == null) {
+            state = state.copy(qoderStatus = "请先登录 Qoder")
+            return
+        }
+        state = state.copy(qoderBusy = true, qoderStatus = "正在读取模型…")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { qoderClient.fetchModels(account.accessToken, account.machineId) }
+            }
+            result.onSuccess { models ->
+                qoderStore.saveModels(models)
+                state = state.copy(
+                    qoderModels = models.map { it.asHubModel() },
+                    qoderBusy = false,
+                    qoderStatus = "模型目录已更新，共 ${models.size} 个",
+                )
+            }.onFailure {
+                state = state.copy(
+                    qoderBusy = false,
+                    qoderStatus = it.message?.take(120) ?: "读取模型失败",
+                )
+            }
+        }
+    }
+
+    /** 只探测、不改状态；结果原样展示，便于确认认证方案是否被接受。 */
+    private fun testQoder() {
+        val account = state.qoderAccount
+        if (account == null) {
+            state = state.copy(qoderStatus = "请先登录 Qoder")
+            return
+        }
+        state = state.copy(qoderBusy = true, qoderStatus = "正在测试连接…")
+        lifecycleScope.launch {
+            val probe = withContext(Dispatchers.IO) { qoderClient.probe(account) }
+            state = state.copy(
+                qoderBusy = false,
+                qoderProbe = probe,
+                qoderStatus = probe.summary,
+            )
+        }
+    }
+
+    private fun logoutQoder() {
+        qoderPollJob?.cancel()
+        qoderStore.clear()
+        state = state.copy(
+            qoderAccount = null,
+            qoderModels = emptyList(),
+            qoderBusy = false,
+            qoderLoginUrl = "",
+            qoderStatus = "已退出 Qoder",
+        )
+        toast("已退出 Qoder")
     }
 
     /** Discards the whole call history. */
