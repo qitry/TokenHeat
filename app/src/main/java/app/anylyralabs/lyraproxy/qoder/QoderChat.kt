@@ -145,7 +145,6 @@ object QoderChat {
                     relayFrames(
                         upstream = upstream,
                         writer = writer,
-                        model = modelId.ifEmpty { model.id },
                         forwardReasoning = forwardReasoning,
                     )
                 }
@@ -376,27 +375,22 @@ object QoderChat {
     // --------------------------------------------------------------------- //
 
     /**
-     * 把上游帧转成 OpenAI 帧。
+     * 转发上游帧。
      *
-     * 容错是这里的重点：Qoder 会在流中插入控制帧（额度提示、通知）
-     * 和 `event: finish` 这类收尾事件。旧实现把它们当成错误直接中断，
-     * 表现为「思考完、输出到一半突然停住」。现在只有「整个流没有任何
-     * 内容」才报错，单帧异常会被记录并跳过。
+     * 与 WorkBuddy 的做法保持一致：上游 `body` 本身就是一个完整的
+     * OpenAI chunk（含 choices / created / id / system_fingerprint），
+     * 解开外层信封后原样透传，不重新拼装字段。
+     *
+     * 这样思考内容、工具调用、结束帧、usage 都跟着上游走，
+     * 不会因为本地字段裁剪而让客户端解析失败。
      */
     private fun relayFrames(
         upstream: InputStream,
         writer: OutputStreamWriter,
-        model: String,
         forwardReasoning: Boolean,
     ) {
         val reader = upstream.bufferedReader(StandardCharsets.UTF_8)
-        val id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").take(24)
-        val created = System.currentTimeMillis() / 1000
-
-        emit(writer, chunk(id, created, model, JSONObject().put("role", "assistant"), null))
-        var promptTokens = 0
-        var completionTokens = 0
-        var sawContent = false
+        var sawChunk = false
         var lastError: String? = null
         var currentEvent = ""
         val rawSamples = ArrayList<String>(4)
@@ -431,55 +425,20 @@ object QoderChat {
             }
             currentEvent = ""
 
-            val innerRaw = envelope.optString("body")
-            if (innerRaw == "[DONE]") break
-            if (innerRaw.isEmpty() || isControlPayload(innerRaw)) continue
-            val inner = runCatching { JSONObject(innerRaw) }.getOrNull()
-            if (inner == null) {
-                lastError = "unparsable body: ${innerRaw.take(200)}"
-                continue
+            var inner = envelope.optString("body")
+            if (inner == "[DONE]") break
+            if (inner.isEmpty() || isControlPayload(inner)) continue
+
+            if (!forwardReasoning) {
+                inner = stripReasoning(inner)
             }
 
-            inner.optJSONObject("usage")?.let { usage ->
-                promptTokens = usage.optInt("prompt_tokens", promptTokens)
-                completionTokens = usage.optInt("completion_tokens", completionTokens)
-            }
-
-            val choices = inner.optJSONArray("choices") ?: continue
-            if (choices.length() == 0) continue
-            val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: continue
-
-            val reasoning = delta.optString("reasoning_content")
-            if (forwardReasoning && reasoning.isNotEmpty()) {
-                sawContent = true
-                emit(
-                    writer,
-                    chunk(
-                        id = id,
-                        created = created,
-                        model = model,
-                        delta = JSONObject().put("reasoning_content", reasoning),
-                        finishReason = null,
-                    ),
-                )
-            }
-            val content = delta.optString("content")
-            if (content.isNotEmpty()) {
-                sawContent = true
-                emit(
-                    writer,
-                    chunk(
-                        id = id,
-                        created = created,
-                        model = model,
-                        delta = JSONObject().put("content", content),
-                        finishReason = null,
-                    ),
-                )
-            }
+            writer.write("data: $inner\n\n")
+            writer.flush()
+            sawChunk = true
         }
 
-        if (!sawContent) {
+        if (!sawChunk) {
             emitError(
                 writer,
                 lastError ?: "no content in upstream frames; samples=${rawSamples.joinToString(" | ")}",
@@ -487,45 +446,25 @@ object QoderChat {
             return
         }
 
-        // usage 并入 finish 帧，避免 choices:[] 的非标准帧。
-        val usage = JSONObject().apply {
-            put("prompt_tokens", promptTokens)
-            put("completion_tokens", completionTokens)
-            put("total_tokens", promptTokens + completionTokens)
-        }
-        emit(
-            writer,
-            JSONObject().apply {
-                put("id", id)
-                put("object", "chat.completion.chunk")
-                put("created", created)
-                put("model", model)
-                put("system_fingerprint", JSONObject.NULL)
-                put(
-                    "choices",
-                    JSONArray().put(
-                        JSONObject().apply {
-                            put("index", 0)
-                            put("delta", JSONObject())
-                            put("logprobs", JSONObject.NULL)
-                            put("finish_reason", "stop")
-                        },
-                    ),
-                )
-                put("usage", usage)
-            }.toString(),
-        )
         writer.write("data: [DONE]\n\n")
         writer.flush()
     }
 
-    /** 把客户端可能使用的思考档位映射到上游接受的值。 */
-    private fun normalizeEffort(value: String): String = when (value.trim().lowercase()) {
-        "low", "minimal" -> "low"
-        "high", "xhigh", "max" -> "high"
-        "medium" -> "medium"
-        "" , "none", "off", "disabled" -> ""
-        else -> "medium"
+    /** 关闭思考转发时，从 chunk 的 delta 里移除推理字段。 */
+    private fun stripReasoning(inner: String): String {
+        val json = runCatching { JSONObject(inner) }.getOrNull() ?: return inner
+        val choices = json.optJSONArray("choices") ?: return inner
+        var changed = false
+        for (index in 0 until choices.length()) {
+            val delta = choices.optJSONObject(index)?.optJSONObject("delta") ?: continue
+            listOf("reasoning_content", "reasoning", "reasoning_text").forEach { key ->
+                if (delta.has(key)) {
+                    delta.remove(key)
+                    changed = true
+                }
+            }
+        }
+        return if (changed) json.toString() else inner
     }
 
     /** Qoder 的控制帧：额度提示与通知，不承载回答内容。 */
@@ -533,31 +472,6 @@ object QoderChat {
         value == "[NOT_EXCEED_QUOTA]" ||
             value.startsWith("[EXCEED_QUOTA]") ||
             value.startsWith("[NOTIFICATIONS]")
-
-    private fun chunk(
-        id: String,
-        created: Long,
-        model: String,
-        delta: JSONObject,
-        finishReason: String?,
-    ): String = JSONObject().apply {
-        put("id", id)
-        put("object", "chat.completion.chunk")
-        put("created", created)
-        put("model", model)
-        put("system_fingerprint", JSONObject.NULL)
-        put(
-            "choices",
-            JSONArray().put(
-                JSONObject().apply {
-                    put("index", 0)
-                    put("delta", delta)
-                    put("logprobs", JSONObject.NULL)
-                    put("finish_reason", finishReason ?: JSONObject.NULL)
-                },
-            ),
-        )
-    }.toString()
 
     private fun emitError(writer: OutputStreamWriter, message: String) {
         emit(
