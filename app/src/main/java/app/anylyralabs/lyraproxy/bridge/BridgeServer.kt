@@ -3,6 +3,9 @@ package app.anylyralabs.lyraproxy.bridge
 import app.anylyralabs.lyraproxy.proto.Credential
 import app.anylyralabs.lyraproxy.proto.UpstreamClient
 import app.anylyralabs.lyraproxy.proto.Wire
+import app.anylyralabs.lyraproxy.qoder.QoderAccount
+import app.anylyralabs.lyraproxy.qoder.QoderChat
+import app.anylyralabs.lyraproxy.qoder.QoderModel
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -45,6 +48,12 @@ class BridgeServer(
     },
     /** 调用结束后按密钥记账。 */
     private val onKeyUsage: (String, Double) -> Unit = { _, _ -> },
+    /** 是否把请求转给 Qoder 而不是 WorkBuddy。 */
+    private val useQoder: () -> Boolean = { false },
+    /** 当前 Qoder 账号。 */
+    private val qoderAccount: () -> QoderAccount? = { null },
+    /** Qoder 模型目录，用于模型名映射。 */
+    private val qoderModels: () -> List<QoderModel> = { emptyList() },
 ) {
 
     /** 通过鉴权后携带的约束。 */
@@ -178,7 +187,8 @@ class BridgeServer(
                 }
                 requestLine.startsWith("GET /v1/models") -> {
                     // 只列出该密钥可用的模型，避免客户端选到一个必然被拒的模型。
-                    val allowed = models().filter { auth.modelAllowed(it) }
+                    val source = if (useQoder()) qoderModels().map { it.id } else models()
+                    val allowed = source.filter { auth.modelAllowed(it) }
                     val list = allowed.joinToString(",") {
                         """{"id":"$it","object":"model","owned_by":"workbuddy"}"""
                     }
@@ -219,11 +229,6 @@ class BridgeServer(
             sendJson(output, 415, """{"error":{"message":"Content-Type must be application/json","type":"unsupported_media_type"}}""")
             return
         }
-        val cred = credential()
-        if (cred == null) {
-            sendJson(output, 401, """{"error":{"message":"no credential","type":"not_signed_in"}}""")
-            return
-        }
         if (runCatching { JSONObject(body) }.isFailure) {
             sendJson(output, 400, """{"error":{"message":"invalid json"}}""")
             return
@@ -237,6 +242,56 @@ class BridgeServer(
                 403,
                 """{"error":{"message":"model '$model' is not allowed for this api key","type":"model_not_allowed"}}""",
             )
+            return
+        }
+
+        // Qoder 走自己的令牌体系，不依赖 WorkBuddy 的凭证。
+        if (useQoder()) {
+            val account = qoderAccount()
+            if (account == null) {
+                sendJson(output, 401, """{"error":{"message":"no qoder credential","type":"not_signed_in"}}""")
+                return
+            }
+            val startedAt = System.currentTimeMillis()
+            when (val result = QoderChat.open(account, body, qoderModels())) {
+                is QoderChat.Result.Failed -> {
+                    BridgeStatus.recordError("qoder: ${result.message.take(80)}")
+                    onCall(
+                        CallRecord(
+                            timestamp = startedAt,
+                            model = model,
+                            outcome = CallRecord.Outcome.FAILED,
+                            detail = "qoder: ${result.message.take(110)}",
+                        ),
+                    )
+                    val status = if (result.status in 400..599) result.status else 502
+                    sendJson(
+                        output,
+                        status,
+                        """{"error":{"message":"qoder ${result.message.replace("\"", "'").take(180)}","type":"qoder_error"}}""",
+                    )
+                }
+                is QoderChat.Result.Ok -> {
+                    val usage = relay(output, result.stream) { result.stream.close() }
+                    onCall(
+                        CallRecord(
+                            timestamp = startedAt,
+                            model = model,
+                            outcome = CallRecord.Outcome.OK,
+                            promptTokens = usage.prompt,
+                            completionTokens = usage.completion,
+                            credits = usage.credits,
+                        ),
+                    )
+                    onKeyUsage(auth.keyId, usage.credits)
+                }
+            }
+            return
+        }
+
+        val cred = credential()
+        if (cred == null) {
+            sendJson(output, 401, """{"error":{"message":"no credential","type":"not_signed_in"}}""")
             return
         }
 
@@ -265,7 +320,7 @@ class BridgeServer(
             }
             is UpstreamClient.ChatResult.Ok -> {
                 try {
-                    val usage = relay(output, result, model)
+                    val usage = relay(output, result.stream) { result.connection.disconnect() }
                     onCall(
                         CallRecord(
                             timestamp = started,
@@ -292,7 +347,11 @@ class BridgeServer(
      * The stream stays open for the whole generation, so it is forwarded frame
      * by frame — buffering it would stall the caller until the answer finished.
      */
-    private fun relay(output: OutputStream, result: UpstreamClient.ChatResult.Ok, model: String): SseUsage {
+    private fun relay(
+        output: OutputStream,
+        stream: java.io.InputStream,
+        close: () -> Unit,
+    ): SseUsage {
         output.write(
             (
                 "HTTP/1.1 200 OK\r\n" +
@@ -311,7 +370,7 @@ class BridgeServer(
         var usage = SseUsage()
         try {
             while (true) {
-                val read = result.stream.read(buffer)
+                val read = stream.read(buffer)
                 if (read < 0) break
                 output.write(buffer, 0, read)
                 output.flush()
@@ -323,6 +382,8 @@ class BridgeServer(
             }
         } catch (e: Exception) {
             android.util.Log.e(TAG, "chat relay interrupted", e)
+        } finally {
+            runCatching { close() }
         }
         return usage
     }

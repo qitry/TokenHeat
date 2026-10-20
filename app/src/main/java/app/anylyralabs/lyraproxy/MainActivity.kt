@@ -44,6 +44,7 @@ import app.anylyralabs.lyraproxy.ui.Loading
 import app.anylyralabs.lyraproxy.ui.LogoutDialog
 import app.anylyralabs.lyraproxy.ui.HubState
 import app.anylyralabs.lyraproxy.ui.HubTab
+import app.anylyralabs.lyraproxy.ui.GatewayProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -245,7 +246,7 @@ class MainActivity : ComponentActivity() {
                 onQoderTest = { testQoder() },
                 onQoderRefreshModels = { refreshQoderModels() },
                 onQoderLogout = { logoutQoder() },
-                onSwitchProvider = { provider -> state = state.copy(provider = provider) },
+                onSwitchProvider = { provider -> switchGatewayProvider(provider) },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
                 onDismissQoderProbe = { state = state.copy(qoderProbe = null) },
                 onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
@@ -845,6 +846,24 @@ class MainActivity : ComponentActivity() {
                 qoderProbe = probe,
                 qoderStatus = probe.summary,
             )
+        }
+    }
+
+    /**
+     * 切换网关上游。
+     *
+     * 上游是在服务启动时选定的，切换后必须重建服务；否则要等下次冷启动才生效，
+     * 用户会以为切换没起作用。
+     */
+    private fun switchGatewayProvider(provider: GatewayProvider) {
+        state = state.copy(provider = provider)
+        BridgeSettings.setGatewayProvider(
+            this,
+            if (provider == GatewayProvider.QODER) "qoder" else "workbuddy",
+        )
+        if (state.bridgeRunning) {
+            stopBridge()
+            startBridge(state.port, silent = true)
         }
     }
 

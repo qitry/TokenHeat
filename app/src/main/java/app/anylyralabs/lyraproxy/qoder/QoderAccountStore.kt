@@ -78,6 +78,7 @@ class QoderAccountStore(context: Context) {
                     supportsImages = obj.optBoolean("supportsImages", false),
                     supportsReasoning = obj.optBoolean("supportsReasoning", false),
                     contextWindow = obj.optInt("contextWindow", 0),
+                    raw = obj.optString("raw"),
                 )
             }
         }.getOrDefault(emptyList())
@@ -93,6 +94,7 @@ class QoderAccountStore(context: Context) {
                     put("supportsImages", model.supportsImages)
                     put("supportsReasoning", model.supportsReasoning)
                     put("contextWindow", model.contextWindow)
+                    put("raw", model.raw)
                 },
             )
         }

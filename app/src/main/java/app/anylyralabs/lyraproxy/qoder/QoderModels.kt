@@ -29,6 +29,8 @@ data class QoderModel(
     val supportsImages: Boolean,
     val supportsReasoning: Boolean,
     val contextWindow: Int,
+    /** 上游目录里的原始条目，聊天时需要原样回传。 */
+    val raw: String = "",
 ) {
     /** 客户端可见的模型 ID：展示名去掉空白。 */
     val id: String get() = displayName.replace(Regex("\\s+"), "").ifEmpty { key }

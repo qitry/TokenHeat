@@ -16,6 +16,7 @@ object BridgeSettings {
     private const val KEY_ENABLED = "overlay_enabled"
     private const val KEY_MOVABLE = "overlay_movable"
     private const val KEY_PASSTHROUGH = "overlay_passthrough"
+    private const val KEY_GATEWAY_PROVIDER = "gateway_provider"
     private const val KEY_X = "x"
     private const val KEY_Y = "y"
 
@@ -66,6 +67,16 @@ object BridgeSettings {
     fun setOverlayPassthrough(context: Context, value: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_PASSTHROUGH, value).apply()
+    }
+
+    /** 网关当前转发的上游：workbuddy 或 qoder。 */
+    fun gatewayProvider(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_GATEWAY_PROVIDER, "workbuddy") ?: "workbuddy"
+
+    fun setGatewayProvider(context: Context, value: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_GATEWAY_PROVIDER, value).apply()
     }
 
     fun position(context: Context): Pair<Int, Int> {

@@ -250,6 +250,7 @@ class QoderClient {
                     supportsReasoning = item.optBoolean("is_reasoning", false) ||
                         item.has("thinking_config"),
                     contextWindow = maxContext(item.optJSONObject("context_config")),
+                    raw = item.toString(),
                 ),
             )
         }

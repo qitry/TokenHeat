@@ -6,6 +6,7 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
 import app.anylyralabs.lyraproxy.proto.CredentialStore
+import app.anylyralabs.lyraproxy.qoder.QoderAccountStore
 import app.anylyralabs.lyraproxy.proto.UpstreamClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,7 @@ class BridgeService : Service() {
     private var overlay: BridgeOverlay? = null
     private lateinit var callLog: CallLogStore
     private lateinit var apiKeys: ApiKeyStore
+    private lateinit var qoderStore: QoderAccountStore
 
     /** Loopback port the bridge serves. */
     var port: Int = DEFAULT_PORT
@@ -57,6 +59,7 @@ class BridgeService : Service() {
         store = CredentialStore(this)
         callLog = CallLogStore(this)
         apiKeys = ApiKeyStore(this)
+        qoderStore = QoderAccountStore(this)
         Notifications.ensureChannel(this)
     }
 
@@ -78,6 +81,9 @@ class BridgeService : Service() {
                 onCall = { record -> callLog.append(record) },
                 authenticate = { presented -> authenticateKey(presented) },
                 onKeyUsage = { keyId, credits -> apiKeys.recordUsage(keyId, credits) },
+                useQoder = { BridgeSettings.gatewayProvider(this) == "qoder" },
+                qoderAccount = { qoderStore.load() },
+                qoderModels = { qoderStore.loadModels() },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
         }
