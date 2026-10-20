@@ -11,24 +11,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,11 +30,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.collections.immutable.persistentListOf
+import ui.feice.mochi.basic.MochiButton
+import ui.feice.mochi.basic.MochiButtonStyle
+import ui.feice.mochi.basic.MochiDialog
+import ui.feice.mochi.basic.MochiDialogAction
+import ui.feice.mochi.basic.MochiDialogActionRole
+import ui.feice.mochi.basic.MochiListTextFieldRow
+import ui.feice.mochi.basic.MochiSheet
+import ui.feice.mochi.basic.MochiSheetContent
+import ui.feice.mochi.basic.MochiSheetDetent
+import ui.feice.mochi.basic.MochiSheetHeader
 import ui.feice.mochi.basic.MochiSlider
 import ui.feice.mochi.basic.MochiSwitch
+import ui.feice.mochi.basic.MochiTextField
+import ui.feice.mochi.basic.Text
+import ui.feice.mochi.basic.rememberMochiSheetState
+import ui.feice.mochi.list.MochiListButton
+import ui.feice.mochi.list.MochiListRow
+import ui.feice.mochi.list.MochiListSection
+import ui.feice.mochi.list.mochiListDivider
+import ui.feice.mochi.theme.MochiTheme
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.bridge.KeepAliveUtils
@@ -123,119 +131,95 @@ fun CredentialScreen(
             }
         } else {
 
-        // 当前账号
-        item(key = "current") {
-            Column {
-                SectionLabel(regionLabel)
-                Spacer(Modifier.height(8.dp))
-                if (active == null) {
-                    Text(
-                        text = "$regionLabel 还没有登录",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        text = active.nickname.ifBlank { active.uid.take(10) },
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "有效期至 ${state.expiryText.ifBlank { "未知" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("凭证详情", onOpenDetails, Modifier.weight(1f))
-                    if (state.hasAnyCredential) {
-                        QuietButton("退出登录", onLogout, Modifier.weight(1f), danger = true)
-                    }
-                }
-            }
-        }
-
-        // 版本切换
-        item(key = "realm") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionLabel("版本")
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Wire.Region.entries.forEach { item ->
-                        val count = state.accounts[item].orEmpty().size
-                        SegmentTab(
-                            label = if (count > 0) "${realmName(item)} $count" else realmName(item),
-                            selected = region == item,
-                            onClick = { onSwitchRealm(item) },
-                            modifier = Modifier.weight(1f),
+            // 当前账号
+            item(key = "current") {
+                MochiListSection(header = regionLabel) {
+                    if (active == null) {
+                        MochiListRow(
+                            title = "$regionLabel 还没有登录",
+                            subtitle = "登录后即可通过本机网关调用模型",
+                        )
+                    } else {
+                        MochiListRow(
+                            title = active.nickname.ifBlank { active.uid.take(10) },
+                            subtitle = "有效期至 ${state.expiryText.ifBlank { "未知" }}",
                         )
                     }
+                    MochiListButton("凭证详情", onOpenDetails)
+                    if (state.hasAnyCredential) {
+                        MochiListButton("退出登录", onLogout, destructive = true)
+                    }
                 }
             }
-        }
 
-        // 账号列表
-        if (saved.isNotEmpty()) {
-            item(key = "accounts-head") {
-                Column(Modifier.padding(top = 22.dp)) {
-                    SectionLabel("$regionLabel 的账号 · ${saved.size}")
+            // 版本切换
+            item(key = "realm") {
+                Column(Modifier.padding(top = 26.dp)) {
+                    MochiListSection(header = "版本") {
+                        Wire.Region.entries.forEach { item ->
+                            val count = state.accounts[item].orEmpty().size
+                            MochiListRow(
+                                title = realmName(item),
+                                subtitle = if (count > 0) "$count 个账号" else null,
+                                checked = region == item,
+                                onClick = { onSwitchRealm(item) },
+                            )
+                        }
+                    }
                 }
             }
-            items(saved, key = { it.id }) { account ->
-                val isActive = account.id == state.activeAccountId
-                AccountLine(
-                    label = account.label,
-                    uid = account.uid,
-                    isActive = isActive,
-                    onSelect = { onSwitchAccount(account.id) },
-                    onDelete = { onDeleteAccount(account.id) },
-                )
-            }
-        }
 
-        // 登录与迁移
-        item(key = "actions") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                Spacer(Modifier.height(14.dp))
-                PrimaryButton(
-                    text = if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号",
-                    onClick = { onLogin(region) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("账号迁移")
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "导出为 .json.gz 备份，或在换机后粘贴凭证直接恢复。导入按账号合并，重复导入只刷新。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
-                    QuietButton("导入文件", onImportBackup, Modifier.weight(1f))
+            // 账号列表
+            if (saved.isNotEmpty()) {
+                item(key = "accounts") {
+                    Column(Modifier.padding(top = 26.dp)) {
+                        MochiListSection(header = "$regionLabel 的账号 · ${saved.size}") {
+                            saved.forEach { account ->
+                                val isActive = account.id == state.activeAccountId
+                                AccountLine(
+                                    label = account.label,
+                                    uid = account.uid,
+                                    isActive = isActive,
+                                    onSelect = { onSwitchAccount(account.id) },
+                                    onDelete = { onDeleteAccount(account.id) },
+                                )
+                            }
+                        }
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
-                QuietButton("粘贴凭证导入", onImportFromText, Modifier.fillMaxWidth())
             }
-        }
 
-        // 说明
-        item(key = "note") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                Spacer(Modifier.height(12.dp))
+            // 登录与迁移
+            item(key = "actions") {
+                Column(Modifier.padding(top = 26.dp)) {
+                    MochiListSection {
+                        MochiListRow(
+                            title = if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号",
+                            onClick = { onLogin(region) },
+                            chevron = true,
+                        )
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    MochiListSection(
+                        header = "账号迁移",
+                        footer = "导出为 .json.gz 备份，或在换机后粘贴凭证直接恢复。导入按账号合并，重复导入只刷新。",
+                    ) {
+                        MochiListButton("导出", onExportBackup)
+                        MochiListButton("导入文件", onImportBackup)
+                        MochiListButton("粘贴凭证导入", onImportFromText)
+                    }
+                }
+            }
+
+            // 说明
+            item(key = "note") {
                 Text(
                     text = "登录走官方 CLI 的 OAuth 流程，需要在本机浏览器完成授权。国内版与国际版是两套独立账号体系，各自可添加多个账号并在其间切换。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MochiTheme.textStyles.bodySmall,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 24.dp),
                 )
             }
-        }
         }
     }
 }
@@ -248,29 +232,16 @@ private fun SegmentTab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.surfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.background
-                },
-            )
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+    MochiButton(
+        onClick = onClick,
+        modifier = modifier,
+        style = if (selected) MochiButtonStyle.Filled else MochiButtonStyle.Tonal,
+        minHeight = 38.dp,
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            style = MochiTheme.textStyles.labelLarge,
+            maxLines = 1,
         )
     }
 }
@@ -284,79 +255,62 @@ private fun AccountLine(
     onSelect: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSelect)
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    MochiListRow(
+        title = label,
+        subtitle = if (uid.isNotBlank()) uid.take(10) else null,
+        leading = {
             Box(
                 modifier = Modifier
                     .size(6.dp)
                     .clip(CircleShape)
                     .background(
                         if (isActive) {
-                            MaterialTheme.colorScheme.primary
+                            MochiTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.outline
+                            MochiTheme.colorScheme.outline
                         },
                     ),
             )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (uid.isNotBlank()) {
-                    Text(
-                        text = uid.take(10),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+        },
+        onClick = onSelect,
+        titleTrailing = {
             if (isActive) {
                 Tag("使用中", tone = TagTone.Active)
-                Spacer(Modifier.width(10.dp))
             }
+        },
+        trailing = {
             TextAction(text = "删除", onClick = onDelete, danger = true)
-        }
-    }
+        },
+    )
 }
 
 /** 凭证详情抽屉：全部字段可点按复制。 */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CredentialDetailDrawer(
     state: HubState,
     onDismiss: () -> Unit,
     onCopy: (label: String, value: String) -> Unit,
 ) {
-    val cred = state.credential
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        if (cred == null) {
-            Text("尚无凭证", modifier = Modifier.padding(24.dp))
-            return@ModalBottomSheet
-        }
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp),
-        ) {
-            item {
-                SectionHeading(
-                    title = "凭证详情",
-                    subtitle = "点任意一行复制该字段",
-                    modifier = Modifier.padding(bottom = 6.dp),
+    val sheetState = rememberMochiSheetState(initial = MochiSheetDetent.Large)
+    LaunchedEffect(Unit) { sheetState.show() }
+
+    MochiSheet(state = sheetState, onDismiss = onDismiss) {
+        MochiSheetHeader(title = "凭证详情")
+        MochiSheetContent {
+            val cred = state.credential
+            if (cred == null) {
+                Text(
+                    text = "尚无凭证",
+                    style = MochiTheme.textStyles.body,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
-                Rule()
+                return@MochiSheetContent
             }
+            Text(
+                text = "点任意一行复制该字段",
+                style = MochiTheme.textStyles.bodySmall,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
+            )
             val rows = listOf(
                 "版本" to realmName(Wire.regionOf(cred.domain)),
                 "昵称" to cred.nickname.ifBlank { "无" },
@@ -367,23 +321,20 @@ fun CredentialDetailDrawer(
                 "Access Token" to cred.accessToken,
                 "Refresh Token" to cred.refreshToken.ifBlank { "无" },
             )
-            items(rows) { (label, value) ->
-                FieldRow(
-                    label = label,
-                    value = value,
-                    mono = label.contains("Token") || label == "UID",
-                    onClick = { onCopy(label, value) },
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            MochiListSection {
+                rows.forEach { (label, value) ->
+                    MochiListRow(
+                        title = label,
+                        subtitle = value,
+                        onClick = { onCopy(label, value) },
+                    )
+                }
             }
-            item {
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    text = "Token 等同于登录凭据，分享后对方可以你的身份调用接口。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = "Token 等同于登录凭据，分享后对方可以你的身份调用接口。",
+                style = MochiTheme.textStyles.bodySmall,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -429,32 +380,21 @@ fun BridgeScreen(
     ) {
         // 服务状态
         item(key = "status") {
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LiveDot(active = state.bridgeRunning)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = if (state.bridgeRunning) "运行中" else "已停止",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    MochiSwitch(
-                        checked = state.bridgeRunning,
-                        onCheckedChange = { checked ->
-                            if (checked) onStart(portText.toIntOrNull() ?: 8765) else onStop()
-                        },
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = "本机回环地址 127.0.0.1:${state.port}，仅接受本机请求。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            MochiListSection {
+                MochiListRow(
+                    title = if (state.bridgeRunning) "运行中" else "已停止",
+                    subtitle = "本机回环地址 127.0.0.1:${state.port}，仅接受本机请求。",
+                    leading = { LiveDot(active = state.bridgeRunning) },
+                    trailing = {
+                        MochiSwitch(
+                            checked = state.bridgeRunning,
+                            onCheckedChange = { checked ->
+                                if (checked) onStart(portText.toIntOrNull() ?: 8765) else onStop()
+                            },
+                        )
+                    },
                 )
-
                 if (!state.notificationsAllowed) {
-                    Spacer(Modifier.height(10.dp))
                     NoticeLine(
                         text = "通知权限未开启，系统可能回收后台服务",
                         action = "开启",
@@ -463,7 +403,6 @@ fun BridgeScreen(
                     )
                 }
                 if (!state.batteryExempt) {
-                    Spacer(Modifier.height(8.dp))
                     NoticeLine(
                         text = "电池优化未关闭",
                         action = "去设置",
@@ -476,25 +415,29 @@ fun BridgeScreen(
         // 端口与接入信息
         item(key = "endpoint") {
             Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionLabel("接入信息")
+                MochiListSection(header = "接入信息") {
+                    MochiListTextFieldRow(
+                        value = portText,
+                        onValueChange = { input -> portText = input.filter(Char::isDigit) },
+                        label = "端口",
+                        placeholder = "8765",
+                        singleLine = true,
+                    )
+                    MochiListRow(
+                        title = "地址",
+                        subtitle = "http://127.0.0.1:${state.port}/v1",
+                        onClick = onCopyEndpoint,
+                    )
+                    MochiListRow(
+                        title = "密钥",
+                        subtitle = state.secret,
+                        onClick = onCopyEndpoint,
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = { portText = it.filter(Char::isDigit) },
-                    label = { Text("端口") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                FieldRow("地址", "http://127.0.0.1:${state.port}/v1", mono = true, onClick = onCopyEndpoint)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                FieldRow("密钥", state.secret, mono = true, onClick = onCopyEndpoint)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("复制地址", onCopyEndpoint, Modifier.weight(1f))
-                    QuietButton("接入帮助", onShowHelp, Modifier.weight(1f))
+                MochiListSection {
+                    MochiListButton("复制地址", onCopyEndpoint)
+                    MochiListButton("接入帮助", onShowHelp)
                 }
             }
         }
@@ -502,137 +445,124 @@ fun BridgeScreen(
         // 悬浮窗
         item(key = "overlay") {
             Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "保活悬浮窗",
-                    subtitle = "切到后台时显示状态，让系统保持本应用可见",
-                    trailing = {
-                        MochiSwitch(
-                            checked = state.overlayEnabled && state.overlayAllowed,
-                            onCheckedChange = { checked ->
-                                if (checked && !state.overlayAllowed) {
-                                    onRequestOverlay()
-                                } else {
-                                    onOverlayEnabled(checked)
-                                }
-                            },
-                        )
-                    },
-                )
-
-                if (!state.overlayAllowed) {
-                    Spacer(Modifier.height(10.dp))
-                    NoticeLine(
-                        text = "未授予「显示在其他应用上层」权限",
-                        action = "授权",
-                        onClick = onRequestOverlay,
-                        danger = true,
+                MochiListSection(
+                    header = "保活悬浮窗",
+                    footer = "切到后台时显示状态，让系统保持本应用可见",
+                ) {
+                    MochiListRow(
+                        title = "显示悬浮窗",
+                        trailing = {
+                            MochiSwitch(
+                                checked = state.overlayEnabled && state.overlayAllowed,
+                                onCheckedChange = { checked ->
+                                    if (checked && !state.overlayAllowed) {
+                                        onRequestOverlay()
+                                    } else {
+                                        onOverlayEnabled(checked)
+                                    }
+                                },
+                            )
+                        },
                     )
+                    if (!state.overlayAllowed) {
+                        NoticeLine(
+                            text = "未授予「显示在其他应用上层」权限",
+                            action = "授权",
+                            onClick = onRequestOverlay,
+                            danger = true,
+                        )
+                    }
                 }
 
                 if (state.overlayEnabled && state.overlayAllowed) {
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        text = "不透明度 ${(state.overlayOpacity * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    MochiSlider(
-                        value = state.overlayOpacity,
-                        onValueChange = onOverlayOpacity,
-                        valueRange = 0.15f..1f,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    Spacer(Modifier.height(20.dp))
+                    MochiListSection(
+                        header = "不透明度 ${(state.overlayOpacity * 100).toInt()}%",
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .mochiListDivider(22.dp)
+                                .fillMaxWidth()
+                                .padding(horizontal = 22.dp, vertical = 12.dp),
+                        ) {
+                            MochiSlider(
+                                value = state.overlayOpacity,
+                                onValueChange = onOverlayOpacity,
+                                valueRange = 0.15f..1f,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
 
-                    Spacer(Modifier.height(6.dp))
-                    SectionLabel("交互方式")
-                    Spacer(Modifier.height(4.dp))
-                    val passthrough = state.overlayPassthrough
-                    OverlayMode(
-                        title = "可拖动",
-                        hint = "能移动位置，点一下折叠",
-                        selected = !passthrough && state.overlayMovable && !state.overlayLocked,
-                        onSelect = {
-                            onOverlayPassthrough(false)
-                            onOverlayMovable(true)
-                            onOverlayLocked(false)
-                        },
-                    )
-                    OverlayMode(
-                        title = "锁定",
-                        hint = "能点击折叠，不能拖动",
-                        selected = !passthrough && state.overlayLocked,
-                        onSelect = {
-                            onOverlayPassthrough(false)
-                            onOverlayLocked(true)
-                            onOverlayMovable(false)
-                        },
-                    )
-                    OverlayMode(
-                        title = "完全穿透",
-                        hint = "不响应任何触摸，事件交给下层应用",
-                        selected = passthrough,
-                        onSelect = { onOverlayPassthrough(true) },
-                    )
+                    Spacer(Modifier.height(20.dp))
+                    MochiListSection(header = "交互方式") {
+                        val passthrough = state.overlayPassthrough
+                        OverlayMode(
+                            title = "可拖动",
+                            hint = "能移动位置，点一下折叠",
+                            selected = !passthrough && state.overlayMovable && !state.overlayLocked,
+                            onSelect = {
+                                onOverlayPassthrough(false)
+                                onOverlayMovable(true)
+                                onOverlayLocked(false)
+                            },
+                        )
+                        OverlayMode(
+                            title = "锁定",
+                            hint = "能点击折叠，不能拖动",
+                            selected = !passthrough && state.overlayLocked,
+                            onSelect = {
+                                onOverlayPassthrough(false)
+                                onOverlayLocked(true)
+                                onOverlayMovable(false)
+                            },
+                        )
+                        OverlayMode(
+                            title = "完全穿透",
+                            hint = "不响应任何触摸，事件交给下层应用",
+                            selected = passthrough,
+                            onSelect = { onOverlayPassthrough(true) },
+                        )
+                    }
                 }
             }
         }
 
         // 后台保活
         item(key = "keepalive") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "后台保活",
+            MochiListSection(
+                header = "后台保活",
+                footer = KeepAliveUtils.romHint(),
+            ) {
+                MochiListRow(
+                    title = if (state.batteryExempt) "已忽略电池优化" else "忽略电池优化",
                     subtitle = if (state.batteryExempt) {
                         "已忽略电池优化，后台限制较少"
                     } else {
                         "未忽略电池优化，系统可能限制或清理进程"
                     },
-                    
+                    onClick = onRequestBatteryExemption,
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton(
-                        text = if (state.batteryExempt) "已豁免" else "忽略电池优化",
-                        onClick = onRequestBatteryExemption,
-                        modifier = Modifier.weight(1f),
-                    )
-                    QuietButton(
-                        text = if (state.notificationsAllowed) "通知已开启" else "开启通知",
-                        onClick = onRequestNotifications,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = KeepAliveUtils.romHint(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                MochiListRow(
+                    title = if (state.notificationsAllowed) "通知已开启" else "开启通知",
+                    onClick = onRequestNotifications,
                 )
             }
         }
 
         // 自定义密钥
         item(key = "apikeys") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "自定义密钥",
-                    subtitle = "为客户端分别签发，可限制模型与预算",
-                    trailing = {
-                        TextAction(text = "新建", onClick = onCreateApiKey)
-                    },
-                )
-                Spacer(Modifier.height(12.dp))
+            MochiListSection(
+                header = "自定义密钥",
+                footer = "为客户端分别签发，可限制模型与预算",
+            ) {
                 if (state.apiKeys.isEmpty()) {
-                    Text(
-                        text = "当前所有客户端共用上面那条共享密钥，无法区分来源，也无法单独限额。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    MochiListRow(
+                        title = "使用共享密钥",
+                        subtitle = "当前所有客户端共用上面那条共享密钥，无法区分来源，也无法单独限额。",
                     )
                 } else {
-                    state.apiKeys.forEachIndexed { index, key ->
+                    state.apiKeys.forEach { key ->
                         ApiKeyItem(
                             apiKey = key,
                             onCopy = { onCopyApiKey(key.key) },
@@ -641,11 +571,9 @@ fun BridgeScreen(
                             onDelete = { onDeleteApiKey(key) },
                             onClearUsage = { onClearApiKeyUsage(key) },
                         )
-                        if (index < state.apiKeys.lastIndex) {
-                            Spacer(Modifier.height(10.dp))
-                        }
                     }
                 }
+                MochiListButton("新建密钥", onCreateApiKey)
             }
         }
 
@@ -653,25 +581,19 @@ fun BridgeScreen(
         if (state.provider == GatewayProvider.QODER) {
             item(key = "gateway-behavior") {
                 Column(Modifier.padding(top = 26.dp)) {
-                    Rule()
-                    SectionHeading(
-                        title = "网关行为",
-                        subtitle = "控制转发给客户端的字段",
-                        modifier = Modifier.padding(top = 14.dp),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("转发思考过程", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "关闭后只转发正文，兼容不支持 reasoning_content 的客户端",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        MochiSwitch(
-                            checked = state.forwardReasoning,
-                            onCheckedChange = onForwardReasoning,
+                    MochiListSection(
+                        header = "网关行为",
+                        footer = "控制转发给客户端的字段",
+                    ) {
+                        MochiListRow(
+                            title = "转发思考过程",
+                            subtitle = "关闭后只转发正文，兼容不支持 reasoning_content 的客户端",
+                            trailing = {
+                                MochiSwitch(
+                                    checked = state.forwardReasoning,
+                                    onCheckedChange = onForwardReasoning,
+                                )
+                            },
                         )
                     }
                 }
@@ -679,30 +601,40 @@ fun BridgeScreen(
         }
 
         // 模型目录
-        item(key = "models-head") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "可用模型",
-                    subtitle = "点模型名复制标识",
-                    trailing = {
-                        TextAction(
-                            text = if (modelsBusy) "获取中" else "刷新",
-                            onClick = onRefreshModels,
-                        )
-                    },
-                )
-                Spacer(Modifier.height(10.dp))
-            }
-        }
         item(key = "models") {
-            if (modelsBusy && shownModels.isEmpty()) {
-                InlineLoading("正在读取模型目录")
-            } else {
-                ModelList(
-                    models = shownModels,
-                    onCopyModel = onCopyModel,
-                )
+            Column(Modifier.padding(top = 26.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "可用模型",
+                            style = MochiTheme.textStyles.titleLarge,
+                            color = MochiTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "点模型名复制标识",
+                            style = MochiTheme.textStyles.bodySmall,
+                            color = MochiTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextAction(
+                        text = if (modelsBusy) "获取中" else "刷新",
+                        onClick = onRefreshModels,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                if (modelsBusy && shownModels.isEmpty()) {
+                    Text(
+                        text = "正在读取模型目录",
+                        style = MochiTheme.textStyles.labelSmall,
+                        color = MochiTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                    )
+                } else {
+                    ModelList(
+                        models = shownModels,
+                        onCopyModel = onCopyModel,
+                    )
+                }
             }
         }
     }
@@ -716,24 +648,12 @@ private fun OverlayMode(
     selected: Boolean,
     onSelect: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onSelect)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(4.dp))
-        Column(Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = hint,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    MochiListRow(
+        title = title,
+        subtitle = hint,
+        checked = selected,
+        onClick = onSelect,
+    )
 }
 
 /** 一行提示 + 行内动作。 */
@@ -744,39 +664,27 @@ private fun NoticeLine(
     onClick: () -> Unit,
     danger: Boolean = false,
 ) {
+    val colors = MochiTheme.colorScheme
+    val contentColor = if (danger) colors.onErrorContainer else colors.onSurfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (danger) {
-                    MaterialTheme.colorScheme.errorContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-            )
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (danger) colors.errorContainer else colors.surfaceVariant)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (danger) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
+            style = MochiTheme.textStyles.bodySmall,
+            color = contentColor,
             modifier = Modifier.weight(1f),
         )
         Text(
             text = action,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = if (danger) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.primary
-            },
+            style = MochiTheme.textStyles.labelMedium,
+            color = if (danger) colors.onErrorContainer else colors.primary,
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
                 .clickable(onClick = onClick)
@@ -791,7 +699,7 @@ private fun NoticeLine(
 
 @Composable
 fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
-    // 每批 200 条，滚动到底继续追加；配合 LazyColumn 只组合可见项。
+    // 每批 200 条，滚动到底继续追加，避免一次组合全部历史记录。
     val pageSize = 200
     LaunchedEffect(Unit) {
         while (true) {
@@ -817,8 +725,8 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "调用记录",
-                        style = MaterialTheme.typography.displayMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MochiTheme.textStyles.displayMedium,
+                        color = MochiTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
                     if (state.calls.isNotEmpty()) {
@@ -828,20 +736,17 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "共 ${state.calls.size} 次，按时间倒序",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MochiTheme.textStyles.bodySmall,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Readout("${summary.calls}", "成功", Modifier.weight(1f))
-                    Readout("${summary.failures}", "失败", Modifier.weight(1f))
-                    Readout(formatCredits(summary.credits), "积分", Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Readout(formatTokenCount(summary.promptTokens.toLong()), "输入", Modifier.weight(1f))
-                    Readout(formatTokenCount(summary.completionTokens.toLong()), "输出", Modifier.weight(1f))
-                    Readout(formatTokenCount(summary.totalTokens.toLong()), "合计", Modifier.weight(1f))
+                Spacer(Modifier.height(18.dp))
+                MochiListSection {
+                    MochiListRow(title = "成功", value = "${summary.calls}")
+                    MochiListRow(title = "失败", value = "${summary.failures}")
+                    MochiListRow(title = "积分", value = formatCredits(summary.credits))
+                    MochiListRow(title = "输入", value = formatTokenCount(summary.promptTokens.toLong()))
+                    MochiListRow(title = "输出", value = formatTokenCount(summary.completionTokens.toLong()))
+                    MochiListRow(title = "合计", value = formatTokenCount(summary.totalTokens.toLong()))
                 }
             }
         }
@@ -849,19 +754,23 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
         if (state.calls.isEmpty()) {
             item(key = "empty") {
                 Column(Modifier.padding(top = 26.dp)) {
-                    Rule()
-                    EmptyNote("还没有记录。客户端通过网关发起请求后，每一次调用都会记在这里。")
+                    MochiListSection {
+                        MochiListRow(
+                            title = "还没有记录",
+                            subtitle = "客户端通过网关发起请求后，每一次调用都会记在这里。",
+                        )
+                    }
                 }
             }
         } else {
-            item(key = "head") {
+            item(key = "records") {
                 Column(Modifier.padding(top = 26.dp)) {
-                    Rule()
-                    SectionLabel("明细")
+                    MochiListSection(header = "明细", animateHeight = false) {
+                        visible.forEach { record ->
+                            CallLine(record)
+                        }
+                    }
                 }
-            }
-            items(visible, key = { "${it.timestamp}-${it.model}-${it.detail.hashCode()}" }) { record ->
-                CallLine(record)
             }
             if (visibleCount < state.calls.size) {
                 item(key = "more") {
@@ -870,9 +779,9 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                     }
                     Text(
                         text = "继续加载…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp),
+                        style = MochiTheme.textStyles.labelSmall,
+                        color = MochiTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp, horizontal = 22.dp),
                     )
                 }
             }
@@ -883,46 +792,20 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
 @Composable
 private fun CallLine(record: CallRecord) {
     val failed = record.outcome == CallRecord.Outcome.FAILED
-    Column {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Column(Modifier.padding(vertical = 11.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = record.model.ifEmpty { "未知模型" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (failed) {
-                    Tag("失败", tone = TagTone.Danger)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    text = record.timeText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+    MochiListRow(
+        title = record.model.ifEmpty { "未知模型" },
+        subtitle = if (failed) {
+            record.detail
+        } else {
+            "${record.promptTokens} 入 · ${record.completionTokens} 出 · ${formatCredits(record.credits)} 积分"
+        },
+        value = record.timeText,
+        titleTrailing = {
+            if (failed) {
+                Tag("失败", tone = TagTone.Danger)
             }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = if (failed) {
-                    record.detail
-                } else {
-                    "${record.promptTokens} 入 · ${record.completionTokens} 出 · ${formatCredits(record.credits)} 积分"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = if (failed) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+        },
+    )
 }
 
 // -----------------------------------------------------------------------------
@@ -935,45 +818,63 @@ fun CheckinDialog(
     items: List<CheckinItem>,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    MochiDialog(
+        visible = true,
         onDismissRequest = onDismiss,
-        title = { Text(if (items.isEmpty()) "签到结果" else "批量签到结果") },
-        text = {
-            if (items.isEmpty()) {
-                Text(message)
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text(message, style = MaterialTheme.typography.bodyMedium) }
-                    items(items, key = { it.label }) { entry ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(5.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (entry.ok) {
-                                            Claude.Moss
-                                        } else {
-                                            MaterialTheme.colorScheme.error
-                                        },
-                                    ),
+        title = if (items.isEmpty()) "签到结果" else "批量签到结果",
+        message = if (items.isEmpty()) message else null,
+        actions = persistentListOf(
+            MochiDialogAction(label = "好", role = MochiDialogActionRole.Primary),
+        ),
+    ) {
+        if (items.isNotEmpty()) {
+            Text(
+                text = message,
+                style = MochiTheme.textStyles.bodyMedium,
+                color = MochiTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                items.forEach { entry ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (entry.ok) {
+                                        Claude.Moss
+                                    } else {
+                                        MochiTheme.colorScheme.error
+                                    },
+                                ),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = entry.label,
+                                style = MochiTheme.textStyles.bodyMedium,
+                                color = MochiTheme.colorScheme.onSurface,
                             )
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text(entry.label, style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    entry.message,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Text(
+                                text = entry.message,
+                                style = MochiTheme.textStyles.labelSmall,
+                                color = MochiTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("好") } },
-    )
+        }
+    }
 }
 
 /** 粘贴导入：接受备份包、账号数组或单个凭证对象。 */
@@ -983,86 +884,88 @@ fun PasteImportDialog(
     onConfirm: (String) -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
-    AlertDialog(
+    MochiDialog(
+        visible = true,
         onDismissRequest = onDismiss,
-        title = { Text("粘贴凭证") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "粘贴从「凭证详情」复制的 JSON，或整段备份内容。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    label = { Text("内容") },
-                    placeholder = { Text("{\"accessToken\":\"...\"}") },
-                    minLines = 6,
-                    maxLines = 10,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) { Text("导入") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+        title = "粘贴凭证",
+        message = "粘贴从「凭证详情」复制的 JSON，或整段备份内容。",
+        actions = persistentListOf(
+            MochiDialogAction(label = "取消", role = MochiDialogActionRole.Cancel),
+            MochiDialogAction(
+                label = "导入",
+                role = MochiDialogActionRole.Primary,
+                enabled = text.isNotBlank(),
+                onClick = { onConfirm(text) },
+            ),
+        ),
+    ) {
+        MochiTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = "{\"accessToken\":\"...\"}",
+            singleLine = false,
+            maxLines = 10,
+        )
+    }
 }
 
 @Composable
 fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Unit) {
     val endpoint = "http://127.0.0.1:${state.port}/v1"
-    AlertDialog(
+    MochiDialog(
+        visible = true,
         onDismissRequest = onDismiss,
-        title = { Text("接入方式") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item {
-                    Text(
-                        text = "网关提供 OpenAI 兼容接口，任何支持自定义 baseURL 的客户端都能接入。",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FieldRow("地址", endpoint, mono = true)
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                        FieldRow("密钥", state.secret, mono = true)
-                    }
-                }
-                item {
-                    Text(
-                        text = "在客户端的「自定义 OpenAI 接口」里填入上面两项即可。模型名可以在服务页的模型目录里点按复制。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                item {
-                    Text(
-                        text = "倍率为 0 的模型不消耗积分。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onCopyEndpoint() }) { Text("复制地址") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-    )
+        title = "接入方式",
+        message = "网关提供 OpenAI 兼容接口，任何支持自定义 baseURL 的客户端都能接入。",
+        actions = persistentListOf(
+            MochiDialogAction(label = "关闭", role = MochiDialogActionRole.Cancel),
+            MochiDialogAction(
+                label = "复制地址",
+                role = MochiDialogActionRole.Primary,
+                onClick = onCopyEndpoint,
+            ),
+        ),
+    ) {
+        MochiListSection {
+            MochiListRow(
+                title = "地址",
+                subtitle = endpoint,
+                onClick = onCopyEndpoint,
+            )
+            MochiListRow(
+                title = "密钥",
+                subtitle = state.secret,
+            )
+        }
+        Text(
+            text = "在客户端的「自定义 OpenAI 接口」里填入上面两项即可。模型名可以在服务页的模型目录里点按复制。",
+            style = MochiTheme.textStyles.bodySmall,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "倍率为 0 的模型不消耗积分。",
+            style = MochiTheme.textStyles.bodySmall,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
 fun LogoutDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
+    MochiDialog(
+        visible = true,
         onDismissRequest = onDismiss,
-        title = { Text("退出登录") },
-        text = { Text("将清除国内版与国际版已保存的全部凭证，需要重新登录才能使用。") },
-        confirmButton = {
-            TextButton(onClick = onConfirm) { Text("退出", color = MaterialTheme.colorScheme.error) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        title = "退出登录",
+        message = "将清除国内版与国际版已保存的全部凭证，需要重新登录才能使用。",
+        actions = persistentListOf(
+            MochiDialogAction(label = "取消", role = MochiDialogActionRole.Cancel),
+            MochiDialogAction(
+                label = "退出",
+                role = MochiDialogActionRole.Destructive,
+                onClick = onConfirm,
+            ),
+        ),
     )
 }
 

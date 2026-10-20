@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +31,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ui.feice.mochi.basic.MochiProgressBar
+import ui.feice.mochi.basic.Text
+import ui.feice.mochi.theme.MochiTheme
 import app.anylyralabs.lyraproxy.bridge.BridgeStatus
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.bridge.UsageSummary
@@ -222,8 +223,8 @@ fun DashboardScreen(
                     trailing = {
                         Text(
                             text = formatCredits(state.balance?.total ?: 0.0),
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MochiTheme.textStyles.titleLarge,
+                            color = MochiTheme.colorScheme.primary,
                         )
                     },
                 )
@@ -235,8 +236,8 @@ fun DashboardScreen(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = "今天已签到，明天再来",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MochiTheme.textStyles.bodySmall,
+                            color = MochiTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.height(8.dp))
@@ -279,23 +280,23 @@ fun DashboardScreen(
                         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text(
                                 text = acc.name,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MochiTheme.textStyles.bodySmall,
+                                color = MochiTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = "${formatCredits(acc.remain)} / ${formatCredits(acc.size)}",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MochiTheme.textStyles.bodySmall,
                             )
                         }
                     }
                     if (balance.cycleEnd.isNotBlank()) {
                         Text(
                             text = "本期截至 ${balance.cycleEnd}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MochiTheme.textStyles.labelSmall,
+                            color = MochiTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -321,8 +322,8 @@ fun DashboardScreen(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MochiTheme.textStyles.labelSmall,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -348,8 +349,8 @@ private fun HeroBlock(
     Column {
         Text(
             text = getGreetingText(),
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onSurface,
+            style = MochiTheme.textStyles.displayLarge,
+            color = MochiTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -357,11 +358,11 @@ private fun HeroBlock(
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (running) "网关运行中 · 127.0.0.1:$port" else "网关未运行",
-                style = MaterialTheme.typography.bodySmall,
+                style = MochiTheme.textStyles.bodySmall,
                 color = if (running) {
-                    MaterialTheme.colorScheme.primary
+                    MochiTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                    MochiTheme.colorScheme.onSurfaceVariant
                 },
             )
             if (running) {
@@ -369,7 +370,7 @@ private fun HeroBlock(
                 Text(
                     text = uptime,
                     style = MonoSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -377,17 +378,17 @@ private fun HeroBlock(
         Spacer(Modifier.height(22.dp))
         Text(
             text = "今日 Token",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MochiTheme.textStyles.labelMedium,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(2.dp))
         Text(
             text = formatTokenCount(todayTokens),
-            style = MaterialTheme.typography.displaySmall,
+            style = MochiTheme.textStyles.displaySmall,
             color = if (todayTokens > 0L) {
-                MaterialTheme.colorScheme.onSurface
+                MochiTheme.colorScheme.onSurface
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+                MochiTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
         )
@@ -409,9 +410,9 @@ private fun HeroBlock(
                         .clip(RoundedCornerShape(1.5.dp))
                         .background(
                             if (count == 0) {
-                                MaterialTheme.colorScheme.surfaceVariant
+                                MochiTheme.colorScheme.surfaceVariant
                             } else {
-                                MaterialTheme.colorScheme.primary.copy(
+                                MochiTheme.colorScheme.primary.copy(
                                     alpha = 0.35f + 0.65f * ratio.coerceAtLeast(0.25f),
                                 )
                             },
@@ -423,13 +424,13 @@ private fun HeroBlock(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 text = "24 小时前",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MochiTheme.textStyles.labelSmall,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = "现在",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MochiTheme.textStyles.labelSmall,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -505,8 +506,8 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
             trailing = {
                 Text(
                     text = "${calls.size} 次",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MochiTheme.textStyles.labelMedium,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
             },
         )
@@ -518,17 +519,17 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
                 val active = option == span
                 Text(
                     text = option.label,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MochiTheme.textStyles.labelMedium,
                     color = if (active) {
-                        MaterialTheme.colorScheme.onSurface
+                        MochiTheme.colorScheme.onSurface
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        MochiTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(
                             if (active) {
-                                MaterialTheme.colorScheme.surfaceVariant
+                                MochiTheme.colorScheme.surfaceVariant
                             } else {
                                 Color.Transparent
                             },
@@ -573,8 +574,8 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
             Text(
                 text = selected?.let { (date, count) -> "$date · $count 次" }
                     ?: "点格子查看当天，向左滑动看更早",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MochiTheme.textStyles.labelSmall,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -633,7 +634,7 @@ private fun ModelStatRow(stat: ModelStat, maxCount: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = stat.model,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MochiTheme.textStyles.bodyMedium,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -641,10 +642,13 @@ private fun ModelStatRow(stat: ModelStat, maxCount: Int) {
         Spacer(Modifier.width(12.dp))
         Text(
             text = "${stat.count} 次 · ${formatTokenCount(stat.tokens)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MochiTheme.textStyles.labelSmall,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
         )
     }
     Spacer(Modifier.height(6.dp))
-    ThinBar(fraction = stat.count.toFloat() / maxCount.coerceAtLeast(1))
+    MochiProgressBar(
+        progress = stat.count.toFloat() / maxCount.coerceAtLeast(1),
+        height = 3.dp,
+    )
 }
