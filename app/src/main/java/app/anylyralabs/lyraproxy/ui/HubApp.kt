@@ -92,6 +92,7 @@ fun HubApp(
     onQoderTest: () -> Unit = {},
     onQoderRefreshModels: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
+    onSwitchProvider: (GatewayProvider) -> Unit = {},
     onQoderPatConfirm: (String) -> Unit = {},
     onDismissQoderPat: () -> Unit = {},
     onDismissQoderProbe: () -> Unit = {},
@@ -183,6 +184,7 @@ fun HubApp(
                             onQoderTest = onQoderTest,
                             onQoderRefreshModels = onQoderRefreshModels,
                             onQoderLogout = onQoderLogout,
+                            onSwitchProvider = onSwitchProvider,
                         )
                         HubTab.Bridge -> BridgeScreen(
                             state = state,

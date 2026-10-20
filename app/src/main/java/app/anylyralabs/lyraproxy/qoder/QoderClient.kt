@@ -18,8 +18,16 @@ import java.util.UUID
  * 设备码登录仍走 `qoder.com/device/selectAccounts`，轮询走 OpenAPI。
  */
 object QoderConfig {
-    /** 国际版新网关；同一主机同时提供 /api/v1 与 /algo 两类接口。 */
-    const val BASE_URL = "https://api.qoder.com"
+    /**
+     * 认证与账号接口（设备码轮询、刷新、用户信息）。
+     *
+     * 注意：`api.qoder.com` 是 Cloud Agents API，不是 CLI 网关；
+     * 对设备码轮询会返回 401。CLI 的认证域是 `openapi.qoder.sh`。
+     */
+    const val OPENAPI_URL = "https://openapi.qoder.sh"
+
+    /** 模型与聊天网关（/algo/*）。 */
+    const val GATEWAY_URL = "https://api3.qoder.sh"
 
     /** 浏览器授权页。 */
     const val DEVICE_PAGE = "https://qoder.com/device/selectAccounts"
@@ -65,7 +73,7 @@ class QoderClient {
      * 其它非 2xx 都视为失败，并把响应体带出去便于排查。
      */
     fun poll(flow: QoderDeviceFlow): QoderPoll {
-        val url = "${QoderConfig.BASE_URL}/api/v1/deviceToken/poll" +
+        val url = "${QoderConfig.OPENAPI_URL}/api/v1/deviceToken/poll" +
             "?nonce=${enc(flow.nonce)}&verifier=${enc(flow.verifier)}&challenge_method=S256"
         val response = call(url, "GET", emptyMap())
         if (response.status == 404) return QoderPoll.Pending
@@ -120,7 +128,7 @@ class QoderClient {
 
         // 路径二：PAT 换取 job token
         val exchange = call(
-            "${QoderConfig.BASE_URL}/api/v1/jobToken/exchange",
+            "${QoderConfig.OPENAPI_URL}/api/v1/jobToken/exchange",
             "POST",
             mapOf("Content-Type" to "application/json", "Accept" to "application/json"),
             JSONObject().put("personal_token", trimmed).toString(),
@@ -146,7 +154,7 @@ class QoderClient {
     fun refresh(account: QoderAccount): QoderAccount {
         if (account.refreshToken.isBlank()) return account
         val response = call(
-            "${QoderConfig.BASE_URL}/api/v1/deviceToken/refresh",
+            "${QoderConfig.OPENAPI_URL}/api/v1/deviceToken/refresh",
             "POST",
             mapOf(
                 "Content-Type" to "application/json",
@@ -172,7 +180,7 @@ class QoderClient {
 
     private fun fetchUserInfo(token: String): UserInfo? {
         val response = call(
-            "${QoderConfig.BASE_URL}/api/v1/userinfo",
+            "${QoderConfig.OPENAPI_URL}/api/v1/userinfo",
             "GET",
             mapOf(
                 "Accept" to "application/json",
@@ -203,7 +211,7 @@ class QoderClient {
 
     fun fetchModels(token: String, machineId: String): List<QoderModel> {
         val response = call(
-            "${QoderConfig.BASE_URL}/algo/api/v2/model/list?Encode=1",
+            "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
             algoHeaders(token, machineId) + ("Accept" to "application/json"),
         )
@@ -259,7 +267,7 @@ class QoderClient {
      */
     fun probe(account: QoderAccount): QoderProbe {
         val user = call(
-            "${QoderConfig.BASE_URL}/api/v1/userinfo",
+            "${QoderConfig.OPENAPI_URL}/api/v1/userinfo",
             "GET",
             mapOf(
                 "Accept" to "application/json",
@@ -267,7 +275,7 @@ class QoderClient {
             ),
         )
         val models = call(
-            "${QoderConfig.BASE_URL}/algo/api/v2/model/list?Encode=1",
+            "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
             algoHeaders(account.accessToken, account.machineId) + ("Accept" to "application/json"),
         )

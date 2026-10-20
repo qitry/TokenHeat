@@ -18,9 +18,17 @@ enum class HubTab(val label: String) {
     Calls("记录"),
 }
 
+/** 网关供应商。两套账号体系互不通约，切换只影响展示与后续路由。 */
+enum class GatewayProvider(val label: String) {
+    WORKBUDDY("WorkBuddy"),
+    QODER("Qoder"),
+}
+
 /** Everything the screens render; owned by the activity and backed by the service. */
 data class HubState(
     val credential: Credential? = null,
+    /** 当前查看/使用的供应商。 */
+    val provider: GatewayProvider = GatewayProvider.WORKBUDDY,
     val expiryText: String = "",
     val bridgeRunning: Boolean = false,
     val port: Int = 8765,

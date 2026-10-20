@@ -245,6 +245,7 @@ class MainActivity : ComponentActivity() {
                 onQoderTest = { testQoder() },
                 onQoderRefreshModels = { refreshQoderModels() },
                 onQoderLogout = { logoutQoder() },
+                onSwitchProvider = { provider -> state = state.copy(provider = provider) },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
                 onDismissQoderProbe = { state = state.copy(qoderProbe = null) },
                 onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
@@ -757,12 +758,20 @@ class MainActivity : ComponentActivity() {
                         return@launch
                     }
                     is QoderPoll.Failed -> {
-                        state = state.copy(qoderBusy = false, qoderStatus = result.message)
+                        state = state.copy(
+                            qoderBusy = false,
+                            qoderLoginUrl = "",
+                            qoderStatus = result.message,
+                        )
                         return@launch
                     }
                 }
             }
-            state = state.copy(qoderBusy = false, qoderStatus = "授权超时，请重试")
+            state = state.copy(
+                qoderBusy = false,
+                qoderLoginUrl = "",
+                qoderStatus = "授权超时，请重试",
+            )
         }
     }
 

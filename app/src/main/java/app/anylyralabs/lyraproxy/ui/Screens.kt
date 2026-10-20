@@ -70,6 +70,7 @@ fun CredentialScreen(
     onQoderTest: () -> Unit = {},
     onQoderRefreshModels: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
+    onSwitchProvider: (GatewayProvider) -> Unit = {},
 ) {
     val region = state.realm
     val regionLabel = realmName(region)
@@ -80,9 +81,26 @@ fun CredentialScreen(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
     ) {
-        // Qoder 放在最上方：它是一套独立账号体系，先给出入口再谈 WorkBuddy。
-        item(key = "qoder") {
+        // 供应商选择：WorkBuddy 与 Qoder 是两套完全独立的账号体系，
+        // 不能混在同一个「版本」切换里，所以先选供应商，再展示对应内容。
+        item(key = "provider") {
             Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GatewayProvider.entries.forEach { item ->
+                        SegmentTab(
+                            label = item.label,
+                            selected = state.provider == item,
+                            onClick = { onSwitchProvider(item) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+        }
+
+        if (state.provider == GatewayProvider.QODER) {
+            item(key = "qoder") {
                 QoderSection(
                     account = state.qoderAccount,
                     modelCount = state.qoderModels.size,
@@ -94,10 +112,8 @@ fun CredentialScreen(
                     onRefreshModels = onQoderRefreshModels,
                     onLogout = onQoderLogout,
                 )
-                Spacer(Modifier.height(18.dp))
-                Rule()
             }
-        }
+        } else {
 
         // 当前账号
         item(key = "current") {
@@ -211,6 +227,7 @@ fun CredentialScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
         }
     }
 }
