@@ -30,13 +30,8 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.contentColorFor
+import ui.feice.mochi.basic.Text
+import ui.feice.mochi.theme.MochiTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,23 +62,23 @@ import ui.feice.mochi.theme.MochiTheme
 private val LyraTabs = persistentListOf(
     MochiTabItem(
         label = HubTab.Dashboard.label,
-        icon = { tint -> Icon(Icons.Outlined.Home, contentDescription = null, tint = tint) },
-        selectedIcon = { tint -> Icon(Icons.Filled.Home, contentDescription = null, tint = tint) },
+        icon = { tint -> LyraIcon(Icons.Outlined.Home, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.Home, contentDescription = null, tint = tint) },
     ),
     MochiTabItem(
         label = HubTab.Credential.label,
-        icon = { tint -> Icon(Icons.Outlined.Person, contentDescription = null, tint = tint) },
-        selectedIcon = { tint -> Icon(Icons.Filled.Person, contentDescription = null, tint = tint) },
+        icon = { tint -> LyraIcon(Icons.Outlined.Person, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.Person, contentDescription = null, tint = tint) },
     ),
     MochiTabItem(
         label = HubTab.Bridge.label,
-        icon = { tint -> Icon(Icons.Outlined.Settings, contentDescription = null, tint = tint) },
-        selectedIcon = { tint -> Icon(Icons.Filled.Settings, contentDescription = null, tint = tint) },
+        icon = { tint -> LyraIcon(Icons.Outlined.Settings, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.Settings, contentDescription = null, tint = tint) },
     ),
     MochiTabItem(
         label = HubTab.Calls.label,
-        icon = { tint -> Icon(Icons.Outlined.History, contentDescription = null, tint = tint) },
-        selectedIcon = { tint -> Icon(Icons.Filled.History, contentDescription = null, tint = tint) },
+        icon = { tint -> LyraIcon(Icons.Outlined.History, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.History, contentDescription = null, tint = tint) },
     ),
 )
 
@@ -194,52 +189,13 @@ fun HubApp(
     ClaudeTheme(darkTheme = dark) {
         ProvideMochiOverscroll {
         Box(Modifier.fillMaxSize()) {
-        val background = MaterialTheme.colorScheme.background
-        Surface(color = background, contentColor = contentColorFor(background)) {
-            Scaffold(
-                // 交给顶栏与底栏各自避让系统栏：Scaffold 若同时消费 insets，
-                // 会与栏内的 statusBarsPadding / navigationBarsPadding 叠加成双倍留白。
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                topBar = {
-                    AppHeader(
-                        running = state.bridgeRunning,
-                        dark = dark,
-                        onToggleDark = { darkOverride = !dark },
-                    )
-                },
-                bottomBar = {
-                    MochiTabBar(
-                        selectedIndex = tab,
-                        onSelect = { tab = it },
-                        items = LyraTabs,
-                        modifier = Modifier.fillMaxWidth(),
-                        // 附件条：常驻显示当前模型、供应商与网关开关
-                        accessory = { inline ->
-                            LyraAccessory(
-                                inline = inline,
-                                provider = state.provider.label,
-                                model = state.calls
-                                    .maxByOrNull { it.timestamp }
-                                    ?.model
-                                    ?.takeIf { it.isNotBlank() }
-                                    ?: "自动路由",
-                                running = state.bridgeRunning,
-                                onToggle = { checked ->
-                                    if (checked) onStartBridge(state.port) else onStopBridge()
-                                },
-                            )
-                        },
-                    )
-                },
-            ) { padding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(
-                            top = padding.calculateTopPadding(),
-                            bottom = padding.calculateBottomPadding(),
-                        ),
-                ) {
+            Column(Modifier.fillMaxSize()) {
+                AppHeader(
+                    running = state.bridgeRunning,
+                    dark = dark,
+                    onToggleDark = { darkOverride = !dark },
+                )
+                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
                     when (HubTab.entries[tab]) {
                         HubTab.Dashboard -> DashboardScreen(
                             state = state,
@@ -306,17 +262,38 @@ fun HubApp(
                         HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
                     }
                 }
+                MochiTabBar(
+                    selectedIndex = tab,
+                    onSelect = { tab = it },
+                    items = LyraTabs,
+                    modifier = Modifier.fillMaxWidth(),
+                    // 附件条：常驻显示当前模型、供应商与网关开关
+                    accessory = { inline ->
+                        LyraAccessory(
+                            inline = inline,
+                            provider = state.provider.label,
+                            model = state.calls
+                                .maxByOrNull { it.timestamp }
+                                ?.model
+                                ?.takeIf { it.isNotBlank() }
+                                ?: "自动路由",
+                            running = state.bridgeRunning,
+                            onToggle = { checked ->
+                                if (checked) onStartBridge(state.port) else onStopBridge()
+                            },
+                        )
+                    },
+                )
             }
-        }
-        MochiEdgeGlow(
-            active = edgeGlow,
-            modifier = Modifier.fillMaxSize(),
-            palette = MochiHdrPalette.Sunset,
-            width = 24.dp,
-            line = 3.dp,
-            speed = 3f,
-            intensity = 1f,
-        )
+            MochiEdgeGlow(
+                active = edgeGlow,
+                modifier = Modifier.fillMaxSize(),
+                palette = MochiHdrPalette.Sunset,
+                width = 24.dp,
+                line = 3.dp,
+                speed = 3f,
+                intensity = 1f,
+            )
         }
         }
 
@@ -476,15 +453,14 @@ private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit)
         ) {
             Text(
                 text = "Lyra",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MochiTheme.textStyles.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = MochiTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.width(2.dp))
             Text(
                 text = "Proxy",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MochiTheme.textStyles.titleLarge,
+                color = MochiTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.width(10.dp))
             if (running) {
@@ -498,15 +474,15 @@ private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit)
                     .clickable(onClick = onToggleDark),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
+                LyraIcon(
                     imageVector = if (dark) Icons.Default.LightMode else Icons.Default.DarkMode,
                     contentDescription = if (dark) "浅色" else "深色",
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MochiTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MochiTheme.colorScheme.outline))
     }
 }
 
@@ -514,63 +490,6 @@ private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit)
  * 底栏：纯文字导航，不用图标。
  * 四个入口字数不多，文字比图标更直接，也省掉 4 个图标的绘制。
  */
-@Composable
-private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
-    Column {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HubTab.entries.forEach { item ->
-                val selected = current == item.ordinal
-                val color by animateColorAsState(
-                    targetValue = if (selected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    label = "tabColor",
-                )
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(item.ordinal) }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = item.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = color,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    // 指示条固定宽度，只切换颜色：若宽度随选中变化，
-                    // 文字会被挤动，切换标签时整行会抖一下。
-                    Box(
-                        modifier = Modifier
-                            .width(16.dp)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(
-                                if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    Color.Transparent
-                                },
-                            ),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /**
  * Dynamic friendly greeting text based on local clock time.
  */

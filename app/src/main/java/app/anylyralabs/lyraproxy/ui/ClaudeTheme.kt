@@ -1,10 +1,6 @@
 package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -124,7 +120,7 @@ val MonoSmall = TextStyle(
 
 /** 当前是否暗色；全局统一用这一处判断，避免各处各写一套。 */
 @Composable
-fun isClaudeDark(): Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+fun isClaudeDark(): Boolean = MochiTheme.colorScheme.isDark
 
 /**
  * 应用主题：Nothing 外观（单色 + 红点）+ mochi 的形状与动效。
@@ -153,14 +149,7 @@ fun ClaudeTheme(
         }
     }
     CompositionLocalProvider(LocalMochiControlPalette provides controls) {
-    MochiTheme(colors = scheme, textStyles = styles) {
-        val mochi = MochiTheme.colorScheme
-        MaterialTheme(
-            colorScheme = mochi.toMaterialScheme(),
-            typography = styles.toMaterialTypography(),
-            content = content,
-        )
-    }
+        MochiTheme(colors = scheme, textStyles = styles, content = content)
     }
 }
 
@@ -229,103 +218,3 @@ private fun nothingScheme(isDark: Boolean): MochiColorScheme = if (isDark) {
         surfaceContainerHighest = Color(0xFFE0E0E0),
     )
 }
-
-/** 把 Mochi 的色板映射成 Material3 的 colorScheme，供旧页面过渡期使用。 */
-private fun MochiColorScheme.toMaterialScheme() = if (isDark) {
-    darkColorScheme(
-        primary = primary,
-        onPrimary = onPrimary,
-        primaryContainer = primaryContainer,
-        onPrimaryContainer = onPrimaryContainer,
-        inversePrimary = inversePrimary,
-        secondary = secondary,
-        onSecondary = onSecondary,
-        secondaryContainer = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        tertiary = tertiary,
-        onTertiary = onTertiary,
-        tertiaryContainer = tertiaryContainer,
-        onTertiaryContainer = onTertiaryContainer,
-        background = background,
-        onBackground = onBackground,
-        surface = surface,
-        onSurface = onSurface,
-        surfaceVariant = surfaceVariant,
-        onSurfaceVariant = onSurfaceVariant,
-        surfaceTint = surfaceTint,
-        inverseSurface = inverseSurface,
-        inverseOnSurface = inverseOnSurface,
-        error = error,
-        onError = onError,
-        errorContainer = errorContainer,
-        onErrorContainer = onErrorContainer,
-        outline = outline,
-        outlineVariant = outlineVariant,
-        scrim = scrim,
-        surfaceBright = surfaceBright,
-        surfaceDim = surfaceDim,
-        surfaceContainer = surfaceContainer,
-        surfaceContainerHigh = surfaceContainerHigh,
-        surfaceContainerHighest = surfaceContainerHighest,
-        surfaceContainerLow = surfaceContainerLow,
-        surfaceContainerLowest = surfaceContainerLowest,
-    )
-} else {
-    lightColorScheme(
-        primary = primary,
-        onPrimary = onPrimary,
-        primaryContainer = primaryContainer,
-        onPrimaryContainer = onPrimaryContainer,
-        inversePrimary = inversePrimary,
-        secondary = secondary,
-        onSecondary = onSecondary,
-        secondaryContainer = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        tertiary = tertiary,
-        onTertiary = onTertiary,
-        tertiaryContainer = tertiaryContainer,
-        onTertiaryContainer = onTertiaryContainer,
-        background = background,
-        onBackground = onBackground,
-        surface = surface,
-        onSurface = onSurface,
-        surfaceVariant = surfaceVariant,
-        onSurfaceVariant = onSurfaceVariant,
-        surfaceTint = surfaceTint,
-        inverseSurface = inverseSurface,
-        inverseOnSurface = inverseOnSurface,
-        error = error,
-        onError = onError,
-        errorContainer = errorContainer,
-        onErrorContainer = onErrorContainer,
-        outline = outline,
-        outlineVariant = outlineVariant,
-        scrim = scrim,
-        surfaceBright = surfaceBright,
-        surfaceDim = surfaceDim,
-        surfaceContainer = surfaceContainer,
-        surfaceContainerHigh = surfaceContainerHigh,
-        surfaceContainerHighest = surfaceContainerHighest,
-        surfaceContainerLow = surfaceContainerLow,
-        surfaceContainerLowest = surfaceContainerLowest,
-    )
-}
-
-/** Mochi 字阶 → Material3 Typography。 */
-private fun MochiTextStyles.toMaterialTypography() = Typography(
-    displayLarge = displayLarge,
-    displayMedium = displayMedium,
-    displaySmall = displaySmall,
-    headlineLarge = headlineLarge,
-    headlineMedium = headlineMedium,
-    headlineSmall = headlineSmall,
-    titleLarge = titleLarge,
-    titleMedium = titleMedium,
-    titleSmall = titleSmall,
-    bodyLarge = bodyLarge,
-    bodyMedium = bodyMedium,
-    bodySmall = bodySmall,
-    labelLarge = labelLarge,
-    labelMedium = labelMedium,
-    labelSmall = labelSmall,
-)

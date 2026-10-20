@@ -81,7 +81,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.material3:material3")
 
     // 组件库：MD3 Expressive + iOS 26 交互 + G2 连续圆角
     implementation("com.github.feice11:mochi-compose:0.1.180")

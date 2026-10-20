@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import ui.feice.mochi.basic.Text
+import ui.feice.mochi.theme.LocalContentColor
+import ui.feice.mochi.theme.MochiTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -42,6 +44,22 @@ import ui.feice.mochi.basic.MochiButton
 import ui.feice.mochi.basic.MochiButtonStyle
 import ui.feice.mochi.theme.MochiTheme
 
+/** 用 Compose 的 Image 画 ImageVector，避免再依赖 material3 的 Icon。 */
+@Composable
+fun LyraIcon(
+    imageVector: ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tint: Color = LocalContentColor.current,
+) {
+    Image(
+        painter = rememberVectorPainter(imageVector),
+        contentDescription = contentDescription,
+        modifier = modifier,
+        colorFilter = ColorFilter.tint(tint),
+    )
+}
+
 // -----------------------------------------------------------------------------
 // 原子组件。
 //
@@ -56,7 +74,7 @@ import ui.feice.mochi.theme.MochiTheme
  * 否则文字会贴在线上。上方的间距由各分组的外层 padding 提供。
  */
 @Composable
-fun Rule(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.outline) {
+fun Rule(modifier: Modifier = Modifier, color: Color = MochiTheme.colorScheme.outline) {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -81,8 +99,8 @@ fun Rule(modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MochiTheme.textStyles.labelMedium,
+        color = MochiTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.padding(top = 14.dp),
     )
 }
@@ -102,15 +120,15 @@ fun SectionHeading(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MochiTheme.textStyles.titleLarge,
+                color = MochiTheme.colorScheme.onSurface,
             )
             if (!subtitle.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MochiTheme.textStyles.bodySmall,
+                    color = MochiTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -146,7 +164,7 @@ fun PrimaryButton(
         style = MochiButtonStyle.Filled,
     ) {
         if (icon != null) {
-            Icon(
+            LyraIcon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
@@ -178,7 +196,7 @@ fun QuietButton(
         style = if (danger) MochiButtonStyle.Text else MochiButtonStyle.Tonal,
     ) {
         if (icon != null) {
-            Icon(
+            LyraIcon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(15.dp),
@@ -188,7 +206,7 @@ fun QuietButton(
         Text(
             text = text,
             style = MochiTheme.textStyles.labelLarge,
-            color = if (danger) MaterialTheme.colorScheme.error else LocalContentColor.current,
+            color = if (danger) MochiTheme.colorScheme.error else LocalContentColor.current,
             maxLines = 1,
         )
     }
@@ -217,7 +235,7 @@ fun TextAction(
         Text(
             text = text,
             style = MochiTheme.textStyles.labelMedium,
-            color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            color = if (danger) MochiTheme.colorScheme.error else MochiTheme.colorScheme.primary,
         )
     }
 }
@@ -250,13 +268,13 @@ fun LiveDot(
                     .size(size)
                     .scale(scale)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+                    .background(MochiTheme.colorScheme.primary.copy(alpha = 0.22f)),
             )
             Box(
                 modifier = Modifier
                     .size(size)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(MochiTheme.colorScheme.primary),
             )
         }
     } else {
@@ -264,7 +282,7 @@ fun LiveDot(
             modifier = modifier
                 .size(size)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+                .background(MochiTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
         )
     }
 }
@@ -275,12 +293,12 @@ fun Readout(
     value: String,
     label: String,
     modifier: Modifier = Modifier,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface,
+    valueColor: Color = MochiTheme.colorScheme.onSurface,
 ) {
     Column(modifier = modifier) {
         Text(
             text = value,
-            style = MaterialTheme.typography.headlineMedium,
+            style = MochiTheme.textStyles.headlineMedium,
             color = valueColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -288,8 +306,8 @@ fun Readout(
         Spacer(Modifier.height(3.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MochiTheme.textStyles.labelSmall,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -302,14 +320,14 @@ fun ThinBar(
     fraction: Float,
     modifier: Modifier = Modifier,
     height: Dp = 3.dp,
-    fill: Color = MaterialTheme.colorScheme.primary,
+    fill: Color = MochiTheme.colorScheme.primary,
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(height / 2))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MochiTheme.colorScheme.surfaceVariant),
     ) {
         Box(
             modifier = Modifier
@@ -325,14 +343,14 @@ fun ThinBar(
 fun Tag(text: String, modifier: Modifier = Modifier, tone: TagTone = TagTone.Neutral) {
     // 语义色一律取主题色，暗色模式下才不会因为固定深色而看不清。
     val color = when (tone) {
-        TagTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
-        TagTone.Active -> MaterialTheme.colorScheme.primary
-        TagTone.Danger -> MaterialTheme.colorScheme.error
-        TagTone.Positive -> MaterialTheme.colorScheme.tertiary
+        TagTone.Neutral -> MochiTheme.colorScheme.onSurfaceVariant
+        TagTone.Active -> MochiTheme.colorScheme.primary
+        TagTone.Danger -> MochiTheme.colorScheme.error
+        TagTone.Positive -> MochiTheme.colorScheme.tertiary
     }
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        style = MochiTheme.textStyles.labelSmall,
         color = color,
         modifier = modifier
             .clip(RoundedCornerShape(5.dp))
@@ -352,8 +370,8 @@ fun EmptyNote(text: String, modifier: Modifier = Modifier, action: (@Composable 
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MochiTheme.textStyles.bodyMedium,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
         )
         action?.invoke()
     }
@@ -377,13 +395,13 @@ fun FieldRow(
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MochiTheme.textStyles.bodySmall,
+            color = MochiTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(96.dp),
         )
         Text(
             text = value,
-            style = if (mono) MonoSmall else MaterialTheme.typography.bodyMedium,
+            style = if (mono) MonoSmall else MochiTheme.textStyles.bodyMedium,
             color = LocalContentColor.current,
             modifier = Modifier.weight(1f),
             maxLines = 2,
@@ -397,8 +415,8 @@ fun FieldRow(
 fun InlineLoading(text: String = "读取中") {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MochiTheme.textStyles.labelSmall,
+        color = MochiTheme.colorScheme.onSurfaceVariant,
     )
 }
 
