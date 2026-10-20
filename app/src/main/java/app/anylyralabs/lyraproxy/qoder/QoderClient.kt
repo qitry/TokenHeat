@@ -110,22 +110,7 @@ class QoderClient {
         val trimmed = pat.trim()
         if (trimmed.isEmpty()) return Result.failure(IllegalStateException("令牌为空"))
 
-        // 路径一：PAT 直接作为 Bearer
-        val direct = fetchUserInfo(trimmed)
-        if (direct != null) {
-            val account = QoderAccount(
-                id = direct.id.ifEmpty { "qoder" },
-                name = direct.name,
-                email = direct.email,
-                accessToken = trimmed,
-                refreshToken = "",
-                expiresAt = 0L,
-                machineId = machineId,
-                source = "pat",
-            )
-            return Result.success(account)
-        }
-
+        // PAT（pt-）不是 Bearer：必须先换成 job token（jt-），官方从不直接使用 pt-。
         // 路径二：PAT 换取 job token
         val exchange = call(
             "${QoderConfig.OPENAPI_URL}/api/v1/jobToken/exchange",
@@ -141,6 +126,8 @@ class QoderClient {
         val json = runCatching { JSONObject(exchange.body) }.getOrNull()
             ?: return Result.failure(IllegalStateException("令牌交换响应不是 JSON"))
         val token = json.optString("token")
+            .ifEmpty { json.optString("access_token") }
+            .ifEmpty { json.optString("device_token") }
         if (token.isEmpty()) return Result.failure(IllegalStateException("令牌交换未返回 token"))
         val account = accountFrom(json, token, machineId, "", "", "pat")
         return Result.success(enrich(account))
@@ -150,29 +137,51 @@ class QoderClient {
     // 刷新与用户信息
     // --------------------------------------------------------------------- //
 
-    /** 刷新访问令牌；失败时返回原账号，让上层决定是否提示重新登录。 */
+    /**
+     * 刷新访问令牌；失败时返回原账号，让上层决定是否提示重新登录。
+     *
+     * 两种 token 走不同接口：
+     * - 设备码登录：POST /api/v1/deviceToken/refresh，响应字段是 device_token；
+     * - PAT / job token：POST /api/v1/jobToken/refresh，响应字段是 token。
+     */
     fun refresh(account: QoderAccount): QoderAccount {
         if (account.refreshToken.isBlank()) return account
+
+        val jobToken = account.source == "pat" || account.accessToken.startsWith("jt-")
+        val path = if (jobToken) "/api/v1/jobToken/refresh" else "/api/v1/deviceToken/refresh"
+        val payload = JSONObject().put("refresh_token", account.refreshToken)
+
         val response = call(
-            "${QoderConfig.OPENAPI_URL}/api/v1/deviceToken/refresh",
+            "${QoderConfig.OPENAPI_URL}$path",
             "POST",
             mapOf(
                 "Content-Type" to "application/json",
                 "Accept" to "application/json",
-                "Authorization" to "Bearer ${account.accessToken}",
             ),
-            JSONObject().put("refresh_token", account.refreshToken).toString(),
+            payload.toString(),
         )
         if (response.status !in 200..299) return account
+
         val json = runCatching { JSONObject(response.body) }.getOrNull() ?: return account
-        val token = json.optString("token").ifEmpty { return account }
-        return accountFrom(
+        val token = json.optString("token")
+            .ifEmpty { json.optString("device_token") }
+            .ifEmpty { json.optString("access_token") }
+        if (token.isEmpty()) return account
+
+        val refreshed = accountFrom(
             json = json,
             token = token,
             machineId = account.machineId,
             fallbackName = account.name,
             fallbackEmail = account.email,
             source = account.source,
+            fallbackId = account.id,
+        )
+        return refreshed.copy(
+            id = refreshed.id.ifEmpty { account.id },
+            name = refreshed.name.ifBlank { account.name },
+            email = refreshed.email.ifBlank { account.email },
+            refreshToken = refreshed.refreshToken.ifBlank { account.refreshToken },
         )
     }
 
@@ -281,15 +290,35 @@ class QoderClient {
      * `/api/v2/quota/usage` 走 openapi 的 Bearer，不需要 COSY 签名。
      * 三类额度都可能缺席，因此逐项解析而不是假定结构完整。
      */
-    fun fetchUsage(account: QoderAccount): QoderUsage {
-        val response = call(
+    fun fetchUsage(
+        account: QoderAccount,
+        onRefreshed: ((QoderAccount) -> Unit)? = null,
+    ): QoderUsage {
+        var current = account
+        var response = call(
             "${QoderConfig.OPENAPI_URL}/api/v2/quota/usage",
             "GET",
             mapOf(
                 "Accept" to "application/json",
-                "Authorization" to "Bearer ${account.accessToken}",
+                "Authorization" to "Bearer ${current.accessToken}",
             ),
         )
+        // job token 只有约 24 小时：401 时先刷新再重试一次，避免额度面板长期不可用。
+        if (response.status == 401) {
+            val refreshed = refresh(current)
+            if (refreshed.accessToken != current.accessToken) {
+                current = refreshed
+                onRefreshed?.invoke(refreshed)
+                response = call(
+                    "${QoderConfig.OPENAPI_URL}/api/v2/quota/usage",
+                    "GET",
+                    mapOf(
+                        "Accept" to "application/json",
+                        "Authorization" to "Bearer ${current.accessToken}",
+                    ),
+                )
+            }
+        }
         if (response.status !in 200..299) {
             throw IllegalStateException("额度查询失败：HTTP ${response.status} ${response.body.take(160)}")
         }
@@ -378,11 +407,12 @@ class QoderClient {
         fallbackName: String,
         fallbackEmail: String,
         source: String,
+        fallbackId: String = "qoder",
     ): QoderAccount {
         val expiresAt = parseExpiry(json)
         val uid = json.optString("user_id").ifEmpty { json.optString("uid") }
         return QoderAccount(
-            id = uid.ifEmpty { "qoder" },
+            id = uid.ifEmpty { fallbackId },
             name = json.optString("name").ifEmpty { fallbackName },
             email = json.optString("email").ifEmpty { fallbackEmail },
             accessToken = token,
