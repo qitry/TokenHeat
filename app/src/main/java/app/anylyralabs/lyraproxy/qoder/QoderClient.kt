@@ -272,6 +272,55 @@ class QoderClient {
     // --------------------------------------------------------------------- //
 
     // --------------------------------------------------------------------- //
+    // 额度
+    // --------------------------------------------------------------------- //
+
+    /**
+     * 读取额度。
+     *
+     * `/api/v2/quota/usage` 走 openapi 的 Bearer，不需要 COSY 签名。
+     * 三类额度都可能缺席，因此逐项解析而不是假定结构完整。
+     */
+    fun fetchUsage(account: QoderAccount): QoderUsage {
+        val response = call(
+            "${QoderConfig.OPENAPI_URL}/api/v2/quota/usage",
+            "GET",
+            mapOf(
+                "Accept" to "application/json",
+                "Authorization" to "Bearer ${account.accessToken}",
+            ),
+        )
+        if (response.status !in 200..299) {
+            throw IllegalStateException("额度查询失败：HTTP ${response.status} ${response.body.take(160)}")
+        }
+        val root = runCatching { JSONObject(response.body) }.getOrElse {
+            throw IllegalStateException("额度响应不是 JSON")
+        }
+        return QoderUsage(
+            userQuota = bucket(root.optJSONObject("userQuota"), "total"),
+            addOnQuota = bucket(root.optJSONObject("addOnQuota"), "total"),
+            orgQuota = bucket(root.optJSONObject("orgResourcePackage"), "cap"),
+            expiresAt = parseExpiry(root),
+        )
+    }
+
+    private fun bucket(json: JSONObject?, totalKey: String): QoderQuota? {
+        if (json == null) return null
+        val total = numberOrNull(json, totalKey) ?: numberOrNull(json, "total")
+        val used = numberOrNull(json, "used")
+        val remaining = numberOrNull(json, "remaining")
+        val unit = json.optString("unit")
+        if (total == null && used == null && remaining == null) return null
+        return QoderQuota(total = total, used = used, remaining = remaining, unit = unit)
+    }
+
+    private fun numberOrNull(json: JSONObject, key: String): Double? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val value = json.optDouble(key, Double.NaN)
+        return if (value.isNaN()) null else value
+    }
+
+    // --------------------------------------------------------------------- //
     // 内部
     // --------------------------------------------------------------------- //
 
