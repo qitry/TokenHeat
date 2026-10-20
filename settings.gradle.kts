@@ -11,6 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // mochi-compose 通过 JitPack 发布
+        maven("https://jitpack.io")
     }
 }
 

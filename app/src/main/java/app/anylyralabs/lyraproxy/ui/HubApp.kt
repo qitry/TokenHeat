@@ -20,7 +20,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +52,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.proto.Wire
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.delay
+import ui.feice.mochi.effect.hdr.MochiEdgeGlow
+import ui.feice.mochi.effect.hdr.MochiHdrPalette
+import ui.feice.mochi.basic.MochiTabBar
+import ui.feice.mochi.basic.MochiTabItem
+import ui.feice.mochi.basic.MochiSwitch
+import ui.feice.mochi.effect.overscroll.ProvideMochiOverscroll
+import ui.feice.mochi.shape.MochiCapsule
+import ui.feice.mochi.theme.MochiTheme
+
+/** 底部标签栏：图标 + 文字，交给 Mochi 的胶囊栏做选中块滑动与触感。 */
+private val LyraTabs = persistentListOf(
+    MochiTabItem(
+        label = HubTab.Dashboard.label,
+        icon = { tint -> Icon(Icons.Outlined.Home, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> Icon(Icons.Filled.Home, contentDescription = null, tint = tint) },
+    ),
+    MochiTabItem(
+        label = HubTab.Credential.label,
+        icon = { tint -> Icon(Icons.Outlined.Person, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> Icon(Icons.Filled.Person, contentDescription = null, tint = tint) },
+    ),
+    MochiTabItem(
+        label = HubTab.Bridge.label,
+        icon = { tint -> Icon(Icons.Outlined.Settings, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> Icon(Icons.Filled.Settings, contentDescription = null, tint = tint) },
+    ),
+    MochiTabItem(
+        label = HubTab.Calls.label,
+        icon = { tint -> Icon(Icons.Outlined.History, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> Icon(Icons.Filled.History, contentDescription = null, tint = tint) },
+    ),
+)
 
 @Composable
 fun HubApp(
@@ -136,7 +179,21 @@ fun HubApp(
         }
     }
 
+    // 总开关打开时点亮一圈 3 秒的边缘流光（日落配色）。
+    var edgeGlow by remember { mutableStateOf(false) }
+    LaunchedEffect(state.bridgeRunning) {
+        if (state.bridgeRunning) {
+            edgeGlow = true
+            delay(3_000)
+            edgeGlow = false
+        } else {
+            edgeGlow = false
+        }
+    }
+
     ClaudeTheme(darkTheme = dark) {
+        ProvideMochiOverscroll {
+        Box(Modifier.fillMaxSize()) {
         val background = MaterialTheme.colorScheme.background
         Surface(color = background, contentColor = contentColorFor(background)) {
             Scaffold(
@@ -151,7 +208,28 @@ fun HubApp(
                     )
                 },
                 bottomBar = {
-                    BottomTabs(current = tab, onSelect = { tab = it })
+                    MochiTabBar(
+                        selectedIndex = tab,
+                        onSelect = { tab = it },
+                        items = LyraTabs,
+                        modifier = Modifier.fillMaxWidth(),
+                        // 附件条：常驻显示当前模型、供应商与网关开关
+                        accessory = { inline ->
+                            LyraAccessory(
+                                inline = inline,
+                                provider = state.provider.label,
+                                model = state.calls
+                                    .maxByOrNull { it.timestamp }
+                                    ?.model
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: "自动路由",
+                                running = state.bridgeRunning,
+                                onToggle = { checked ->
+                                    if (checked) onStartBridge(state.port) else onStopBridge()
+                                },
+                            )
+                        },
+                    )
                 },
             ) { padding ->
                 Box(
@@ -229,6 +307,17 @@ fun HubApp(
                     }
                 }
             }
+        }
+        MochiEdgeGlow(
+            active = edgeGlow,
+            modifier = Modifier.fillMaxSize(),
+            palette = MochiHdrPalette.Sunset,
+            width = 24.dp,
+            line = 3.dp,
+            speed = 3f,
+            intensity = 1f,
+        )
+        }
         }
 
         if (state.checkinMessage.isNotBlank()) {
@@ -310,6 +399,63 @@ fun HubApp(
                 onCopyEndpoint = onCopyEndpoint,
             )
         }
+    }
+}
+
+/**
+ * 标签栏上方的附件条：当前模型 + 供应商 + 网关开关。
+ *
+ * 收进标签栏那一行时（[inline]）只留模型名和开关，避免把两行文字挤进
+ * 胶囊高度；展开时左侧补一个供应商首字母方块，和胶囊圆头同心。
+ */
+@Composable
+private fun LyraAccessory(
+    inline: Boolean,
+    provider: String,
+    model: String,
+    running: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    val cs = MochiTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxSize()
+            .padding(start = if (inline) 18.dp else 8.dp, end = if (inline) 10.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!inline) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(cs.primaryContainer, MochiCapsule),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = provider.take(1),
+                    style = MochiTheme.textStyles.labelLarge,
+                    color = cs.onPrimaryContainer,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = model,
+                style = MochiTheme.textStyles.labelLarge,
+                color = cs.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!inline) {
+                Text(
+                    text = provider,
+                    style = MochiTheme.textStyles.labelSmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+        MochiSwitch(checked = running, onCheckedChange = onToggle)
     }
 }
 

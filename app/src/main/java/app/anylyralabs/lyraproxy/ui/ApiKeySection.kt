@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ui.feice.mochi.basic.MochiSwitch
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 
 /**
@@ -62,7 +63,7 @@ fun ApiKeyItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = apiKey.enabled, onCheckedChange = onToggle)
+                MochiSwitch(checked = apiKey.enabled, onCheckedChange = onToggle)
             }
 
             if (apiKey.isUnlimitedBudget) {
@@ -217,7 +218,7 @@ fun ApiKeyEditorDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                    MochiSwitch(checked = enabled, onCheckedChange = { enabled = it })
                 }
             }
         },

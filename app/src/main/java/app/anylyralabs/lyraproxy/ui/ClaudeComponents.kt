@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.util.Locale
+import ui.feice.mochi.basic.MochiButton
+import ui.feice.mochi.basic.MochiButtonStyle
+import ui.feice.mochi.theme.MochiTheme
 
 // -----------------------------------------------------------------------------
 // 原子组件。
@@ -135,38 +139,23 @@ fun PrimaryButton(
     enabled: Boolean = true,
     icon: ImageVector? = null,
 ) {
-    val container by animateColorAsState(
-        targetValue = if (enabled) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        label = "primaryContainer",
-    )
-    Row(
-        modifier = modifier
-            .height(BUTTON_HEIGHT)
-            .clip(RoundedCornerShape(12.dp))
-            .background(container)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+    MochiButton(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        style = MochiButtonStyle.Filled,
     ) {
         if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onPrimary,
             )
             Spacer(Modifier.width(7.dp))
         }
         Text(
             text = text,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onPrimary,
+            style = MochiTheme.textStyles.labelLarge,
             maxLines = 1,
         )
     }
@@ -182,51 +171,26 @@ fun QuietButton(
     icon: ImageVector? = null,
     danger: Boolean = false,
 ) {
-    val content = if (danger) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val border = if (danger) {
-        MaterialTheme.colorScheme.error.copy(alpha = 0.35f)
-    } else {
-        MaterialTheme.colorScheme.outline
-    }
-    androidx.compose.material3.Surface(
-        modifier = modifier.height(BUTTON_HEIGHT),
-        shape = RoundedCornerShape(12.dp),
-        color = if (enabled) {
-            MaterialTheme.colorScheme.surfaceVariant
-        } else {
-            Color.Transparent
-        },
-        border = androidx.compose.foundation.BorderStroke(1.dp, border),
+    MochiButton(
         onClick = onClick,
+        modifier = modifier,
         enabled = enabled,
+        style = if (danger) MochiButtonStyle.Text else MochiButtonStyle.Tonal,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp),
-                    tint = if (enabled) content.copy(alpha = 0.8f) else content.copy(alpha = 0.35f),
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (enabled) content else content.copy(alpha = 0.35f),
-                maxLines = 1,
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
             )
+            Spacer(Modifier.width(6.dp))
         }
+        Text(
+            text = text,
+            style = MochiTheme.textStyles.labelLarge,
+            color = if (danger) MaterialTheme.colorScheme.error else LocalContentColor.current,
+            maxLines = 1,
+        )
     }
 }
 
@@ -243,22 +207,19 @@ fun TextAction(
     danger: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val color = if (danger) {
-        MaterialTheme.colorScheme.error
-    } else {
-        MaterialTheme.colorScheme.primary
+    MochiButton(
+        onClick = onClick,
+        modifier = modifier,
+        style = MochiButtonStyle.Text,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        minHeight = 32.dp,
+    ) {
+        Text(
+            text = text,
+            style = MochiTheme.textStyles.labelMedium,
+            color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        )
     }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = color,
-        modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
-            // 极淡的底色，让文字操作看起来是能点的，而不是普通说明文字。
-            .background(color.copy(alpha = 0.08f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-    )
 }
 
 /**

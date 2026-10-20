@@ -6,26 +6,29 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import ui.feice.mochi.theme.ColorSchemeMode
+import ui.feice.mochi.theme.MochiColorScheme
+import ui.feice.mochi.theme.MochiTheme
+import ui.feice.mochi.theme.MochiTextStyles
+import ui.feice.mochi.theme.PaletteStyle
+import ui.feice.mochi.theme.ThemeController
 
 /**
- * 视觉语言：暖纸账本。
+ * 品牌色板。
  *
- * LyraProxy 是一台跑在本机的网关，界面要像一张摊开的账页：底色是温的纸，
- * 文字是墨，只有一个陶土色在说话——它只表示「活的」东西：正在运行、
- * 正在计费、有数据在流动。其余一切都靠字号与留白分层，不用描边和阴影。
- *
- * 衬线体只出现在两处：问候语与今日读数。这是整页唯一的视觉重音，
- * 别处一律无衬线，避免字体互相抢戏。
+ * 主题由 mochi-compose 生成：这里只提供种子色（陶土）和取色算法，
+ * 明暗两套色阶全部交给 MD3 Expressive 的 tonal palette 推导。
+ * 旧的纸墨色值保留给少数需要固定颜色的地方（图表、热力阶）。
  */
 object Claude {
-
-    // 纸与墨（亮色）
     val Paper = Color(0xFFFAF9F5)
     val PaperDeep = Color(0xFFF0EEE6)
     val PaperEdge = Color(0xFFE6E3DA)
@@ -33,17 +36,14 @@ object Claude {
     val InkSoft = Color(0xFF6B6862)
     val InkFaint = Color(0xFF9C978D)
 
-    // 陶土：唯一的强调色
     val Clay = Color(0xFFC96442)
     val ClayDeep = Color(0xFFA84E32)
     val ClayWash = Color(0xFFF6E8E1)
 
-    // 语义（低饱和，只在状态里出现）
     val Moss = Color(0xFF5C7A52)
     val Rust = Color(0xFFA8382B)
     val Amber = Color(0xFF9A6B1F)
 
-    // 夜（暗色）
     val Night = Color(0xFF262624)
     val NightRaised = Color(0xFF30302E)
     val NightEdge = Color(0xFF3E3E3B)
@@ -53,27 +53,13 @@ object Claude {
     val ClayNight = Color(0xFFD97757)
 }
 
-// -----------------------------------------------------------------------------
-// 字体：衬线只给「问候」与「今日读数」，其余无衬线。
-// -----------------------------------------------------------------------------
+/** 页面重音：Mochi 的 display 级字阶。 */
+val DisplaySerif: TextStyle
+    get() = defaultMochiTextStyles.displayLarge
 
-/** 页面重音：大号衬线，行距放松，接近印刷物的呼吸感。 */
-val DisplaySerif = TextStyle(
-    fontFamily = FontFamily.Serif,
-    fontWeight = FontWeight.Normal,
-    fontSize = 32.sp,
-    lineHeight = 40.sp,
-    letterSpacing = (-0.6).sp,
-)
-
-/** 次级重音：读数用，比问候小一号，仍是衬线。 */
-val ReadoutSerif = TextStyle(
-    fontFamily = FontFamily.Serif,
-    fontWeight = FontWeight.Normal,
-    fontSize = 44.sp,
-    lineHeight = 50.sp,
-    letterSpacing = (-1).sp,
-)
+/** 次级重音：读数用，比问候小一号。 */
+val ReadoutSerif: TextStyle
+    get() = defaultMochiTextStyles.displaySmall
 
 /** 等宽只用于密钥、端口这类需要逐字符比对的短串。 */
 val MonoSmall = TextStyle(
@@ -83,154 +69,142 @@ val MonoSmall = TextStyle(
     lineHeight = 17.sp,
 )
 
-private val ClaudeTypography = Typography(
-    displayLarge = DisplaySerif,
-    displayMedium = DisplaySerif.copy(fontSize = 27.sp, lineHeight = 34.sp),
-    displaySmall = ReadoutSerif.copy(fontSize = 36.sp, lineHeight = 42.sp),
-    headlineLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 29.sp,
-        letterSpacing = (-0.3).sp,
-    ),
-    headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp,
-        lineHeight = 26.sp,
-    ),
-    headlineSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 23.sp,
-    ),
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 23.sp,
-        letterSpacing = (-0.1).sp,
-    ),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
-        lineHeight = 21.sp,
-    ),
-    titleSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 13.5.sp,
-        lineHeight = 19.sp,
-    ),
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 24.sp,
-    ),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 22.sp,
-    ),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.5.sp,
-        lineHeight = 19.sp,
-    ),
-    labelLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 13.5.sp,
-        lineHeight = 19.sp,
-    ),
-    labelMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 17.sp,
-    ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-    ),
-)
-
-private val LightScheme = lightColorScheme(
-    primary = Claude.Clay,
-    onPrimary = Color(0xFFFFFBF8),
-    primaryContainer = Claude.ClayWash,
-    onPrimaryContainer = Claude.ClayDeep,
-    secondary = Claude.InkSoft,
-    onSecondary = Claude.Paper,
-    secondaryContainer = Claude.PaperDeep,
-    onSecondaryContainer = Claude.Ink,
-    tertiary = Claude.Moss,
-    onTertiary = Claude.Paper,
-    background = Claude.Paper,
-    onBackground = Claude.Ink,
-    surface = Claude.Paper,
-    onSurface = Claude.Ink,
-    surfaceVariant = Claude.PaperDeep,
-    onSurfaceVariant = Claude.InkSoft,
-    surfaceContainerLow = Claude.Paper,
-    surfaceContainerHigh = Claude.PaperDeep,
-    outline = Claude.PaperEdge,
-    outlineVariant = Claude.PaperEdge,
-    error = Claude.Rust,
-    onError = Color(0xFFFFFBF8),
-    errorContainer = Color(0xFFF7E4E0),
-    onErrorContainer = Claude.Rust,
-    scrim = Claude.Ink,
-)
-
-private val DarkScheme = darkColorScheme(
-    primary = Claude.ClayNight,
-    onPrimary = Color(0xFF241512),
-    primaryContainer = Color(0xFF3A2A24),
-    onPrimaryContainer = Color(0xFFF0C6B5),
-    secondary = Claude.NightSoft,
-    onSecondary = Claude.Night,
-    secondaryContainer = Claude.NightRaised,
-    onSecondaryContainer = Claude.NightText,
-    tertiary = Color(0xFF9DB68F),
-    onTertiary = Claude.Night,
-    background = Claude.Night,
-    onBackground = Claude.NightText,
-    surface = Claude.Night,
-    onSurface = Claude.NightText,
-    surfaceVariant = Claude.NightRaised,
-    onSurfaceVariant = Claude.NightSoft,
-    surfaceContainerLow = Claude.Night,
-    surfaceContainerHigh = Claude.NightRaised,
-    outline = Claude.NightEdge,
-    outlineVariant = Claude.NightEdge,
-    error = Color(0xFFE39B8F),
-    onError = Claude.Night,
-    errorContainer = Color(0xFF3D2320),
-    onErrorContainer = Color(0xFFF0BCB3),
-    scrim = Color(0xFF000000),
-)
+private val defaultMochiTextStyles: MochiTextStyles =
+    ui.feice.mochi.theme.defaultTextStyles()
 
 /** 当前是否暗色；全局统一用这一处判断，避免各处各写一套。 */
 @Composable
 fun isClaudeDark(): Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
+/**
+ * 应用主题：MochiTheme 生成配色 / 字阶 / 形状，MaterialTheme 再把它桥接给
+ * 尚未迁移到 Mochi 组件的页面，保证两套组件读到的是同一份色板。
+ */
 @Composable
 fun ClaudeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkScheme else LightScheme,
-        typography = ClaudeTypography,
-        content = content,
+    val controller = remember {
+        ThemeController(
+            colorSchemeMode = ColorSchemeMode.System,
+            keyColor = Claude.Clay,
+            paletteStyle = PaletteStyle.TonalSpot,
+        )
+    }
+    // 用户手动切换明暗时，把模式锁到对应的一侧；否则跟随系统。
+    SideEffect {
+        controller.colorSchemeMode =
+            if (darkTheme) ColorSchemeMode.Dark else ColorSchemeMode.Light
+    }
+
+    MochiTheme(controller = controller) {
+        val mochi = MochiTheme.colorScheme
+        val styles = MochiTheme.textStyles
+        MaterialTheme(
+            colorScheme = mochi.toMaterialScheme(),
+            typography = styles.toMaterialTypography(),
+            content = content,
+        )
+    }
+}
+
+/** 把 Mochi 的色板映射成 Material3 的 colorScheme，供旧页面过渡期使用。 */
+private fun MochiColorScheme.toMaterialScheme() = if (isDark) {
+    darkColorScheme(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        inversePrimary = inversePrimary,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        tertiary = tertiary,
+        onTertiary = onTertiary,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceVariant,
+        surfaceTint = surfaceTint,
+        inverseSurface = inverseSurface,
+        inverseOnSurface = inverseOnSurface,
+        error = error,
+        onError = onError,
+        errorContainer = errorContainer,
+        onErrorContainer = onErrorContainer,
+        outline = outline,
+        outlineVariant = outlineVariant,
+        scrim = scrim,
+        surfaceBright = surfaceBright,
+        surfaceDim = surfaceDim,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        surfaceContainerLow = surfaceContainerLow,
+        surfaceContainerLowest = surfaceContainerLowest,
+    )
+} else {
+    lightColorScheme(
+        primary = primary,
+        onPrimary = onPrimary,
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
+        inversePrimary = inversePrimary,
+        secondary = secondary,
+        onSecondary = onSecondary,
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = onSecondaryContainer,
+        tertiary = tertiary,
+        onTertiary = onTertiary,
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = onTertiaryContainer,
+        background = background,
+        onBackground = onBackground,
+        surface = surface,
+        onSurface = onSurface,
+        surfaceVariant = surfaceVariant,
+        onSurfaceVariant = onSurfaceVariant,
+        surfaceTint = surfaceTint,
+        inverseSurface = inverseSurface,
+        inverseOnSurface = inverseOnSurface,
+        error = error,
+        onError = onError,
+        errorContainer = errorContainer,
+        onErrorContainer = onErrorContainer,
+        outline = outline,
+        outlineVariant = outlineVariant,
+        scrim = scrim,
+        surfaceBright = surfaceBright,
+        surfaceDim = surfaceDim,
+        surfaceContainer = surfaceContainer,
+        surfaceContainerHigh = surfaceContainerHigh,
+        surfaceContainerHighest = surfaceContainerHighest,
+        surfaceContainerLow = surfaceContainerLow,
+        surfaceContainerLowest = surfaceContainerLowest,
     )
 }
+
+/** Mochi 字阶 → Material3 Typography。 */
+private fun MochiTextStyles.toMaterialTypography() = Typography(
+    displayLarge = displayLarge,
+    displayMedium = displayMedium,
+    displaySmall = displaySmall,
+    headlineLarge = headlineLarge,
+    headlineMedium = headlineMedium,
+    headlineSmall = headlineSmall,
+    titleLarge = titleLarge,
+    titleMedium = titleMedium,
+    titleSmall = titleSmall,
+    bodyLarge = bodyLarge,
+    bodyMedium = bodyMedium,
+    bodySmall = bodySmall,
+    labelLarge = labelLarge,
+    labelMedium = labelMedium,
+    labelSmall = labelSmall,
+)

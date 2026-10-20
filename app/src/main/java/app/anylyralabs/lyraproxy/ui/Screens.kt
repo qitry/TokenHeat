@@ -42,6 +42,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ui.feice.mochi.basic.MochiSlider
+import ui.feice.mochi.basic.MochiSwitch
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.bridge.CallRecord
 import app.anylyralabs.lyraproxy.bridge.KeepAliveUtils
@@ -437,7 +439,7 @@ fun BridgeScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.weight(1f))
-                    Switch(
+                    MochiSwitch(
                         checked = state.bridgeRunning,
                         onCheckedChange = { checked ->
                             if (checked) onStart(portText.toIntOrNull() ?: 8765) else onStop()
@@ -505,7 +507,7 @@ fun BridgeScreen(
                     title = "保活悬浮窗",
                     subtitle = "切到后台时显示状态，让系统保持本应用可见",
                     trailing = {
-                        Switch(
+                        MochiSwitch(
                             checked = state.overlayEnabled && state.overlayAllowed,
                             onCheckedChange = { checked ->
                                 if (checked && !state.overlayAllowed) {
@@ -535,7 +537,7 @@ fun BridgeScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Slider(
+                    MochiSlider(
                         value = state.overlayOpacity,
                         onValueChange = onOverlayOpacity,
                         valueRange = 0.15f..1f,
@@ -667,7 +669,7 @@ fun BridgeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(
+                        MochiSwitch(
                             checked = state.forwardReasoning,
                             onCheckedChange = onForwardReasoning,
                         )
