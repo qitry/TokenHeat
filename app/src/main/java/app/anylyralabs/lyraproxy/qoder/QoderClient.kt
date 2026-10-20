@@ -29,6 +29,9 @@ object QoderConfig {
     /** 模型与聊天网关（路径以 /algo 开头）。 */
     const val GATEWAY_URL = "https://api3.qoder.sh"
 
+    /** Cloud Agents 网关；另一套 API，值得验证是否接受同一个令牌。 */
+    const val CLOUD_URL = "https://api.qoder.com"
+
     /** 浏览器授权页。 */
     const val DEVICE_PAGE = "https://qoder.com/device/selectAccounts"
 
@@ -260,36 +263,48 @@ class QoderClient {
     // --------------------------------------------------------------------- //
 
     /**
-     * 依次探测用户信息与模型列表，把原始状态码带回来。
+     * 依次探测四条路径，把原始状态码带回来。
      *
      * 认证方案是否被接受只能靠真实请求验证，所以这里不做「看起来成功」的
      * 包装，直接把 HTTP 状态和响应片段交出去。
+     *
+     * 第 3、4 条指向 Cloud Agents 网关（api.qoder.com）：如果它接受同一个
+     * Bearer，就能绕开 CLI 网关的 WASM 签名层。
      */
     fun probe(account: QoderAccount): QoderProbe {
-        val user = call(
-            "${QoderConfig.OPENAPI_URL}/api/v1/userinfo",
-            "GET",
-            mapOf(
-                "Accept" to "application/json",
-                "Authorization" to "Bearer ${account.accessToken}",
-            ),
+        val bearer = mapOf(
+            "Accept" to "application/json",
+            "Authorization" to "Bearer ${account.accessToken}",
         )
-        val models = call(
+        val openApiUser = call("${QoderConfig.OPENAPI_URL}/api/v1/userinfo", "GET", bearer)
+        val cliModels = call(
             "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
             algoHeaders(account.accessToken, account.machineId) + ("Accept" to "application/json"),
         )
-        val ok = user.status in 200..299 && models.status in 200..299
-        val summary = if (ok) {
-            "认证与模型接口均可用"
-        } else {
-            "userinfo HTTP ${user.status} · models HTTP ${models.status}"
+        val cloudUser = call("${QoderConfig.CLOUD_URL}/api/v1/userinfo", "GET", bearer)
+        val cloudModels = call(
+            "${QoderConfig.CLOUD_URL}/algo/api/v2/model/list?Encode=1",
+            "GET",
+            bearer,
+        )
+
+        val ok = openApiUser.status in 200..299 &&
+            (cliModels.status in 200..299 || cloudModels.status in 200..299)
+        val summary = buildString {
+            append("userinfo ").append(openApiUser.status)
+            append(" · CLI 模型 ").append(cliModels.status)
+            append(" · Cloud 模型 ").append(cloudModels.status)
         }
         val detail = buildString {
-            append("GET /api/v1/userinfo -> ").append(user.status).append('\n')
-            append(user.body.take(300)).append("\n\n")
-            append("GET /algo/api/v2/model/list -> ").append(models.status).append('\n')
-            append(models.body.take(300))
+            append("[1] openapi userinfo -> ").append(openApiUser.status).append('\n')
+            append(openApiUser.body.take(160)).append("\n\n")
+            append("[2] api3 model/list -> ").append(cliModels.status).append('\n')
+            append(cliModels.body.take(160)).append("\n\n")
+            append("[3] api.qoder.com userinfo -> ").append(cloudUser.status).append('\n')
+            append(cloudUser.body.take(160)).append("\n\n")
+            append("[4] api.qoder.com model/list -> ").append(cloudModels.status).append('\n')
+            append(cloudModels.body.take(200))
         }
         return QoderProbe(ok = ok, summary = summary, detail = detail)
     }
