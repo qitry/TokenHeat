@@ -273,20 +273,36 @@ object QoderChat {
         emit(writer, chunk(id, created, model, JSONObject().put("role", "assistant"), null))
         var promptTokens = 0
         var completionTokens = 0
-        var sawDone = false
+        var sawContent = false
+        val rawSamples = ArrayList<String>(4)
 
-        while (!sawDone) {
+        while (true) {
             val line = reader.readLine() ?: break
             if (!line.startsWith("data:")) continue
             val payload = line.substring(5).trim()
             if (payload.isEmpty()) continue
             if (payload == "[DONE]") break
+            if (rawSamples.size < 4) rawSamples.add(payload.take(200))
 
-            val envelope = runCatching { JSONObject(payload) }.getOrNull() ?: continue
+            val envelope = runCatching { JSONObject(payload) }.getOrNull()
+            if (envelope == null) {
+                emitError(writer, "unparsable frame: ${payload.take(300)}")
+                return
+            }
+            val statusCode = envelope.optInt("statusCodeValue", envelope.optInt("statusCode", 200))
+            if (statusCode != 200) {
+                emitError(writer, "upstream $statusCode: ${envelope.optString("body").take(400)}")
+                return
+            }
+
             val innerRaw = envelope.optString("body")
             if (innerRaw == "[DONE]") break
             if (innerRaw.isEmpty()) continue
-            val inner = runCatching { JSONObject(innerRaw) }.getOrNull() ?: continue
+            val inner = runCatching { JSONObject(innerRaw) }.getOrNull()
+            if (inner == null) {
+                emitError(writer, "unparsable body: ${innerRaw.take(300)}")
+                return
+            }
 
             inner.optJSONObject("usage")?.let { usage ->
                 promptTokens = usage.optInt("prompt_tokens", promptTokens)
@@ -299,6 +315,7 @@ object QoderChat {
 
             val reasoning = delta.optString("reasoning_content")
             if (reasoning.isNotEmpty()) {
+                sawContent = true
                 emit(
                     writer,
                     chunk(
@@ -312,6 +329,7 @@ object QoderChat {
             }
             val content = delta.optString("content")
             if (content.isNotEmpty()) {
+                sawContent = true
                 emit(
                     writer,
                     chunk(
@@ -323,6 +341,15 @@ object QoderChat {
                     ),
                 )
             }
+        }
+
+        // 没有任何内容说明帧结构与预期不同，把原始帧带回客户端而不是假装成功。
+        if (!sawContent) {
+            emitError(
+                writer,
+                "no content in upstream frames; samples=${rawSamples.joinToString(" | ")}",
+            )
+            return
         }
 
         // 收尾：先给 finish_reason，再单独发一条 usage，最后 [DONE]。
@@ -369,6 +396,17 @@ object QoderChat {
             ),
         )
     }.toString()
+
+    private fun emitError(writer: OutputStreamWriter, message: String) {
+        emit(
+            writer,
+            JSONObject().apply {
+                put("error", JSONObject().put("message", message).put("type", "qoder_upstream"))
+            }.toString(),
+        )
+        writer.write("data: [DONE]\n\n")
+        writer.flush()
+    }
 
     private fun emit(writer: OutputStreamWriter, payload: String) {
         writer.write("data: $payload\n\n")
