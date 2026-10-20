@@ -83,12 +83,13 @@ object BridgeSettings {
     /**
      * 是否把上游的思考过程转发给客户端。
      *
-     * 默认关闭：`reasoning_content` 不是 OpenAI 标准字段，部分客户端会因此
-     * 解析失败。需要看思考过程时再手动打开。
+     * 默认开启：`reasoning_content` 虽非 OpenAI 官方字段，但 DeepSeek 等
+     * 兼容客户端普遍支持（opencode 明确识别 reasoning_content / reasoning /
+     * reasoning_text）。遇到不兼容的客户端可在设置里关闭。
      */
     fun reasoningEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_FORWARD_REASONING, false)
+            .getBoolean(KEY_FORWARD_REASONING, true)
 
     fun setReasoningEnabled(context: Context, value: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

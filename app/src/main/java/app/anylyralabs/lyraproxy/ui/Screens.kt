@@ -662,7 +662,7 @@ fun BridgeScreen(
                         Column(Modifier.weight(1f)) {
                             Text("转发思考过程", style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "reasoning_content 不是 OpenAI 标准字段，部分客户端会解析失败；默认关闭",
+                                "关闭后只转发正文，兼容不支持 reasoning_content 的客户端",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
