@@ -166,12 +166,12 @@ fun HubApp(
     val appearance = LocalLyraAppearance.current
     val scrollBehavior = rememberMochiTabBarScrollBehavior()
 
-    // 总开关打开时点亮一圈 3 秒的边缘流光（日落配色）。
+    // 总开关打开时点亮一圈 1 秒的边缘流光（日落配色）。
     var edgeGlow by remember { mutableStateOf(false) }
     LaunchedEffect(state.bridgeRunning) {
         if (state.bridgeRunning) {
             edgeGlow = true
-            delay(3_000)
+            delay(1_000)
             edgeGlow = false
         } else {
             edgeGlow = false
