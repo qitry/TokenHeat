@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,15 +25,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import ui.feice.mochi.basic.MochiProgressBar
+import kotlinx.collections.immutable.persistentListOf
+import ui.feice.mochi.basic.MochiCheckbox
+import ui.feice.mochi.basic.MochiDialog
+import ui.feice.mochi.basic.MochiDialogAction
+import ui.feice.mochi.basic.MochiDialogActionRole
+import ui.feice.mochi.basic.MochiDialogTextField
+import ui.feice.mochi.basic.MochiSegmentedDefaults
 import ui.feice.mochi.basic.Text
+import ui.feice.mochi.list.MochiListDefaults
+import ui.feice.mochi.list.MochiListRow
+import ui.feice.mochi.list.MochiListSection
 import ui.feice.mochi.theme.MochiTheme
 import app.anylyralabs.lyraproxy.bridge.BridgeStatus
 import app.anylyralabs.lyraproxy.bridge.CallRecord
@@ -47,10 +58,10 @@ import java.util.Locale
 /**
  * 首页：一台本机网关的账页。
  *
- * 自上而下：问候与运行状态 → 今日读数 → 近 24 小时热度 → 累计四项 →
- * 请求热力墙（按周惰性组合）→ 模型用量 → 签到与积分 → 账号备份。
+ * 自上而下：问候与运行状态 → 今日读数与 24 小时分段柱状 → 待办 →
+ * 累计四项 → 请求热力墙（按周惰性组合）→ 模型用量 → 签到与积分 → 账号备份。
  *
- * 整页不用卡片，靠细线与留白分段。数字用衬线，是页面上唯一的视觉重音。
+ * 分组只用 MochiListSection 与 [MochiListDefaults.SectionSpacing] 分层，不画自绘分割线。
  */
 @Composable
 fun DashboardScreen(
@@ -60,6 +71,7 @@ fun DashboardScreen(
     onCopyEndpoint: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    onImportFromText: () -> Unit,
     onNavigateToCalls: () -> Unit,
     onCheckin: () -> Unit,
     onCheckinAll: () -> Unit,
@@ -140,6 +152,8 @@ fun DashboardScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 28.dp),
+        // 分组之间只靠留白分层，不再画自绘分割线。
+        verticalArrangement = Arrangement.spacedBy(MochiListDefaults.SectionSpacing),
     ) {
         // ---------- 问候与状态 ----------
         item(key = "hero") {
@@ -156,55 +170,58 @@ fun DashboardScreen(
             )
         }
 
-        // ---------- 累计四项 ----------
+        // ---------- 待办 ----------
+        item(key = "todo") {
+            TodoSection()
+        }
+
+        // ---------- 累计四项（弱化成普通读数行） ----------
         item(key = "totals") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    Readout(formatTokenCount(totalTokens), "累计消耗", Modifier.weight(1f))
-                    Readout("${calls.size}", "请求数", Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Readout(formatTokenCount(promptTokens), "输入", Modifier.weight(1f))
-                    Readout(formatTokenCount(completionTokens), "输出", Modifier.weight(1f))
-                }
+            MochiListSection(header = "累计") {
+                MochiListRow(title = "累计消耗", value = formatTokenCount(totalTokens))
+                MochiListRow(title = "请求数", value = "${calls.size}")
+                MochiListRow(title = "输入", value = formatTokenCount(promptTokens))
+                MochiListRow(title = "输出", value = formatTokenCount(completionTokens))
             }
         }
 
         // ---------- 请求热力墙 ----------
         item(key = "heatmap") {
-            HeatmapBlock(calls = calls, modifier = Modifier.padding(top = 26.dp))
+            HeatmapBlock(calls = calls)
         }
 
         // ---------- 模型用量 ----------
         item(key = "models") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "模型用量",
-                    subtitle = "按调用次数排列",
-                    trailing = {
-                        TextAction(text = "全部记录", onClick = onNavigateToCalls)
-                    },
-                )
+            MochiListSection(
+                header = "模型用量",
+                footer = "按调用次数排列，最多显示前 5 个模型。",
+            ) {
                 if (modelStats.isEmpty()) {
-                    EmptyNote("还没有调用。客户端连上网关后，这里会按模型累计用量。")
+                    MochiListRow(
+                        title = "还没有调用",
+                        subtitle = "客户端连上网关后，这里会按模型累计用量。",
+                    )
                 } else {
-                    Spacer(Modifier.height(12.dp))
-                    val maxCount = modelStats.first().count
+                    // 多色占比条：不用读数字也能看出各模型的调用占比
+                    LyraShareBar(parts = modelStats.map { it.model to it.count.toFloat() })
                     modelStats.forEach { stat ->
-                        ModelStatRow(stat, maxCount)
-                        Spacer(Modifier.height(12.dp))
+                        MochiListRow(
+                            title = stat.model,
+                            value = "${stat.count} 次 · ${formatTokenCount(stat.tokens)}",
+                        )
                     }
                 }
+                MochiListRow(
+                    title = "全部记录",
+                    onClick = onNavigateToCalls,
+                    chevron = true,
+                )
             }
         }
 
         // ---------- 签到与积分 ----------
         item(key = "credits") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
+            Column {
                 if (state.provider == GatewayProvider.QODER) {
                     QoderQuotaBlock(
                         usage = state.qoderUsage,
@@ -213,120 +230,224 @@ fun DashboardScreen(
                         onRefresh = onRefreshQoderUsage,
                     )
                 } else {
-                SectionHeading(
-                    title = if (checkinSupported) "签到与积分" else "积分",
-                    subtitle = if (checkinSupported) {
-                        "长按签到可为当前版本的全部账号依次执行"
-                    } else {
-                        "国际版不提供签到，这里只显示积分"
-                    },
-                    trailing = {
-                        Text(
-                            text = formatCredits(state.balance?.total ?: 0.0),
-                            style = MochiTheme.textStyles.titleLarge,
-                            color = MochiTheme.colorScheme.primary,
-                        )
-                    },
-                )
-                Spacer(Modifier.height(12.dp))
-                // 今天已签到就不再提供签到入口，避免重复请求与重复弹窗。
-                if (checkinSupported && state.checkedInToday) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Tag("已签到", tone = TagTone.Positive)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "今天已签到，明天再来",
-                            style = MochiTheme.textStyles.bodySmall,
-                            color = MochiTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    QuietButton(
-                        text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
-                        onClick = onRefreshBalance,
-                        enabled = state.loading != Loading.BALANCE,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (checkinSupported) {
-                            PrimaryButton(
-                                text = if (state.loading == Loading.CHECKIN) "签到中" else "签到",
-                                onClick = onCheckin,
-                                enabled = state.loading != Loading.CHECKIN,
-                                modifier = Modifier.weight(1f),
-                            )
-                            QuietButton(
-                                text = "全部签到",
-                                onClick = onCheckinAll,
-                                enabled = state.loading != Loading.CHECKIN,
-                                modifier = Modifier.weight(1f),
-                            )
+                    SectionHeading(
+                        title = if (checkinSupported) "签到与积分" else "积分",
+                        subtitle = if (checkinSupported) {
+                            "长按签到可为当前版本的全部账号依次执行"
                         } else {
-                            QuietButton(
-                                text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
-                                onClick = onRefreshBalance,
-                                enabled = state.loading != Loading.BALANCE,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                }
-
-                val balance = state.balance
-                if (balance != null && balance.accounts.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    balance.accounts.forEach { acc ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            "国际版不提供签到，这里只显示积分"
+                        },
+                        trailing = {
                             Text(
-                                text = acc.name,
+                                text = formatCredits(state.balance?.total ?: 0.0),
+                                style = MochiTheme.textStyles.titleLarge,
+                                color = MochiTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    // 今天已签到就不再提供签到入口，避免重复请求与重复弹窗。
+                    if (checkinSupported && state.checkedInToday) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Tag("已签到", tone = TagTone.Positive)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "今天已签到，明天再来",
                                 style = MochiTheme.textStyles.bodySmall,
                                 color = MochiTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = "${formatCredits(acc.remain)} / ${formatCredits(acc.size)}",
-                                style = MochiTheme.textStyles.bodySmall,
                             )
                         }
-                    }
-                    if (balance.cycleEnd.isNotBlank()) {
-                        Text(
-                            text = "本期截至 ${balance.cycleEnd}",
-                            style = MochiTheme.textStyles.labelSmall,
-                            color = MochiTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
+                        Spacer(Modifier.height(8.dp))
+                        QuietButton(
+                            text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
+                            onClick = onRefreshBalance,
+                            enabled = state.loading != Loading.BALANCE,
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (checkinSupported) {
+                                PrimaryButton(
+                                    text = if (state.loading == Loading.CHECKIN) "签到中" else "签到",
+                                    onClick = onCheckin,
+                                    enabled = state.loading != Loading.CHECKIN,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                QuietButton(
+                                    text = "全部签到",
+                                    onClick = onCheckinAll,
+                                    enabled = state.loading != Loading.CHECKIN,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            } else {
+                                QuietButton(
+                                    text = if (state.loading == Loading.BALANCE) "刷新中" else "刷新积分",
+                                    onClick = onRefreshBalance,
+                                    enabled = state.loading != Loading.BALANCE,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
                     }
-                }
+
+                    val balance = state.balance
+                    if (balance != null && balance.accounts.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        MochiListSection(header = "账号积分") {
+                            balance.accounts.forEach { acc ->
+                                MochiListRow(
+                                    title = acc.name,
+                                    value = "${formatCredits(acc.remain)} / ${formatCredits(acc.size)}",
+                                )
+                            }
+                            if (balance.cycleEnd.isNotBlank()) {
+                                MochiListRow(title = "本期截至", value = balance.cycleEnd)
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // ---------- 账号备份 ----------
         item(key = "backup") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "账号备份",
-                    subtitle = "导出为 .json.gz，或从备份与凭证字符串恢复",
-                    
+            MochiListSection(
+                header = "账号备份",
+                footer = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
+            ) {
+                MochiListRow(
+                    title = "导出备份",
+                    subtitle = "生成 .json.gz 文件",
+                    onClick = onExportBackup,
+                    chevron = true,
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
-                    QuietButton("导入", onImportBackup, Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
-                    style = MochiTheme.textStyles.labelSmall,
-                    color = MochiTheme.colorScheme.onSurfaceVariant,
+                MochiListRow(
+                    title = "导入备份文件",
+                    subtitle = "从本机选择备份包",
+                    onClick = onImportBackup,
+                    chevron = true,
+                )
+                MochiListRow(
+                    title = "粘贴备份导入",
+                    subtitle = "粘贴凭证或整段备份内容",
+                    onClick = onImportFromText,
+                    chevron = true,
                 )
             }
         }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 待办
+// -----------------------------------------------------------------------------
+
+private data class TodoItem(val id: Long, val text: String, val done: Boolean)
+
+/**
+ * 待办的保存格式：`id␟done␟text`。用 unit separator 防止文本里的普通分隔符把字段切坏。
+ * 数据目前只在内存 / 进程重建后恢复，尚未写入磁盘。
+ */
+private val TodoListSaver = listSaver<List<TodoItem>, String>(
+    save = { items ->
+        items.map { "${it.id}\u001F${if (it.done) "1" else "0"}\u001F${it.text}" }
+    },
+    restore = { saved ->
+        saved.mapNotNull { row ->
+            val parts = row.split('\u001F', limit = 3)
+            if (parts.size != 3) return@mapNotNull null
+            val id = parts[0].toLongOrNull() ?: return@mapNotNull null
+            TodoItem(id = id, text = parts[2], done = parts[1] == "1")
+        }
+    },
+)
+
+@Composable
+private fun TodoSection() {
+    var todos by rememberSaveable(stateSaver = TodoListSaver) {
+        mutableStateOf<List<TodoItem>>(emptyList())
+    }
+    var adding by remember { mutableStateOf(false) }
+
+    MochiListSection(
+        header = "待办",
+        footer = if (todos.isEmpty()) null else "点整行勾选，右侧文字按钮删除。",
+    ) {
+        if (todos.isEmpty()) {
+            MochiListRow(
+                title = "还没有待办",
+                subtitle = "把要跟进的事记在这里，进程重建后仍会保留。",
+            )
+        }
+        todos.forEach { todo ->
+            MochiListRow(
+                title = todo.text,
+                leading = {
+                    MochiCheckbox(
+                        checked = todo.done,
+                        onCheckedChange = null,
+                    )
+                },
+                onClick = {
+                    todos = todos.map {
+                        if (it.id == todo.id) it.copy(done = !it.done) else it
+                    }
+                },
+                trailing = {
+                    TextAction(
+                        text = "删除",
+                        onClick = {
+                            todos = todos.filterNot { it.id == todo.id }
+                        },
+                        danger = true,
+                    )
+                },
+            )
+        }
+        MochiListRow(
+            title = "新增待办",
+            onClick = { adding = true },
+            chevron = true,
+        )
+    }
+
+    if (adding) {
+        TodoAddDialog(
+            onDismiss = { adding = false },
+            onAdd = { text ->
+                todos = todos + TodoItem(
+                    id = System.currentTimeMillis(),
+                    text = text,
+                    done = false,
+                )
+                adding = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun TodoAddDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    MochiDialog(
+        visible = true,
+        onDismissRequest = onDismiss,
+        title = "新增待办",
+        actions = persistentListOf(
+            MochiDialogAction(label = "取消", role = MochiDialogActionRole.Cancel),
+            MochiDialogAction(
+                label = "添加",
+                role = MochiDialogActionRole.Primary,
+                enabled = text.isNotBlank(),
+                onClick = { onAdd(text.trim()) },
+            ),
+        ),
+    ) {
+        MochiDialogTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = "要跟进的事",
+        )
     }
 }
 
@@ -393,46 +514,8 @@ private fun HeroBlock(
             maxLines = 1,
         )
 
-        // 24 小时热度：24 根柱子，高度按峰值归一，颜色只区分「有/无」。
-        Spacer(Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().height(30.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            hourly.forEach { count ->
-                val ratio = count.toFloat() / hourlyPeak
-                val h = (3f + ratio * 27f).dp
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(h)
-                        .clip(RoundedCornerShape(1.5.dp))
-                        .background(
-                            if (count == 0) {
-                                MochiTheme.colorScheme.surfaceVariant
-                            } else {
-                                MochiTheme.colorScheme.primary.copy(
-                                    alpha = 0.35f + 0.65f * ratio.coerceAtLeast(0.25f),
-                                )
-                            },
-                        ),
-                )
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                text = "24 小时前",
-                style = MochiTheme.textStyles.labelSmall,
-                color = MochiTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "现在",
-                style = MochiTheme.textStyles.labelSmall,
-                color = MochiTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Spacer(Modifier.height(18.dp))
+        HourlyBars(hourly = hourly, peak = hourlyPeak)
 
         Spacer(Modifier.height(22.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -442,6 +525,83 @@ private fun HeroBlock(
                 PrimaryButton("启动服务", onStartBridge, Modifier.weight(1f))
             }
             QuietButton("复制地址", onCopyEndpoint, Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * 24 小时分段柱状：借用分段选择器的视觉，灰色轨道里排 24 段，
+ * 每段高度按峰值归一，空档只留一条细基线。
+ */
+@Composable
+private fun HourlyBars(hourly: IntArray, peak: Int) {
+    val cs = MochiTheme.colorScheme
+    val track = MochiSegmentedDefaults.colors().track
+    val max = peak.coerceAtLeast(1)
+    val empty = hourly.all { it == 0 }
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "24 小时请求",
+                style = MochiTheme.textStyles.labelMedium,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (empty) "暂无请求" else "峰值 $max 次",
+                style = MochiTheme.textStyles.labelSmall,
+                color = cs.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(track)
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            hourly.forEach { count ->
+                val ratio = (count.toFloat() / max).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight((0.08f + 0.92f * ratio).coerceIn(0.08f, 1f))
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                if (count == 0) {
+                                    cs.onSurface.copy(alpha = 0.10f)
+                                } else {
+                                    cs.primary.copy(alpha = 0.45f + 0.55f * ratio)
+                                },
+                            ),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                text = "24 小时前",
+                style = MochiTheme.textStyles.labelSmall,
+                color = cs.onSurfaceVariant,
+            )
+            Text(
+                text = "现在",
+                style = MochiTheme.textStyles.labelSmall,
+                color = cs.onSurfaceVariant,
+            )
         }
     }
 }
@@ -499,7 +659,6 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
     val ladder = heatLadder()
 
     Column(modifier = modifier) {
-        Rule()
         SectionHeading(
             title = "请求分布",
             subtitle = "每天有请求就会留下一个格",
@@ -628,27 +787,3 @@ private fun heatLevel(count: Int): Int = when {
 // -----------------------------------------------------------------------------
 
 private data class ModelStat(val model: String, val count: Int, val tokens: Long)
-
-@Composable
-private fun ModelStatRow(stat: ModelStat, maxCount: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = stat.model,
-            style = MochiTheme.textStyles.bodyMedium,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = "${stat.count} 次 · ${formatTokenCount(stat.tokens)}",
-            style = MochiTheme.textStyles.labelSmall,
-            color = MochiTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    Spacer(Modifier.height(6.dp))
-    MochiProgressBar(
-        progress = stat.count.toFloat() / maxCount.coerceAtLeast(1),
-        height = 3.dp,
-    )
-}

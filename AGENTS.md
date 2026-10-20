@@ -3,12 +3,12 @@
 ## 架构
 
 - 单 Activity + Jetpack Compose：`MainActivity` → `ClaudeTheme` → `HubApp`。
-- 底部五个标签：概览、账号、服务、记录、主题，由 `ui/HubApp.kt` 的 `HubTab` 与 `MochiTabBar` 驱动。
+- 底部五个标签：概览、账号、服务、记录、更多，由 `ui/HubApp.kt` 的 `HubTab` 与 `MochiTabBar` 驱动。
 - 主题与外观设置集中在 `ui/ClaudeTheme.kt`：
   - `LyraAppearance` / `LocalLyraAppearance` / `rememberLyraAppearance()`；
   - 持久化到 SharedPreferences `lyra_appearance`；
   - 默认 Nothing 外观、跟随系统明暗、MochiGraphics High。
-- `ui/ThemeTab.kt` 是主题页；`ui/LyraWidgets.kt` 是主题页用的设置/分组控件。
+- `ui/MoreTab.kt` 是「更多」页：根页承载应用元信息与设置入口，UI 设置、关于、设置、许可证用 `MochiNavHost` 做二级页；`ui/LyraWidgets.kt` 是设置/分组控件。
 - 官方 Nothing 外观的源码位于 `ui/feice/mochi/nothing/`，由 mochi-nothing 模块 vendor 而来（该模块未发布 AAR）。点阵/显示字体与图标资源在 `res/font`、`res/drawable`，许可证在 `assets/licenses` 与 `assets/nothing`。
 
 ## 约定

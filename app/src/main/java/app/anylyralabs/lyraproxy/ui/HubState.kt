@@ -16,7 +16,7 @@ enum class HubTab(val label: String) {
     Credential("账号"),
     Bridge("服务"),
     Calls("记录"),
-    Theme("主题"),
+    More("更多"),
 }
 
 /** 网关供应商。两套账号体系互不通约，切换只影响展示与后续路由。 */

@@ -898,7 +898,13 @@ class MainActivity : ComponentActivity() {
         val account = state.qoderAccount ?: return
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { qoderClient.fetchUsage(account) }
+                runCatching {
+                    // 401 时 client 会刷新 job token；把新账号写回存储，避免下次又用过期 token。
+                    qoderClient.fetchUsage(account) { refreshed ->
+                        qoderStore.save(refreshed)
+                        state = state.copy(qoderAccount = refreshed)
+                    }
+                }
             }
             result.onSuccess { usage ->
                 state = state.copy(qoderUsage = usage, qoderUsageError = "")

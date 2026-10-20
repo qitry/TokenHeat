@@ -18,12 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
@@ -83,9 +83,9 @@ private val LyraTabs = persistentListOf(
         selectedIcon = { tint -> LyraIcon(Icons.Filled.History, contentDescription = null, tint = tint) },
     ),
     MochiTabItem(
-        label = HubTab.Theme.label,
-        icon = { tint -> LyraIcon(Icons.Outlined.Palette, contentDescription = null, tint = tint) },
-        selectedIcon = { tint -> LyraIcon(Icons.Filled.Palette, contentDescription = null, tint = tint) },
+        label = HubTab.More.label,
+        icon = { tint -> LyraIcon(Icons.Outlined.MoreHoriz, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.MoreHoriz, contentDescription = null, tint = tint) },
     ),
 )
 
@@ -204,6 +204,7 @@ fun HubApp(
                             onCopyEndpoint = onCopyEndpoint,
                             onExportBackup = onExportBackup,
                             onImportBackup = onImportBackup,
+                            onImportFromText = onImportFromText,
                             onNavigateToCalls = { tab = HubTab.Calls.ordinal },
                             onCheckin = onCheckin,
                             onCheckinAll = onCheckinAll,
@@ -222,9 +223,6 @@ fun HubApp(
                             onLogin = onLogin,
                             onLogout = onLogout,
                             onOpenDetails = onOpenCredentialDetails,
-                            onExportBackup = onExportBackup,
-                            onImportBackup = onImportBackup,
-                            onImportFromText = onImportFromText,
                             onQoderLogin = onQoderLogin,
                             onQoderPatLogin = onQoderPatLogin,
                             onQoderLogout = onQoderLogout,
@@ -271,7 +269,15 @@ fun HubApp(
                         CallsScreen(state, onClearCalls, onRefreshCalls)
                     }
 
-                    else -> ThemeTab()
+                    else -> MoreTab(
+                        state = state,
+                        onRequestNotifications = onRequestNotifications,
+                        onRequestBatteryExemption = onRequestBatteryExemption,
+                        onClearCalls = onClearCalls,
+                        onExportBackup = onExportBackup,
+                        onImportBackup = onImportBackup,
+                        onImportFromText = onImportFromText,
+                    )
                 }
             }
 
@@ -299,11 +305,11 @@ fun HubApp(
                     scrollBehavior.expand()
                 },
                 items = LyraTabs,
-                // 只有图标 + 选中项横排标签，和 demo 首页一致。
-                behavior = MochiTabBarDefaults.iconOnlyBehavior(selectedLabelOnly = true),
+                // 只有图标 + 选中项横排标签；5 项时把每项稍微加宽，整条胶囊更舒展。
+                behavior = MochiTabBarDefaults.iconOnlyBehavior(itemWidth = 70.dp, selectedLabelOnly = true),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 scrollBehavior = scrollBehavior,
                 onReselect = { scrollBehavior.expand() },
                 // 附件条：常驻显示当前模型、供应商与网关开关
