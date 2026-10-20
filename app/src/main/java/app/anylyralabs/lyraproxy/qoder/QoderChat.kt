@@ -211,12 +211,14 @@ object QoderChat {
             put("object", "chat.completion")
             put("created", created)
             put("model", requestedModel)
+            put("system_fingerprint", JSONObject.NULL)
             put(
                 "choices",
                 JSONArray().put(
                     JSONObject().apply {
                         put("index", 0)
                         put("message", message)
+                        put("logprobs", JSONObject.NULL)
                         put("finish_reason", "stop")
                     },
                 ),
@@ -476,12 +478,14 @@ object QoderChat {
                 put("object", "chat.completion.chunk")
                 put("created", created)
                 put("model", model)
+                put("system_fingerprint", JSONObject.NULL)
                 put(
                     "choices",
                     JSONArray().put(
                         JSONObject().apply {
                             put("index", 0)
                             put("delta", JSONObject())
+                            put("logprobs", JSONObject.NULL)
                             put("finish_reason", "stop")
                         },
                     ),
@@ -510,12 +514,14 @@ object QoderChat {
         put("object", "chat.completion.chunk")
         put("created", created)
         put("model", model)
+        put("system_fingerprint", JSONObject.NULL)
         put(
             "choices",
             JSONArray().put(
                 JSONObject().apply {
                     put("index", 0)
                     put("delta", delta)
+                    put("logprobs", JSONObject.NULL)
                     put("finish_reason", finishReason ?: JSONObject.NULL)
                 },
             ),
