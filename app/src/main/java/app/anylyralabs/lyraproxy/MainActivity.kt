@@ -245,6 +245,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onQoderTest = { testQoder() },
                 onQoderRefreshModels = { refreshQoderModels() },
+                onQoderRefreshUsage = { refreshQoderUsage() },
                 onQoderLogout = { logoutQoder() },
                 onSwitchProvider = { provider -> switchGatewayProvider(provider) },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
@@ -276,7 +277,11 @@ class MainActivity : ComponentActivity() {
                     when (tab) {
                         HubTab.Dashboard -> {
                             loadCalls()
-                            loadBalance()
+                            if (state.provider == GatewayProvider.QODER) {
+                                refreshQoderUsage()
+                            } else {
+                                loadBalance()
+                            }
                         }
                         HubTab.Calls -> loadCalls()
                         else -> Unit
@@ -804,6 +809,24 @@ class MainActivity : ComponentActivity() {
             qoderStatus = "已登录 ${account.name.ifBlank { account.email }}",
         )
         refreshQoderModels()
+        refreshQoderUsage()
+    }
+
+    /** 读取 Qoder 额度；失败只记录原因，不影响其他功能。 */
+    private fun refreshQoderUsage() {
+        val account = state.qoderAccount ?: return
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { qoderClient.fetchUsage(account) }
+            }
+            result.onSuccess { usage ->
+                state = state.copy(qoderUsage = usage, qoderUsageError = "")
+            }.onFailure {
+                state = state.copy(
+                    qoderUsageError = it.message?.take(120) ?: "额度查询失败",
+                )
+            }
+        }
     }
 
     private fun refreshQoderModels() {
@@ -875,6 +898,8 @@ class MainActivity : ComponentActivity() {
         state = state.copy(
             qoderAccount = null,
             qoderModels = emptyList(),
+            qoderUsage = null,
+            qoderUsageError = "",
             qoderBusy = false,
             qoderLoginUrl = "",
             qoderStatus = "已退出 Qoder",

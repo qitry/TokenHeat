@@ -10,6 +10,7 @@ import app.anylyralabs.lyraproxy.proto.HubModel
 import app.anylyralabs.lyraproxy.proto.Wire
 import app.anylyralabs.lyraproxy.qoder.QoderAccount
 import app.anylyralabs.lyraproxy.qoder.QoderProbe
+import app.anylyralabs.lyraproxy.qoder.QoderUsage
 
 enum class HubTab(val label: String) {
     Dashboard("概览"),
@@ -79,6 +80,10 @@ data class HubState(
     val qoderShowPatDialog: Boolean = false,
     /** 浏览器授权地址；非空时显示等待授权提示。 */
     val qoderLoginUrl: String = "",
+    /** Qoder 额度快照。 */
+    val qoderUsage: QoderUsage? = null,
+    /** 额度查询的失败原因。 */
+    val qoderUsageError: String = "",
     val realm: Wire.Region = Wire.Region.CN,
     val accounts: Map<Wire.Region, List<SavedAccount>> = emptyMap(),
     val activeAccountId: String? = null,

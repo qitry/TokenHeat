@@ -64,6 +64,7 @@ fun DashboardScreen(
     onCheckinAll: () -> Unit,
     onRefreshBalance: () -> Unit,
     onRefreshCalls: () -> Unit = {},
+    onRefreshQoderUsage: () -> Unit = {},
 ) {
     // 运行时长每秒推进；熄火后停表，避免无意义重组。
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -203,6 +204,14 @@ fun DashboardScreen(
         item(key = "credits") {
             Column(Modifier.padding(top = 26.dp)) {
                 Rule()
+                if (state.provider == GatewayProvider.QODER) {
+                    QoderQuotaBlock(
+                        usage = state.qoderUsage,
+                        error = state.qoderUsageError,
+                        busy = state.qoderBusy,
+                        onRefresh = onRefreshQoderUsage,
+                    )
+                } else {
                 SectionHeading(
                     title = if (checkinSupported) "签到与积分" else "积分",
                     subtitle = if (checkinSupported) {
@@ -290,6 +299,7 @@ fun DashboardScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+                }
                 }
             }
         }

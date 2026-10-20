@@ -91,6 +91,7 @@ fun HubApp(
     onQoderPatLogin: () -> Unit = {},
     onQoderTest: () -> Unit = {},
     onQoderRefreshModels: () -> Unit = {},
+    onQoderRefreshUsage: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
     onSwitchProvider: (GatewayProvider) -> Unit = {},
     onQoderPatConfirm: (String) -> Unit = {},
@@ -167,6 +168,7 @@ fun HubApp(
                             onCheckinAll = onCheckinAll,
                             onRefreshBalance = onRefreshBalance,
                             onRefreshCalls = onRefreshCalls,
+                            onRefreshQoderUsage = onQoderRefreshUsage,
                         )
                         HubTab.Credential -> CredentialScreen(
                             state = state,

@@ -27,6 +27,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.qoder.QoderAccount
 import app.anylyralabs.lyraproxy.qoder.QoderProbe
+import app.anylyralabs.lyraproxy.qoder.QoderQuota
+import app.anylyralabs.lyraproxy.qoder.QoderUsage
 
 /**
  * Qoder 国际版账号区。
@@ -139,6 +141,105 @@ fun QoderSection(
         }
     }
 }
+
+/**
+ * Qoder 额度。
+ *
+ * 与 WorkBuddy 的余额卡分开：这里的单位由上游给出，且分为用户额度、
+ * 加赠额度与组织资源包三类，不强行折算成同一个数字。
+ */
+@Composable
+fun QoderQuotaBlock(
+    usage: QoderUsage?,
+    error: String,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Qoder 额度",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            TextAction(
+                text = if (busy) "刷新中" else "刷新",
+                onClick = onRefresh,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+
+        when {
+            error.isNotBlank() -> Text(
+                text = error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            usage == null -> Text(
+                text = "点「刷新」读取额度。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            !usage.hasAny -> Text(
+                text = "当前账号没有返回额度信息。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> {
+                usage.userQuota?.let { QuotaRow("用户额度", it) }
+                usage.addOnQuota?.let { QuotaRow("加赠额度", it) }
+                usage.orgQuota?.let { QuotaRow("组织资源包", it) }
+                if (usage.expiresAt > 0L) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "额度到期 " + java.text.SimpleDateFormat(
+                            "yyyy-MM-dd HH:mm",
+                            java.util.Locale.getDefault(),
+                        ).format(java.util.Date(usage.expiresAt)),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaRow(label: String, quota: QoderQuota) {
+    val unit = quota.unit
+    val remaining = quota.remaining
+    val total = quota.total
+    Column(Modifier.padding(vertical = 5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = when {
+                    remaining != null && total != null -> "${trim(remaining)} / ${trim(total)} $unit"
+                    remaining != null -> "剩余 ${trim(remaining)} $unit"
+                    total != null -> "共 ${trim(total)} $unit"
+                    else -> "未知"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+            )
+        }
+        quota.fraction?.let { fraction ->
+            Spacer(Modifier.height(5.dp))
+            ThinBar(fraction = fraction)
+        }
+    }
+}
+
+/** 去掉多余的小数，让 12.00 显示成 12。 */
+private fun trim(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString()
+    else String.format(java.util.Locale.US, "%.2f", value)
 
 /** 粘贴 Qoder Personal Access Token。 */
 @Composable

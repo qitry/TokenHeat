@@ -71,3 +71,36 @@ data class QoderProbe(
     val summary: String,
     val detail: String,
 )
+
+/** 一个额度桶：总量、已用、剩余都可能是未知。 */
+data class QoderQuota(
+    val total: Double? = null,
+    val used: Double? = null,
+    val remaining: Double? = null,
+    val unit: String = "",
+) {
+    /** 已用比例，用于进度条；缺少总量时返回 null。 */
+    val fraction: Float?
+        get() {
+            val totalValue = total ?: return null
+            if (totalValue <= 0.0) return null
+            val usedValue = used ?: (totalValue - (remaining ?: 0.0))
+            return (usedValue / totalValue).toFloat().coerceIn(0f, 1f)
+        }
+}
+
+/**
+ * Qoder 的额度快照。
+ *
+ * 与 WorkBuddy 的余额是两套东西：这里按「用户额度 / 加赠额度 / 组织资源包」
+ * 三类展示，单位由上游给出。
+ */
+data class QoderUsage(
+    val userQuota: QoderQuota? = null,
+    val addOnQuota: QoderQuota? = null,
+    val orgQuota: QoderQuota? = null,
+    /** 额度重置或到期时间，毫秒；0 表示未知。 */
+    val expiresAt: Long = 0L,
+) {
+    val hasAny: Boolean get() = userQuota != null || addOnQuota != null || orgQuota != null
+}
