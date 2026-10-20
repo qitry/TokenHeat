@@ -471,8 +471,8 @@ fun LyraExpiryPickerDialog(
 /** 所选日期在本地时区的最后一秒（epoch 秒，23:59:59）。 */
 private fun MochiDate.endOfDayEpochSecond(): Long =
     java.time.LocalDate.of(year, month, day)
-        .atTime(LocalTime.MAX)
-        .atZone(ZoneId.systemDefault())
+        .atTime(java.time.LocalTime.MAX)
+        .atZone(java.time.ZoneId.systemDefault())
         .toInstant()
         .toEpochSecond()
 
