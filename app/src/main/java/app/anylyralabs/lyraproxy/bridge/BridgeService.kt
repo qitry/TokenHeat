@@ -82,7 +82,7 @@ class BridgeService : Service() {
                 authenticate = { presented -> authenticateKey(presented) },
                 onKeyUsage = { keyId, credits -> apiKeys.recordUsage(keyId, credits) },
                 useQoder = { BridgeSettings.gatewayProvider(this) == "qoder" },
-                qoderAccount = { qoderStore.load() },
+                qoderAccount = { qoderStore.active() },
                 qoderModels = { qoderStore.loadModels() },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }

@@ -68,6 +68,8 @@ data class HubState(
     val deletingApiKey: ApiKey? = null,
     /** Qoder 国际版账号。 */
     val qoderAccount: QoderAccount? = null,
+    /** Qoder 全部已保存账号。 */
+    val qoderAccounts: List<QoderAccount> = emptyList(),
     /** Qoder 模型目录。 */
     val qoderModels: List<HubModel> = emptyList(),
     /** Qoder 操作进行中。 */

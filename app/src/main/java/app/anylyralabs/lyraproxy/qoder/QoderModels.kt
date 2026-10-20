@@ -29,6 +29,8 @@ data class QoderModel(
     val supportsImages: Boolean,
     val supportsReasoning: Boolean,
     val contextWindow: Int,
+    /** 计费倍率；0 表示目录未提供。 */
+    val priceFactor: Double = 0.0,
     /** 上游目录里的原始条目，聊天时需要原样回传。 */
     val raw: String = "",
 ) {
@@ -40,6 +42,9 @@ data class QoderModel(
 fun QoderModel.asHubModel(): HubModel = HubModel(
     id = id,
     name = displayName,
+    rate = if (priceFactor > 0.0) String.format(java.util.Locale.US, "x%.2f", priceFactor) else "",
+    // 未知倍率用 -1，避免被当成「免费」。
+    multiplier = if (priceFactor > 0.0) priceFactor else -1.0,
     vendor = "Qoder",
     supportsImages = supportsImages,
     supportsReasoning = supportsReasoning,

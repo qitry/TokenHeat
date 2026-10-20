@@ -9,6 +9,8 @@ import app.anylyralabs.lyraproxy.proto.Credential
 import app.anylyralabs.lyraproxy.proto.CredentialStore
 import app.anylyralabs.lyraproxy.proto.SavedAccount
 import app.anylyralabs.lyraproxy.proto.Wire
+import app.anylyralabs.lyraproxy.qoder.QoderAccount
+import app.anylyralabs.lyraproxy.qoder.QoderAccountStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -48,13 +50,32 @@ object AccountBackup {
     // ------------------------------------------------------------------ //
 
     /** 把全部账号序列化为可读的 JSON 文本（不压缩）。 */
-    fun exportToJsonString(store: CredentialStore): String {
+    fun exportToJsonString(store: CredentialStore, qoder: QoderAccountStore? = null): String {
         val root = JSONObject().apply {
             put("version", 1)
             put("appName", "LyraProxy")
             put("exportedAt", System.currentTimeMillis())
             put("workbuddy_cn", serialize(store.accounts(Wire.Region.CN)))
             put("workbuddy_global", serialize(store.accounts(Wire.Region.GLOBAL)))
+        }
+        if (qoder != null) {
+            val accounts = JSONArray()
+            qoder.accounts().forEach { account ->
+                accounts.put(
+                    JSONObject().apply {
+                        put("id", account.id)
+                        put("name", account.name)
+                        put("email", account.email)
+                        put("accessToken", account.accessToken)
+                        put("refreshToken", account.refreshToken)
+                        put("expiresAt", account.expiresAt)
+                        put("machineId", account.machineId)
+                        put("source", account.source)
+                    },
+                )
+            }
+            root.put("qoder", accounts)
+            qoder.active()?.let { root.put("qoderActive", it.id) }
         }
         return root.toString(2)
     }
@@ -79,8 +100,12 @@ object AccountBackup {
     }
 
     /** 生成压缩包并写入应用外部目录，返回文件与其分享 Intent。 */
-    fun exportToFileAndGetIntent(context: Context, store: CredentialStore): Pair<File, Intent> {
-        val jsonBytes = exportToJsonString(store).toByteArray(StandardCharsets.UTF_8)
+    fun exportToFileAndGetIntent(
+        context: Context,
+        store: CredentialStore,
+        qoder: QoderAccountStore? = null,
+    ): Pair<File, Intent> {
+        val jsonBytes = exportToJsonString(store, qoder).toByteArray(StandardCharsets.UTF_8)
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "lyraproxy_accounts_$timestamp$FILE_SUFFIX"
 
@@ -107,11 +132,15 @@ object AccountBackup {
     // ------------------------------------------------------------------ //
 
     /** 从 `.json.gz` 输入流导入（文件导入）。 */
-    fun importFromGzipStream(inputStream: InputStream, store: CredentialStore): ImportResult = runCatching {
+    fun importFromGzipStream(
+        inputStream: InputStream,
+        store: CredentialStore,
+        qoder: QoderAccountStore? = null,
+    ): ImportResult = runCatching {
         val text = GZIPInputStream(inputStream)
             .bufferedReader(StandardCharsets.UTF_8)
             .use { it.readText() }
-        importFromJsonText(text, store)
+        importFromJsonText(text, store, qoder)
     }.getOrElse {
         ImportResult(success = false, message = "文件解析失败：${it.message ?: "格式不正确"}")
     }
@@ -122,7 +151,11 @@ object AccountBackup {
      * 2. 账号数组 `[{...}]`；
      * 3. 单个凭证对象 `{...}`，即「凭证详情」里可直接复制的内容。
      */
-    fun importFromJsonText(text: String, store: CredentialStore): ImportResult {
+    fun importFromJsonText(
+        text: String,
+        store: CredentialStore,
+        qoder: QoderAccountStore? = null,
+    ): ImportResult {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) {
             return ImportResult(success = false, message = "内容为空")
@@ -139,11 +172,32 @@ object AccountBackup {
                 val root = JSONObject(trimmed)
                 val hasBundleKeys = root.has("workbuddy_cn") || root.has("workbuddy_global")
                 if (hasBundleKeys) {
+                    total += importQoder(root, qoder, breakdown)
                     total += importArray(root.optJSONArray("workbuddy_cn"), Wire.Region.CN, store, breakdown)
                     total += importArray(root.optJSONArray("workbuddy_global"), Wire.Region.GLOBAL, store, breakdown)
                     // 兼容旧版 TokenHeat 的键名，便于从旧备份恢复。
                     total += importArray(root.optJSONArray("workbuddyCN"), Wire.Region.CN, store, breakdown)
                     total += importArray(root.optJSONArray("workbuddyGlobal"), Wire.Region.GLOBAL, store, breakdown)
+                } else if (root.optString("provider") == "qoder" || root.has("machineId")) {
+                    if (qoder == null) {
+                        return ImportResult(success = false, message = "当前版本不支持 Qoder 账号导入")
+                    }
+                    val token = root.optString("accessToken")
+                    if (token.isEmpty()) return ImportResult(success = false, message = "缺少 accessToken")
+                    qoder.save(
+                        QoderAccount(
+                            id = root.optString("id").ifEmpty { root.optString("email").ifEmpty { "qoder" } },
+                            name = root.optString("name"),
+                            email = root.optString("email"),
+                            accessToken = token,
+                            refreshToken = root.optString("refreshToken"),
+                            expiresAt = root.optLong("expiresAt", 0L),
+                            machineId = root.optString("machineId"),
+                            source = root.optString("source", "import"),
+                        ),
+                    )
+                    total = 1
+                    breakdown["Qoder"] = 1
                 } else {
                     // 单个凭证对象
                     val account = readAccount(root, null) ?: return ImportResult(
@@ -171,6 +225,37 @@ object AccountBackup {
         }.getOrElse {
             ImportResult(success = false, message = "解析失败：${it.message ?: "格式不正确"}")
         }
+    }
+
+    /** 导入备份包里的 Qoder 账号。 */
+    private fun importQoder(
+        root: JSONObject,
+        qoder: QoderAccountStore?,
+        breakdown: MutableMap<String, Int>,
+    ): Int {
+        val array = root.optJSONArray("qoder") ?: return 0
+        if (qoder == null) return 0
+        var count = 0
+        for (index in 0 until array.length()) {
+            val obj = array.optJSONObject(index) ?: continue
+            val token = obj.optString("accessToken")
+            if (token.isEmpty()) continue
+            qoder.save(
+                QoderAccount(
+                    id = obj.optString("id").ifEmpty { obj.optString("email").ifEmpty { "qoder" } },
+                    name = obj.optString("name"),
+                    email = obj.optString("email"),
+                    accessToken = token,
+                    refreshToken = obj.optString("refreshToken"),
+                    expiresAt = obj.optLong("expiresAt", 0L),
+                    machineId = obj.optString("machineId"),
+                    source = obj.optString("source", "import"),
+                ),
+            )
+            count++
+        }
+        if (count > 0) breakdown["Qoder"] = count
+        return count
     }
 
     private fun importArray(

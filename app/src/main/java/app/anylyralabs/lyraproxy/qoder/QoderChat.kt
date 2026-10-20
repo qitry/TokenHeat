@@ -23,6 +23,8 @@ object QoderChat {
 
     sealed class Result {
         data class Ok(val stream: InputStream) : Result()
+        /** 非流式请求：一次性返回的完整响应。 */
+        data class Json(val body: String) : Result()
         data class Failed(val status: Int, val message: String) : Result()
     }
 
@@ -143,6 +145,92 @@ object QoderChat {
             }
         }
         return Result.Ok(pipeIn)
+    }
+
+    /**
+     * 非流式请求。
+     *
+     * 复用流式链路，把增量拼成完整回答，再包装成标准的 `chat.completion`。
+     * 很多客户端默认发送 `stream: false`，若仍回 SSE 会被判为格式错误。
+     */
+    fun complete(
+        account: QoderAccount,
+        openAiBody: String,
+        models: List<QoderModel>,
+    ): Result {
+        val opened = open(account, openAiBody, models)
+        if (opened !is Result.Ok) return opened
+
+        val requestedModel = runCatching { JSONObject(openAiBody).optString("model") }
+            .getOrDefault("")
+        val content = StringBuilder()
+        val reasoning = StringBuilder()
+        var id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").take(24)
+        var created = System.currentTimeMillis() / 1000
+        var promptTokens = 0
+        var completionTokens = 0
+        var error: String? = null
+
+        opened.stream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
+            while (true) {
+                val line = reader.readLine() ?: break
+                if (!line.startsWith("data:")) continue
+                val payload = line.substring(5).trim()
+                if (payload.isEmpty() || payload == "[DONE]") continue
+                val obj = runCatching { JSONObject(payload) }.getOrNull() ?: continue
+                obj.optJSONObject("error")?.let {
+                    error = it.optString("message")
+                    return@let
+                }
+                if (error != null) break
+                id = obj.optString("id", id)
+                created = obj.optLong("created", created)
+                obj.optJSONObject("usage")?.let { usage ->
+                    promptTokens = usage.optInt("prompt_tokens", promptTokens)
+                    completionTokens = usage.optInt("completion_tokens", completionTokens)
+                }
+                val delta = obj.optJSONArray("choices")
+                    ?.optJSONObject(0)
+                    ?.optJSONObject("delta")
+                    ?: continue
+                content.append(delta.optString("content"))
+                reasoning.append(delta.optString("reasoning_content"))
+            }
+        }
+
+        val failure = error
+        if (failure != null) return Result.Failed(502, failure)
+
+        val message = JSONObject().apply {
+            put("role", "assistant")
+            put("content", content.toString())
+            if (reasoning.isNotEmpty()) put("reasoning_content", reasoning.toString())
+        }
+        val json = JSONObject().apply {
+            put("id", id)
+            put("object", "chat.completion")
+            put("created", created)
+            put("model", requestedModel)
+            put(
+                "choices",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("index", 0)
+                        put("message", message)
+                        put("finish_reason", "stop")
+                    },
+                ),
+            )
+            put(
+                "usage",
+                JSONObject().apply {
+                    put("prompt_tokens", promptTokens)
+                    put("completion_tokens", completionTokens)
+                    put("total_tokens", promptTokens + completionTokens)
+                },
+            )
+        }
+        return Result.Json(json.toString())
     }
 
     // --------------------------------------------------------------------- //
@@ -355,8 +443,8 @@ object QoderChat {
             return
         }
 
-        // 收尾：先给 finish_reason，再单独发一条 usage，最后 [DONE]。
-        emit(writer, chunk(id, created, model, JSONObject(), "stop"))
+        // 收尾：usage 并入 finish 帧。单独的 choices:[] usage 帧只有
+        // stream_options.include_usage 时才合法，很多客户端会因此报错。
         val usage = JSONObject().apply {
             put("prompt_tokens", promptTokens)
             put("completion_tokens", completionTokens)
@@ -369,7 +457,16 @@ object QoderChat {
                 put("object", "chat.completion.chunk")
                 put("created", created)
                 put("model", model)
-                put("choices", JSONArray())
+                put(
+                    "choices",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("index", 0)
+                            put("delta", JSONObject())
+                            put("finish_reason", "stop")
+                        },
+                    ),
+                )
                 put("usage", usage)
             }.toString(),
         )

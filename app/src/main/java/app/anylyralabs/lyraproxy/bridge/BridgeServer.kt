@@ -253,7 +253,15 @@ class BridgeServer(
                 return
             }
             val startedAt = System.currentTimeMillis()
-            when (val result = QoderChat.open(account, body, qoderModels())) {
+            val wantsStream = runCatching {
+                JSONObject(body).optBoolean("stream", false)
+            }.getOrDefault(false)
+            val result = if (wantsStream) {
+                QoderChat.open(account, body, qoderModels())
+            } else {
+                QoderChat.complete(account, body, qoderModels())
+            }
+            when (result) {
                 is QoderChat.Result.Failed -> {
                     BridgeStatus.recordError("qoder: ${result.message.take(80)}")
                     onCall(
@@ -270,6 +278,9 @@ class BridgeServer(
                         status,
                         """{"error":{"message":"qoder ${result.message.replace("\"", "'").take(180)}","type":"qoder_error"}}""",
                     )
+                }
+                is QoderChat.Result.Json -> {
+                    sendJson(output, 200, result.body)
                 }
                 is QoderChat.Result.Ok -> {
                     val usage = relay(output, result.stream) { result.stream.close() }

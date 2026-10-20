@@ -70,6 +70,8 @@ fun CredentialScreen(
     onQoderTest: () -> Unit = {},
     onQoderRefreshModels: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
+    onQoderSwitchAccount: (String) -> Unit = {},
+    onQoderDeleteAccount: (String) -> Unit = {},
     onSwitchProvider: (GatewayProvider) -> Unit = {},
 ) {
     val region = state.realm
@@ -103,6 +105,7 @@ fun CredentialScreen(
             item(key = "qoder") {
                 QoderSection(
                     account = state.qoderAccount,
+                    accounts = state.qoderAccounts,
                     modelCount = state.qoderModels.size,
                     busy = state.qoderBusy,
                     status = state.qoderStatus,
@@ -111,6 +114,8 @@ fun CredentialScreen(
                     onTest = onQoderTest,
                     onRefreshModels = onQoderRefreshModels,
                     onLogout = onQoderLogout,
+                    onSwitchAccount = onQoderSwitchAccount,
+                    onDeleteAccount = onQoderDeleteAccount,
                 )
             }
         } else {

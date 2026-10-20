@@ -247,6 +247,7 @@ class QoderClient {
                     supportsReasoning = item.optBoolean("is_reasoning", false) ||
                         item.has("thinking_config"),
                     contextWindow = maxContext(item.optJSONObject("context_config")),
+                    priceFactor = item.optDouble("price_factor", 0.0),
                     raw = item.toString(),
                 ),
             )

@@ -127,7 +127,8 @@ class MainActivity : ComponentActivity() {
         loadApiKeys()
         // Qoder 的账号与模型是独立缓存，启动时直接读本地，失败也不影响主流程。
         state = state.copy(
-            qoderAccount = qoderStore.load(),
+            qoderAccount = qoderStore.active(),
+            qoderAccounts = qoderStore.accounts(),
             qoderModels = qoderStore.loadModels().map { it.asHubModel() },
         )
         state = state.copy(
@@ -247,6 +248,8 @@ class MainActivity : ComponentActivity() {
                 onQoderRefreshModels = { refreshQoderModels() },
                 onQoderRefreshUsage = { refreshQoderUsage() },
                 onQoderLogout = { logoutQoder() },
+                onQoderSwitchAccount = { id -> switchQoderAccount(id) },
+                onQoderDeleteAccount = { id -> deleteQoderAccount(id) },
                 onSwitchProvider = { provider -> switchGatewayProvider(provider) },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
                 onDismissQoderProbe = { state = state.copy(qoderProbe = null) },
@@ -679,7 +682,7 @@ class MainActivity : ComponentActivity() {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     contentResolver.openInputStream(uri)?.use { input ->
-                        AccountBackup.importFromGzipStream(input, store)
+                        AccountBackup.importFromGzipStream(input, store, qoderStore)
                     } ?: AccountBackup.ImportResult(success = false, message = "无法读取所选文件")
                 }.getOrElse {
                     AccountBackup.ImportResult(success = false, message = "读取失败：${it.message}")
@@ -692,7 +695,7 @@ class MainActivity : ComponentActivity() {
     private fun exportBackup() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { AccountBackup.exportToFileAndGetIntent(this@MainActivity, store) }
+                runCatching { AccountBackup.exportToFileAndGetIntent(this@MainActivity, store, qoderStore) }
             }
             result.onSuccess { (file, intent) ->
                 runCatching { startActivity(Intent.createChooser(intent, "分享账号备份")) }
@@ -710,7 +713,7 @@ class MainActivity : ComponentActivity() {
     private fun importFromText(text: String) {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                AccountBackup.importFromJsonText(text, store)
+                AccountBackup.importFromJsonText(text, store, qoderStore)
             }
             state = state.copy(showPasteImport = false)
             onImportFinished(result)
@@ -723,6 +726,16 @@ class MainActivity : ComponentActivity() {
             refreshCredential()
             loadModels()
             loadBalance()
+            // 备份里可能带 Qoder 账号，导入后同步一次。
+            val qoderActive = qoderStore.active()
+            state = state.copy(
+                qoderAccount = qoderActive,
+                qoderAccounts = qoderStore.accounts(),
+                qoderModels = qoderStore.loadModels().map { it.asHubModel() },
+            )
+            if (qoderActive != null) {
+                refreshQoderUsage()
+            }
             val detail = result.breakdown.entries.joinToString("，") { "${it.key} ${it.value} 个" }
             toast(if (detail.isBlank()) result.message else "${result.message}（$detail）")
         } else {
@@ -802,6 +815,7 @@ class MainActivity : ComponentActivity() {
         qoderStore.save(account)
         state = state.copy(
             qoderAccount = account,
+            qoderAccounts = qoderStore.accounts(),
             // 登录成功后直接切到 Qoder，省得用户还要手动选一次。
             provider = GatewayProvider.QODER,
             qoderLoginUrl = "",
@@ -892,11 +906,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** 切换当前 Qoder 账号；模型与额度都属于账号，必须一起刷新。 */
+    private fun switchQoderAccount(id: String) {
+        qoderStore.select(id)
+        val account = qoderStore.active() ?: return
+        state = state.copy(
+            qoderAccount = account,
+            qoderAccounts = qoderStore.accounts(),
+            qoderStatus = "已切换到 ${account.name.ifBlank { account.email }}",
+        )
+        refreshQoderModels()
+        refreshQoderUsage()
+    }
+
+    /** 删除一个 Qoder 账号；删空了就等同于退出。 */
+    private fun deleteQoderAccount(id: String) {
+        qoderStore.delete(id)
+        val remaining = qoderStore.active()
+        state = state.copy(
+            qoderAccount = remaining,
+            qoderAccounts = qoderStore.accounts(),
+            qoderUsage = null,
+            qoderUsageError = "",
+            qoderStatus = if (remaining == null) "已删除全部 Qoder 账号" else "已删除账号",
+            qoderModels = if (remaining == null) emptyList() else state.qoderModels,
+        )
+        if (remaining == null) {
+            qoderPollJob?.cancel()
+        }
+    }
+
     private fun logoutQoder() {
         qoderPollJob?.cancel()
         qoderStore.clear()
         state = state.copy(
             qoderAccount = null,
+            qoderAccounts = emptyList(),
             qoderModels = emptyList(),
             qoderUsage = null,
             qoderUsageError = "",
