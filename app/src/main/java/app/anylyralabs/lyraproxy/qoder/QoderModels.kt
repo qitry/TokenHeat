@@ -70,13 +70,6 @@ sealed class QoderPoll {
     data class Failed(val message: String) : QoderPoll()
 }
 
-/** 连通性测试的原始结果，用于排查签名/权限问题。 */
-data class QoderProbe(
-    val ok: Boolean,
-    val summary: String,
-    val detail: String,
-)
-
 /** 一个额度桶：总量、已用、剩余都可能是未知。 */
 data class QoderQuota(
     val total: Double? = null,

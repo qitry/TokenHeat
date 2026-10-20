@@ -67,11 +67,11 @@ fun CredentialScreen(
     onImportFromText: () -> Unit = {},
     onQoderLogin: () -> Unit = {},
     onQoderPatLogin: () -> Unit = {},
-    onQoderTest: () -> Unit = {},
-    onQoderRefreshModels: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
     onQoderSwitchAccount: (String) -> Unit = {},
     onQoderDeleteAccount: (String) -> Unit = {},
+    onQoderOpenDetail: () -> Unit = {},
+    onQoderRequestLogout: () -> Unit = {},
     onSwitchProvider: (GatewayProvider) -> Unit = {},
 ) {
     val region = state.realm
@@ -106,16 +106,17 @@ fun CredentialScreen(
                 QoderSection(
                     account = state.qoderAccount,
                     accounts = state.qoderAccounts,
-                    modelCount = state.qoderModels.size,
+                    quota = state.qoderUsage,
+                    quotaError = state.qoderUsageError,
                     busy = state.qoderBusy,
                     status = state.qoderStatus,
                     onLogin = onQoderLogin,
                     onPatLogin = onQoderPatLogin,
-                    onTest = onQoderTest,
-                    onRefreshModels = onQoderRefreshModels,
                     onLogout = onQoderLogout,
                     onSwitchAccount = onQoderSwitchAccount,
                     onDeleteAccount = onQoderDeleteAccount,
+                    onOpenDetail = onQoderOpenDetail,
+                    onRequestLogout = onQoderRequestLogout,
                 )
             }
         } else {

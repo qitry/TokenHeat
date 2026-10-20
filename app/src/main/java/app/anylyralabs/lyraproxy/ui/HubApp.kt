@@ -89,16 +89,20 @@ fun HubApp(
     onImportFromText: () -> Unit,
     onQoderLogin: () -> Unit = {},
     onQoderPatLogin: () -> Unit = {},
-    onQoderTest: () -> Unit = {},
     onQoderRefreshModels: () -> Unit = {},
     onQoderRefreshUsage: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
     onQoderSwitchAccount: (String) -> Unit = {},
     onQoderDeleteAccount: (String) -> Unit = {},
+    onQoderOpenDetail: () -> Unit = {},
+    onDismissQoderDetail: () -> Unit = {},
+    onQoderRequestLogout: () -> Unit = {},
+    onQoderConfirmLogout: () -> Unit = {},
+    onDismissQoderLogout: () -> Unit = {},
+    onCopyQoderField: (String, String) -> Unit = { _, _ -> },
     onSwitchProvider: (GatewayProvider) -> Unit = {},
     onQoderPatConfirm: (String) -> Unit = {},
     onDismissQoderPat: () -> Unit = {},
-    onDismissQoderProbe: () -> Unit = {},
     onDismissQoderLogin: () -> Unit = {},
     onCopyQoderUrl: () -> Unit = {},
     onDismissPasteImport: () -> Unit,
@@ -185,11 +189,12 @@ fun HubApp(
                             onImportFromText = onImportFromText,
                             onQoderLogin = onQoderLogin,
                             onQoderPatLogin = onQoderPatLogin,
-                            onQoderTest = onQoderTest,
                             onQoderRefreshModels = onQoderRefreshModels,
                             onQoderLogout = onQoderLogout,
                             onQoderSwitchAccount = onQoderSwitchAccount,
                             onQoderDeleteAccount = onQoderDeleteAccount,
+                            onQoderOpenDetail = onQoderOpenDetail,
+                            onQoderRequestLogout = onQoderRequestLogout,
                             onSwitchProvider = onSwitchProvider,
                         )
                         HubTab.Bridge -> BridgeScreen(
@@ -239,6 +244,19 @@ fun HubApp(
                 onCopy = onCopyField,
             )
         }
+        if (state.showQoderDetail) {
+            QoderDetailDrawer(
+                account = state.qoderAccount,
+                onDismiss = onDismissQoderDetail,
+                onCopy = onCopyQoderField,
+            )
+        }
+        if (state.showQoderLogoutConfirm) {
+            QoderLogoutDialog(
+                onConfirm = onQoderConfirmLogout,
+                onDismiss = onDismissQoderLogout,
+            )
+        }
         if (state.showPasteImport) {
             PasteImportDialog(
                 onDismiss = onDismissPasteImport,
@@ -257,9 +275,6 @@ fun HubApp(
                 onCopy = onCopyQoderUrl,
                 onDismiss = onDismissQoderLogin,
             )
-        }
-        state.qoderProbe?.let { probe ->
-            QoderProbeDialog(probe = probe, onDismiss = onDismissQoderProbe)
         }
         if (state.creatingApiKey || state.editingApiKey != null) {
             ApiKeyEditorDialog(

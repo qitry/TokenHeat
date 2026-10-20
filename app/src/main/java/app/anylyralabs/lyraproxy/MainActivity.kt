@@ -244,15 +244,22 @@ class MainActivity : ComponentActivity() {
                     state = state.copy(qoderShowPatDialog = false)
                     loginQoderWithPat(pat)
                 },
-                onQoderTest = { testQoder() },
                 onQoderRefreshModels = { refreshQoderModels() },
                 onQoderRefreshUsage = { refreshQoderUsage() },
                 onQoderLogout = { logoutQoder() },
                 onQoderSwitchAccount = { id -> switchQoderAccount(id) },
                 onQoderDeleteAccount = { id -> deleteQoderAccount(id) },
+                onQoderOpenDetail = { state = state.copy(showQoderDetail = true) },
+                onDismissQoderDetail = { state = state.copy(showQoderDetail = false) },
+                onQoderRequestLogout = { state = state.copy(showQoderLogoutConfirm = true) },
+                onQoderConfirmLogout = {
+                    state = state.copy(showQoderLogoutConfirm = false)
+                    logoutQoder()
+                },
+                onDismissQoderLogout = { state = state.copy(showQoderLogoutConfirm = false) },
+                onCopyQoderField = { label, value -> copyToClipboard(value, "已复制 $label") },
                 onSwitchProvider = { provider -> switchGatewayProvider(provider) },
                 onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
-                onDismissQoderProbe = { state = state.copy(qoderProbe = null) },
                 onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
                 onCopyQoderUrl = { copyToClipboard(state.qoderLoginUrl, "已复制授权链接") },
                 onSwitchRealm = { region -> switchRealm(region) },
@@ -870,43 +877,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** 只探测、不改状态；结果原样展示，便于确认认证方案是否被接受。 */
-    private fun testQoder() {
-        val account = state.qoderAccount
-        if (account == null) {
-            state = state.copy(qoderStatus = "请先登录 Qoder")
-            return
-        }
-        state = state.copy(qoderBusy = true, qoderStatus = "正在测试连接…")
-        lifecycleScope.launch {
-            val probe = withContext(Dispatchers.IO) { qoderClient.probe(account) }
-            state = state.copy(
-                qoderBusy = false,
-                qoderProbe = probe,
-                qoderStatus = probe.summary,
-            )
-        }
-    }
-
-    /**
-     * 切换网关上游。
-     *
-     * 上游是在服务启动时选定的，切换后必须重建服务；否则要等下次冷启动才生效，
-     * 用户会以为切换没起作用。
-     */
-    private fun switchGatewayProvider(provider: GatewayProvider) {
-        state = state.copy(provider = provider)
-        BridgeSettings.setGatewayProvider(
-            this,
-            if (provider == GatewayProvider.QODER) "qoder" else "workbuddy",
-        )
-        if (state.bridgeRunning) {
-            stopBridge()
-            startBridge(state.port, silent = true)
-        }
-    }
-
-    /** 切换当前 Qoder 账号；模型与额度都属于账号，必须一起刷新。 */
     private fun switchQoderAccount(id: String) {
         qoderStore.select(id)
         val account = qoderStore.active() ?: return

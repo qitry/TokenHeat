@@ -356,6 +356,14 @@ object QoderChat {
     // SSE 转换
     // --------------------------------------------------------------------- //
 
+    /**
+     * 把上游帧转成 OpenAI 帧。
+     *
+     * 容错是这里的重点：Qoder 会在流中插入控制帧（额度提示、通知）
+     * 和 `event: finish` 这类收尾事件。旧实现把它们当成错误直接中断，
+     * 表现为「思考完、输出到一半突然停住」。现在只有「整个流没有任何
+     * 内容」才报错，单帧异常会被记录并跳过。
+     */
     private fun relayFrames(upstream: InputStream, writer: OutputStreamWriter, model: String) {
         val reader = upstream.bufferedReader(StandardCharsets.UTF_8)
         val id = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "").take(24)
@@ -365,34 +373,47 @@ object QoderChat {
         var promptTokens = 0
         var completionTokens = 0
         var sawContent = false
+        var lastError: String? = null
+        var currentEvent = ""
         val rawSamples = ArrayList<String>(4)
 
         while (true) {
             val line = reader.readLine() ?: break
+
+            if (line.startsWith("event:")) {
+                currentEvent = line.substring(6).trim()
+                continue
+            }
             if (!line.startsWith("data:")) continue
+
             val payload = line.substring(5).trim()
             if (payload.isEmpty()) continue
             if (payload == "[DONE]") break
+            if (isControlPayload(payload)) continue
             if (rawSamples.size < 4) rawSamples.add(payload.take(200))
 
             val envelope = runCatching { JSONObject(payload) }.getOrNull()
             if (envelope == null) {
-                emitError(writer, "unparsable frame: ${payload.take(300)}")
-                return
+                lastError = "unparsable frame: ${payload.take(200)}"
+                continue
             }
+
             val statusCode = envelope.optInt("statusCodeValue", envelope.optInt("statusCode", 200))
-            if (statusCode != 200) {
-                emitError(writer, "upstream $statusCode: ${envelope.optString("body").take(400)}")
-                return
+            // finish 事件允许带非 200 状态，它表示「这一步结束」，不是失败。
+            if (statusCode != 200 && currentEvent != "finish") {
+                lastError = "upstream $statusCode: ${envelope.optString("body").take(300)}"
+                currentEvent = ""
+                continue
             }
+            currentEvent = ""
 
             val innerRaw = envelope.optString("body")
             if (innerRaw == "[DONE]") break
-            if (innerRaw.isEmpty()) continue
+            if (innerRaw.isEmpty() || isControlPayload(innerRaw)) continue
             val inner = runCatching { JSONObject(innerRaw) }.getOrNull()
             if (inner == null) {
-                emitError(writer, "unparsable body: ${innerRaw.take(300)}")
-                return
+                lastError = "unparsable body: ${innerRaw.take(200)}"
+                continue
             }
 
             inner.optJSONObject("usage")?.let { usage ->
@@ -434,17 +455,15 @@ object QoderChat {
             }
         }
 
-        // 没有任何内容说明帧结构与预期不同，把原始帧带回客户端而不是假装成功。
         if (!sawContent) {
             emitError(
                 writer,
-                "no content in upstream frames; samples=${rawSamples.joinToString(" | ")}",
+                lastError ?: "no content in upstream frames; samples=${rawSamples.joinToString(" | ")}",
             )
             return
         }
 
-        // 收尾：usage 并入 finish 帧。单独的 choices:[] usage 帧只有
-        // stream_options.include_usage 时才合法，很多客户端会因此报错。
+        // usage 并入 finish 帧，避免 choices:[] 的非标准帧。
         val usage = JSONObject().apply {
             put("prompt_tokens", promptTokens)
             put("completion_tokens", completionTokens)
@@ -473,6 +492,12 @@ object QoderChat {
         writer.write("data: [DONE]\n\n")
         writer.flush()
     }
+
+    /** Qoder 的控制帧：额度提示与通知，不承载回答内容。 */
+    private fun isControlPayload(value: String): Boolean =
+        value == "[NOT_EXCEED_QUOTA]" ||
+            value.startsWith("[EXCEED_QUOTA]") ||
+            value.startsWith("[NOTIFICATIONS]")
 
     private fun chunk(
         id: String,
