@@ -467,6 +467,15 @@ object QoderChat {
         return if (changed) json.toString() else inner
     }
 
+    /** 把客户端可能使用的思考档位映射到上游接受的值。 */
+    private fun normalizeEffort(value: String): String = when (value.trim().lowercase()) {
+        "low", "minimal" -> "low"
+        "high", "xhigh", "max" -> "high"
+        "medium" -> "medium"
+        "", "none", "off", "disabled" -> ""
+        else -> "medium"
+    }
+
     /** Qoder 的控制帧：额度提示与通知，不承载回答内容。 */
     private fun isControlPayload(value: String): Boolean =
         value == "[NOT_EXCEED_QUOTA]" ||
