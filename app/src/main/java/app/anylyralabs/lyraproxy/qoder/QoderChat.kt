@@ -490,7 +490,9 @@ object QoderChat {
 
             val payload = line.substring(5).trim()
             if (payload.isEmpty()) continue
-            if (payload == "[DONE]") break
+            // [DONE] 只是上游的载荷标记，官方 CLI 把它当空载荷跳过；
+            // 直接 break 会把「正文之后、工具调用/下一段思考之前」的帧全部丢掉。
+            if (payload == "[DONE]") continue
             if (isControlPayload(payload)) continue
             if (rawSamples.size < 4) rawSamples.add(payload.take(200))
 
@@ -510,7 +512,7 @@ object QoderChat {
             currentEvent = ""
 
             var inner = envelope.optString("body")
-            if (inner == "[DONE]") break
+            if (inner == "[DONE]") continue
             if (inner.isEmpty() || isControlPayload(inner)) continue
 
             // 解析一份原始帧，记录 id / model / finish_reason / 是否出现工具调用。
