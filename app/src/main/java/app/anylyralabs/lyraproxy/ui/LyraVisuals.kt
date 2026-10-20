@@ -469,12 +469,13 @@ fun LyraExpiryPickerDialog(
 }
 
 /** 所选日期在本地时区的最后一秒（epoch 秒，23:59:59）。 */
-private fun MochiDate.endOfDayEpochSecond(): Long =
-    java.time.LocalDate.of(year, month, day)
-        .atTime(java.time.LocalTime.MAX)
-        .atZone(java.time.ZoneId.systemDefault())
-        .toInstant()
-        .toEpochSecond()
+private fun MochiDate.endOfDayEpochSecond(): Long {
+    // 用 Calendar 而不是 java.time：minSdk 26 上不需要 desugaring，行为也稳定。
+    val calendar = java.util.Calendar.getInstance()
+    calendar.set(year, month - 1, day, 23, 59, 59)
+    calendar.set(java.util.Calendar.MILLISECOND, 0)
+    return calendar.timeInMillis / 1000
+}
 
 /**
  * 页内提示条，包装 [MochiTipCard]：左侧图标、标题和说明，右上角关闭。
