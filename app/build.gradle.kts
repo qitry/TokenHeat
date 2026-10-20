@@ -85,6 +85,8 @@ dependencies {
 
     // 组件库：MD3 Expressive + iOS 26 交互 + G2 连续圆角
     implementation("com.github.feice11:mochi-compose:0.1.180")
+    // Nothing 外观：单色 + 红点、NDot 数字与语义图标
+    implementation("com.github.feice11.mochi-compose:mochi-nothing:0.1.180")
     // mochi 的公开 API 用 ImmutableList 接收列表
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
 

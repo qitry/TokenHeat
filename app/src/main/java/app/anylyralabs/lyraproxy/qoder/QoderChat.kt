@@ -183,6 +183,8 @@ object QoderChat {
         var promptTokens = 0
         var completionTokens = 0
         var error: String? = null
+        var finishReason = ""
+        val toolCalls = LinkedHashMap<Int, JSONObject>()
 
         opened.stream.bufferedReader(StandardCharsets.UTF_8).use { reader ->
             while (true) {
@@ -202,25 +204,54 @@ object QoderChat {
                     promptTokens = usage.optInt("prompt_tokens", promptTokens)
                     completionTokens = usage.optInt("completion_tokens", completionTokens)
                 }
-                val delta = obj.optJSONArray("choices")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("delta")
-                    ?: continue
+                val choice = obj.optJSONArray("choices")?.optJSONObject(0) ?: continue
+                if (!choice.isNull("finish_reason")) {
+                    val reason = choice.optString("finish_reason")
+                    if (reason.isNotBlank()) finishReason = reason
+                }
+                val delta = choice.optJSONObject("delta") ?: continue
                 content.append(delta.optString("content"))
                 reasoning.append(delta.optString("reasoning_content"))
+                delta.optJSONArray("tool_calls")?.let { parts ->
+                    for (i in 0 until parts.length()) {
+                        val part = parts.optJSONObject(i) ?: continue
+                        val slot = part.optInt("index", i)
+                        val acc = toolCalls.getOrPut(slot) {
+                            JSONObject().apply {
+                                put("id", "")
+                                put("type", "function")
+                                put("function", JSONObject().apply {
+                                    put("name", "")
+                                    put("arguments", "")
+                                })
+                            }
+                        }
+                        part.optString("id").takeIf { it.isNotBlank() }?.let { acc.put("id", it) }
+                        part.optString("type").takeIf { it.isNotBlank() }?.let { acc.put("type", it) }
+                        val fn = part.optJSONObject("function") ?: continue
+                        val target = acc.optJSONObject("function") ?: continue
+                        fn.optString("name").takeIf { it.isNotBlank() }?.let { target.put("name", it) }
+                        fn.optString("arguments").takeIf { it.isNotEmpty() }?.let {
+                            target.put("arguments", target.optString("arguments") + it)
+                        }
+                    }
+                }
             }
         }
 
         val failure = error
         if (failure != null) return Result.Failed(502, failure)
 
+        val calls = JSONArray().apply { toolCalls.values.forEach { put(it) } }
         val message = JSONObject().apply {
             put("role", "assistant")
-            put("content", content.toString())
+            // 纯工具调用时 content 允许为空串，OpenAI 客户端按 tool_calls 处理。
+            put("content", content.toString().ifEmpty { if (calls.length() > 0) "" else "" })
             // reasoning_content 不是 OpenAI 标准字段，只有显式开启才回传。
             if (forwardReasoning && reasoning.isNotEmpty()) {
                 put("reasoning_content", reasoning.toString())
             }
+            if (calls.length() > 0) put("tool_calls", calls)
         }
         val json = JSONObject().apply {
             put("id", id)
@@ -235,7 +266,14 @@ object QoderChat {
                         put("index", 0)
                         put("message", message)
                         put("logprobs", JSONObject.NULL)
-                        put("finish_reason", "stop")
+                        put(
+                            "finish_reason",
+                            when {
+                                calls.length() > 0 -> "tool_calls"
+                                finishReason.isNotBlank() -> finishReason
+                                else -> "stop"
+                            },
+                        )
                     },
                 ),
             )
@@ -275,12 +313,18 @@ object QoderChat {
                         JSONObject().apply {
                             put("role", "assistant")
                             put("content", content)
+                            // 工具调用的上下文必须原样带回上游，否则模型只看到
+                            // 一条空 assistant 消息和一条对不上号的 tool 结果。
+                            message.optJSONArray("tool_calls")?.let { calls ->
+                                if (calls.length() > 0) put("tool_calls", normalizeToolCalls(calls))
+                            }
                         },
                     )
                     "tool" -> result.put(
                         JSONObject().apply {
                             put("role", "tool")
                             put("tool_call_id", message.optString("tool_call_id"))
+                            if (message.has("name")) put("name", message.optString("name"))
                             put("content", content)
                         },
                     )
@@ -309,6 +353,37 @@ object QoderChat {
             }
         }
         else -> content.toString()
+    }
+
+    /** 客户端回传的 tool_calls 统一成 OpenAI 结构，arguments 必须是字符串。 */
+    private fun normalizeToolCalls(calls: JSONArray): JSONArray {
+        val out = JSONArray()
+        for (index in 0 until calls.length()) {
+            val call = calls.optJSONObject(index) ?: continue
+            val function = call.optJSONObject("function") ?: continue
+            val arguments = function.opt("arguments")
+            out.put(
+                JSONObject().apply {
+                    put("id", call.optString("id"))
+                    put("type", call.optString("type").ifBlank { "function" })
+                    put(
+                        "function",
+                        JSONObject().apply {
+                            put("name", function.optString("name"))
+                            put(
+                                "arguments",
+                                when (arguments) {
+                                    is String -> arguments
+                                    null, JSONObject.NULL -> "{}"
+                                    else -> arguments.toString()
+                                },
+                            )
+                        },
+                    )
+                },
+            )
+        }
+        return out
     }
 
     private fun normalizeTools(tools: JSONArray): JSONArray {
@@ -394,6 +469,14 @@ object QoderChat {
         var lastError: String? = null
         var currentEvent = ""
         val rawSamples = ArrayList<String>(4)
+        // 上游有时不发 finish 帧（例如 event: finish 带非 200 被跳过）。
+        // 客户端收不到 finish_reason 会把这一轮当成被截断，于是重试或直接断开。
+        // 这里补一帧结束标记，保证每轮都有明确的收尾。
+        var hasFinish = false
+        var sawToolCall = false
+        var lastId = "chatcmpl-lyra"
+        var lastCreated = System.currentTimeMillis() / 1000
+        var lastModel = "lyra"
 
         while (true) {
             val line = reader.readLine() ?: break
@@ -429,6 +512,19 @@ object QoderChat {
             if (inner == "[DONE]") break
             if (inner.isEmpty() || isControlPayload(inner)) continue
 
+            // 解析一份原始帧，记录 id / model / finish_reason / 是否出现工具调用。
+            runCatching { JSONObject(inner) }.getOrNull()?.let { frame ->
+                frame.optString("id").takeIf { it.isNotBlank() }?.let { lastId = it }
+                frame.optLong("created", 0L).takeIf { it > 0 }?.let { lastCreated = it }
+                frame.optString("model").takeIf { it.isNotBlank() }?.let { lastModel = it }
+                val choice = frame.optJSONArray("choices")?.optJSONObject(0)
+                if (choice != null) {
+                    if (!choice.isNull("finish_reason")) hasFinish = true
+                    val delta = choice.optJSONObject("delta")
+                    if ((delta?.optJSONArray("tool_calls")?.length() ?: 0) > 0) sawToolCall = true
+                }
+            }
+
             if (!forwardReasoning) {
                 inner = stripReasoning(inner)
             }
@@ -444,6 +540,32 @@ object QoderChat {
                 lastError ?: "no content in upstream frames; samples=${rawSamples.joinToString(" | ")}",
             )
             return
+        }
+
+        // 上游没给结束帧时补一帧，避免客户端把正常结束当成断流。
+        if (!hasFinish) {
+            val tail = JSONObject().apply {
+                put("id", lastId)
+                put("object", "chat.completion.chunk")
+                put("created", lastCreated)
+                put("model", lastModel)
+                put("system_fingerprint", JSONObject.NULL)
+                put(
+                    "choices",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("index", 0)
+                            put("delta", JSONObject())
+                            put("logprobs", JSONObject.NULL)
+                            put(
+                                "finish_reason",
+                                if (sawToolCall) "tool_calls" else "stop",
+                            )
+                        },
+                    ),
+                )
+            }
+            writer.write("data: $tail\n\n")
         }
 
         writer.write("data: [DONE]\n\n")

@@ -17,6 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import ui.feice.mochi.effect.hdr.MochiHdr
+import ui.feice.mochi.utils.mochiEnableEdgeToEdge
 import app.anylyralabs.lyraproxy.bridge.ApiKeyStore
 import app.anylyralabs.lyraproxy.bridge.BridgeService
 import app.anylyralabs.lyraproxy.bridge.CheckinStore
@@ -110,7 +112,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        mochiEnableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // 实验性 HDR 高光：支持 HDR 的屏幕上，按压高光、开关圆钮和边缘流光
+        // 会真的比 SDR 白更亮；不支持的设备自动按 SDR 画。
+        MochiHdr.enabled = true
+        MochiHdr.strength = 0.7f
         store = CredentialStore(this)
         callLog = CallLogStore(this)
         apiKeyStore = ApiKeyStore(this)
