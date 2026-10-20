@@ -13,9 +13,9 @@ import java.util.UUID
 /**
  * Qoder 国际版客户端。
  *
- * 端点依据 2026-10 的实际探测：国际版网关已迁到 `api.qoder.com`，
- * 认证是普通 `Authorization: Bearer`，不再需要旧版那套 COSY 加密签名。
- * 设备码登录仍走 `qoder.com/device/selectAccounts`，轮询走 OpenAPI。
+ * 端点依据 2026-10 的实际探测与官方 CLI 反编译：
+ * 设备码与账号接口在 `openapi.qoder.sh`，模型与聊天在 `api3.qoder.sh`。
+ * `api.qoder.com` 是 Cloud Agents API，不用于 CLI 登录，误用会得到 401。
  */
 object QoderConfig {
     /**
@@ -26,7 +26,7 @@ object QoderConfig {
      */
     const val OPENAPI_URL = "https://openapi.qoder.sh"
 
-    /** 模型与聊天网关（/algo/*）。 */
+    /** 模型与聊天网关（路径以 /algo 开头）。 */
     const val GATEWAY_URL = "https://api3.qoder.sh"
 
     /** 浏览器授权页。 */
