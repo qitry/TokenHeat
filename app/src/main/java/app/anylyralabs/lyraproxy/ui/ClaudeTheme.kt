@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.sp
 import app.anylyralabs.lyraproxy.R
 import ui.feice.mochi.theme.MochiColorScheme
 import ui.feice.mochi.theme.MochiTextStyles
+import androidx.compose.runtime.CompositionLocalProvider
+import ui.feice.mochi.theme.LocalMochiControlPalette
+import ui.feice.mochi.theme.MochiControlPalette
 import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.theme.darkColorScheme
 import ui.feice.mochi.theme.defaultTextStyles
@@ -136,6 +139,20 @@ fun ClaudeTheme(
 ) {
     val styles = remember { lyraTextStyles() }
     val scheme = remember(darkTheme) { nothingScheme(darkTheme) }
+    // Nothing 的控件外观：白色拇指、中性轨道、灰色行尾箭头。
+    val controls = remember(darkTheme) {
+        if (darkTheme) {
+            MochiControlPalette(
+                thumb = Color.White,
+                inactiveTrack = Color(0xFF666666),
+                sliderThumb = Color.White,
+                listChevron = Color(0xFFA8A8A8),
+            )
+        } else {
+            MochiControlPalette(thumb = Color.White, listChevron = Color(0xFF666666))
+        }
+    }
+    CompositionLocalProvider(LocalMochiControlPalette provides controls) {
     MochiTheme(colors = scheme, textStyles = styles) {
         val mochi = MochiTheme.colorScheme
         MaterialTheme(
@@ -144,13 +161,15 @@ fun ClaudeTheme(
             content = content,
         )
     }
+    }
 }
 
 /** Nothing 外观：黑白灰 + 红点，从 Mochi 的默认色阶派生后逐项覆盖。 */
 private fun nothingScheme(isDark: Boolean): MochiColorScheme = if (isDark) {
     darkColorScheme().copy(
-        primary = Claude.ClayNight,
+        primary = Color(0xFFD71921),
         onPrimary = Color.White,
+        inversePrimary = Color(0xFF9F1017),
         primaryContainer = Color(0xFF353535),
         onPrimaryContainer = Color(0xFFF2F2F2),
         secondary = Color(0xFFD0D0D0),
