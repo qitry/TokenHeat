@@ -15,11 +15,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import app.anylyralabs.lyraproxy.R
-import ui.feice.mochi.nothing.MochiNothingTheme
 import ui.feice.mochi.theme.MochiColorScheme
 import ui.feice.mochi.theme.MochiTextStyles
 import ui.feice.mochi.theme.MochiTheme
+import ui.feice.mochi.theme.darkColorScheme
 import ui.feice.mochi.theme.defaultTextStyles
+import ui.feice.mochi.theme.lightColorScheme
 
 /**
  * 品牌色。
@@ -134,7 +135,8 @@ fun ClaudeTheme(
     content: @Composable () -> Unit,
 ) {
     val styles = remember { lyraTextStyles() }
-    MochiNothingTheme(isDark = darkTheme, textStyles = styles) {
+    val scheme = remember(darkTheme) { nothingScheme(darkTheme) }
+    MochiTheme(colors = scheme, textStyles = styles) {
         val mochi = MochiTheme.colorScheme
         MaterialTheme(
             colorScheme = mochi.toMaterialScheme(),
@@ -142,6 +144,71 @@ fun ClaudeTheme(
             content = content,
         )
     }
+}
+
+/** Nothing 外观：黑白灰 + 红点，从 Mochi 的默认色阶派生后逐项覆盖。 */
+private fun nothingScheme(isDark: Boolean): MochiColorScheme = if (isDark) {
+    darkColorScheme().copy(
+        primary = Claude.ClayNight,
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFF353535),
+        onPrimaryContainer = Color(0xFFF2F2F2),
+        secondary = Color(0xFFD0D0D0),
+        onSecondary = Color(0xFF151515),
+        secondaryContainer = Color(0xFF303030),
+        onSecondaryContainer = Color(0xFFE5E5E5),
+        tertiary = Color(0xFFFFB3B7),
+        onTertiary = Color(0xFF680A10),
+        background = Color.Black,
+        onBackground = Color(0xFFF2F2F2),
+        surface = Color(0xFF1C1C1C),
+        onSurface = Color(0xFFF2F2F2),
+        surfaceVariant = Color(0xFF353535),
+        onSurfaceVariant = Color(0xFFA8A8A8),
+        surfaceTint = Color.Transparent,
+        outline = Color(0xFF888888),
+        outlineVariant = Color(0xFF424242),
+        error = Color(0xFFFF6B6B),
+        onError = Color.Black,
+        scrim = Color.Black,
+        surfaceBright = Color(0xFF353535),
+        surfaceDim = Color.Black,
+        surfaceContainerLowest = Color.Black,
+        surfaceContainerLow = Color(0xFF141414),
+        surfaceContainer = Color(0xFF1C1C1C),
+        surfaceContainerHigh = Color(0xFF282828),
+        surfaceContainerHighest = Color(0xFF353535),
+    )
+} else {
+    lightColorScheme().copy(
+        primary = Claude.Clay,
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFE4E4E4),
+        onPrimaryContainer = Color(0xFF1C1C1C),
+        secondary = Color(0xFF454545),
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFE9E9E9),
+        onSecondaryContainer = Color(0xFF252525),
+        tertiary = Claude.Clay,
+        onTertiary = Color.White,
+        background = Color(0xFFF2F2F2),
+        onBackground = Color(0xFF151515),
+        surface = Color(0xFFF2F2F2),
+        onSurface = Color(0xFF151515),
+        surfaceVariant = Color(0xFFE4E4E4),
+        onSurfaceVariant = Color(0xFF666666),
+        surfaceTint = Color.Transparent,
+        outline = Color(0xFF777777),
+        outlineVariant = Color(0xFFD7D7D7),
+        scrim = Color.Black,
+        surfaceBright = Color.White,
+        surfaceDim = Color(0xFFE4E4E4),
+        surfaceContainerLowest = Color.White,
+        surfaceContainerLow = Color(0xFFF8F8F8),
+        surfaceContainer = Color(0xFFF2F2F2),
+        surfaceContainerHigh = Color(0xFFE9E9E9),
+        surfaceContainerHighest = Color(0xFFE0E0E0),
+    )
 }
 
 /** 把 Mochi 的色板映射成 Material3 的 colorScheme，供旧页面过渡期使用。 */
