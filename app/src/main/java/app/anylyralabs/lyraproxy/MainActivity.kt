@@ -17,7 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
-import ui.feice.mochi.effect.hdr.MochiHdr
+import ui.feice.mochi.theme.MochiHdr
 import ui.feice.mochi.utils.mochiEnableEdgeToEdge
 import app.anylyralabs.lyraproxy.bridge.ApiKeyStore
 import app.anylyralabs.lyraproxy.bridge.BridgeService
