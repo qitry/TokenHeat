@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,8 +49,11 @@ import ui.feice.mochi.basic.MochiTextField
 import ui.feice.mochi.basic.Text
 import ui.feice.mochi.basic.rememberMochiSheetState
 import ui.feice.mochi.list.MochiListButton
+import ui.feice.mochi.list.MochiListCard
 import ui.feice.mochi.list.MochiListRow
 import ui.feice.mochi.list.MochiListSection
+import ui.feice.mochi.list.MochiListSectionHeader
+import ui.feice.mochi.list.MochiListStatusChip
 import ui.feice.mochi.list.mochiListDivider
 import ui.feice.mochi.theme.MochiTheme
 import app.anylyralabs.lyraproxy.bridge.ApiKey
@@ -719,6 +723,7 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         item(key = "summary") {
             Column {
@@ -763,13 +768,19 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                 }
             }
         } else {
-            item(key = "records") {
-                Column(Modifier.padding(top = 26.dp)) {
-                    MochiListSection(header = "明细", animateHeight = false) {
-                        visible.forEach { record ->
-                            CallLine(record)
-                        }
-                    }
+            item(key = "records-header") {
+                MochiListSectionHeader(
+                    text = "明细",
+                    modifier = Modifier.padding(top = 26.dp),
+                )
+            }
+            itemsIndexed(
+                items = visible,
+                // 记录只会在尾部追加；用绝对位置做 key，新增记录时已有行的 key 保持不变。
+                key = { index, _ -> "call-${state.calls.lastIndex - index}" },
+            ) { _, record ->
+                MochiListCard(showDividers = false, animateHeight = false) {
+                    CallLine(record)
                 }
             }
             if (visibleCount < state.calls.size) {
@@ -800,10 +811,16 @@ private fun CallLine(record: CallRecord) {
             "${record.promptTokens} 入 · ${record.completionTokens} 出 · ${formatCredits(record.credits)} 积分"
         },
         value = record.timeText,
-        titleTrailing = {
-            if (failed) {
-                Tag("失败", tone = TagTone.Danger)
+        status = if (failed) {
+            {
+                MochiListStatusChip(
+                    text = "失败",
+                    containerColor = MochiTheme.colorScheme.errorContainer,
+                    contentColor = MochiTheme.colorScheme.onErrorContainer,
+                )
             }
+        } else {
+            null
         },
     )
 }

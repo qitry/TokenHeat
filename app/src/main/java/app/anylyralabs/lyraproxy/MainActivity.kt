@@ -13,11 +13,20 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import ui.feice.mochi.effect.content.MochiThemeRevealHost
+import ui.feice.mochi.effect.content.rememberMochiThemeRevealState
 import ui.feice.mochi.theme.MochiHdr
+import ui.feice.mochi.theme.MochiTheme
 import ui.feice.mochi.utils.mochiEnableEdgeToEdge
 import app.anylyralabs.lyraproxy.bridge.ApiKeyStore
 import app.anylyralabs.lyraproxy.bridge.BridgeService
@@ -41,12 +50,15 @@ import app.anylyralabs.lyraproxy.qoder.QoderConfig
 import app.anylyralabs.lyraproxy.qoder.QoderPoll
 import app.anylyralabs.lyraproxy.qoder.asHubModel
 import app.anylyralabs.lyraproxy.ui.CheckinDialog
+import app.anylyralabs.lyraproxy.ui.ClaudeTheme
 import app.anylyralabs.lyraproxy.ui.HubApp
 import app.anylyralabs.lyraproxy.ui.Loading
+import app.anylyralabs.lyraproxy.ui.LocalLyraAppearance
 import app.anylyralabs.lyraproxy.ui.LogoutDialog
 import app.anylyralabs.lyraproxy.ui.HubState
 import app.anylyralabs.lyraproxy.ui.HubTab
 import app.anylyralabs.lyraproxy.ui.GatewayProvider
+import app.anylyralabs.lyraproxy.ui.rememberLyraAppearance
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -116,7 +128,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 实验性 HDR 高光：支持 HDR 的屏幕上，按压高光、开关圆钮和边缘流光
         // 会真的比 SDR 白更亮；不支持的设备自动按 SDR 画。
-        MochiHdr.enabled = true
+        // enabled 由「主题 → 实验性 → HDR 高光」控制，外观设置初始化时恢复。
         MochiHdr.strength = 0.7f
         store = CredentialStore(this)
         callLog = CallLogStore(this)
@@ -152,164 +164,183 @@ class MainActivity : ComponentActivity() {
         startBridge(state.port, silent = true)
 
         setContent {
-            HubApp(
-                state = state,
-                onStartBridge = { port -> startBridge(port) },
-                onStopBridge = { stopBridge() },
-                onLogin = { region -> startLogin(region) },
-                onLogout = { state = state.copy(showLogoutConfirm = true) },
-                onClearCalls = { clearCalls() },
-                // 轮询会用这个回调；内部按文件指纹跳过无变化的重读。
-                onRefreshCalls = { refreshCallsIfChanged() },
-                onOverlayOpacity = { value ->
-                    BridgeSettings.setOpacity(this, value)
-                    // Applied to the live panel, so the slider is visible as it moves.
-                    BridgeService.overlayRef?.panelOpacity = value
-                    state = state.copy(overlayOpacity = value)
-                },
-                onOverlayLocked = { locked ->
-                    BridgeSettings.setLocked(this, locked)
-                    BridgeService.overlayRef?.apply { this.locked = locked }
-                    state = state.copy(overlayLocked = locked)
-                },                onOverlayEnabled = { enabled ->
-                    BridgeSettings.setOverlayEnabled(this, enabled)
-                    state = state.copy(overlayEnabled = enabled)
-                    // 服务已在运行就只同步面板；未运行才需要把服务拉起来。
-                    val running = service
-                    if (running != null) {
-                        running.refreshOverlay()
-                    } else if (enabled) {
-                        startBridge(state.port, silent = true)
-                    }
-                },
-                onOverlayMovable = { movable ->
-                    BridgeSettings.setOverlayMovable(this, movable)
-                    BridgeService.overlayRef?.apply { this.movable = movable }
-                    state = state.copy(overlayMovable = movable)
-                },
-                onOverlayPassthrough = { passthrough ->
-                    BridgeSettings.setOverlayPassthrough(this, passthrough)
-                    BridgeService.overlayRef?.apply { this.passthrough = passthrough }
-                    state = state.copy(overlayPassthrough = passthrough)
-                },
-                onCopyApiKey = { key -> copyToClipboard(key, "已复制 API Key") },
-                onToggleApiKeyEnabled = { apiKey, enabled ->
-                    apiKeyStore.update(apiKey.copy(enabled = enabled))
-                    loadApiKeys()
-                },
-                onEditApiKey = { apiKey -> state = state.copy(editingApiKey = apiKey) },
-                onCreateApiKey = { state = state.copy(creatingApiKey = true, editingApiKey = null) },
-                onDeleteApiKey = { apiKey -> state = state.copy(deletingApiKey = apiKey) },
-                onClearApiKeyUsage = { apiKey ->
-                    apiKeyStore.clearUsage(apiKey.id)
-                    loadApiKeys()
-                    toast("已重置用量")
-                },
-                onSaveApiKey = { label, allowedModels, budget, enabled ->
-                    val editing = state.editingApiKey
-                    if (editing == null) {
-                        val created = apiKeyStore.create(
-                            label = label,
-                            allowedModels = allowedModels,
-                            budget = budget,
-                        )
-                        state = state.copy(
-                            creatingApiKey = false,
-                            justCreatedApiKey = created,
-                        )
-                    } else {
-                        apiKeyStore.update(
-                            editing.copy(
-                                label = label.ifBlank { editing.label },
-                                allowedModels = allowedModels.distinct(),
-                                budget = budget,
-                                enabled = enabled,
-                            ),
-                        )
-                        state = state.copy(editingApiKey = null)
-                    }
-                    loadApiKeys()
-                },
-                onDismissApiKeyEditor = {
-                    state = state.copy(creatingApiKey = false, editingApiKey = null)
-                },
-                onDismissApiKeyCreated = { state = state.copy(justCreatedApiKey = null) },
-                onConfirmDeleteApiKey = { apiKey ->
-                    apiKeyStore.delete(apiKey.id)
-                    state = state.copy(deletingApiKey = null)
-                    loadApiKeys()
-                    toast("已删除密钥")
-                },
-                onDismissDeleteApiKey = { state = state.copy(deletingApiKey = null) },
-                onExportBackup = { exportBackup() },
-                onImportBackup = { pickBackupFile() },
-                onImportFromText = { state = state.copy(showPasteImport = true) },
-                onDismissPasteImport = { state = state.copy(showPasteImport = false) },
-                onConfirmPasteImport = { text -> importFromText(text) },
-                onQoderLogin = { startQoderLogin() },
-                onQoderPatLogin = { state = state.copy(qoderShowPatDialog = true) },
-                onQoderPatConfirm = { pat ->
-                    state = state.copy(qoderShowPatDialog = false)
-                    loginQoderWithPat(pat)
-                },
-                onQoderRefreshModels = { refreshQoderModels() },
-                onQoderRefreshUsage = { refreshQoderUsage() },
-                onQoderLogout = { logoutQoder() },
-                onQoderSwitchAccount = { id -> switchQoderAccount(id) },
-                onQoderDeleteAccount = { id -> deleteQoderAccount(id) },
-                onQoderOpenDetail = { state = state.copy(showQoderDetail = true) },
-                onDismissQoderDetail = { state = state.copy(showQoderDetail = false) },
-                onQoderRequestLogout = { state = state.copy(showQoderLogoutConfirm = true) },
-                onQoderConfirmLogout = {
-                    state = state.copy(showQoderLogoutConfirm = false)
-                    logoutQoder()
-                },
-                onDismissQoderLogout = { state = state.copy(showQoderLogoutConfirm = false) },
-                onCopyQoderField = { label, value -> copyToClipboard(value, "已复制 $label") },
-                onSwitchProvider = { provider -> switchGatewayProvider(provider) },
-                onForwardReasoning = { enabled ->
-                    BridgeSettings.setReasoningEnabled(this, enabled)
-                    state = state.copy(forwardReasoning = enabled)
-                },
-                onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
-                onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
-                onCopyQoderUrl = { copyToClipboard(state.qoderLoginUrl, "已复制授权链接") },
-                onSwitchRealm = { region -> switchRealm(region) },
-                onSwitchAccount = { id -> switchAccount(id) },
-                onDeleteAccount = { id -> deleteAccount(id) },
-                onRequestOverlay = { requestOverlayPermission() },
-                onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
-                onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
-                onCopyField = { label, value -> copyToClipboard(value, "已复制 $label") },
-                onCheckin = { doCheckin() },
-                onCheckinAll = { checkinAllAccounts() },
-                onRefreshBalance = { loadBalance() },
-                onCopyEndpoint = { copyEndpoint() },
-                onCopyModel = { id -> copyToClipboard(id, "已复制模型名") },
-                onRequestNotifications = { requestNotificationPermissionIfNeeded() },
-                onRefreshModels = { loadModels() },
-                onRequestBatteryExemption = { requestBatteryExemption() },
-                onDismissCheckin = { state = state.copy(checkinMessage = "") },
-                showHelp = showHelp,
-                onShowHelp = { showHelp = true },
-                onDismissHelp = { showHelp = false },
-                onTabShown = { tab ->
-                    // Reload on entry: the service writes records without the
-                    // UI knowing, so a snapshot taken at startup goes stale.
-                    when (tab) {
-                        HubTab.Dashboard -> {
-                            loadCalls()
-                            if (state.provider == GatewayProvider.QODER) {
-                                refreshQoderUsage()
-                            } else {
-                                loadBalance()
+            val appearance = rememberLyraAppearance()
+            val reveal = rememberMochiThemeRevealState()
+            appearance.reveal = reveal
+            CompositionLocalProvider(LocalLyraAppearance provides appearance) {
+                // 揭开转场包在主题外面：它只拍画面，换主题时整屏从手指处揭开。
+                MochiThemeRevealHost(reveal, Modifier.fillMaxSize()) {
+                    ClaudeTheme {
+                        // 状态栏 / 导航栏图标跟着 app 自己的深浅色走（app 可以和系统设成不一样）。
+                        val dark = MochiTheme.colorScheme.isDark
+                        val view = LocalView.current
+                        SideEffect {
+                            WindowCompat.getInsetsController(window, view).apply {
+                                isAppearanceLightStatusBars = !dark
+                                isAppearanceLightNavigationBars = !dark
                             }
                         }
-                        HubTab.Calls -> loadCalls()
-                        else -> Unit
+                        HubApp(
+                            state = state,
+                            onStartBridge = { port -> startBridge(port) },
+                            onStopBridge = { stopBridge() },
+                            onLogin = { region -> startLogin(region) },
+                            onLogout = { state = state.copy(showLogoutConfirm = true) },
+                            onClearCalls = { clearCalls() },
+                            // 轮询会用这个回调；内部按文件指纹跳过无变化的重读。
+                            onRefreshCalls = { refreshCallsIfChanged() },
+                            onOverlayOpacity = { value ->
+                                BridgeSettings.setOpacity(this, value)
+                                // Applied to the live panel, so the slider is visible as it moves.
+                                BridgeService.overlayRef?.panelOpacity = value
+                                state = state.copy(overlayOpacity = value)
+                            },
+                            onOverlayLocked = { locked ->
+                                BridgeSettings.setLocked(this, locked)
+                                BridgeService.overlayRef?.apply { this.locked = locked }
+                                state = state.copy(overlayLocked = locked)
+                            },                onOverlayEnabled = { enabled ->
+                                BridgeSettings.setOverlayEnabled(this, enabled)
+                                state = state.copy(overlayEnabled = enabled)
+                                // 服务已在运行就只同步面板；未运行才需要把服务拉起来。
+                                val running = service
+                                if (running != null) {
+                                    running.refreshOverlay()
+                                } else if (enabled) {
+                                    startBridge(state.port, silent = true)
+                                }
+                            },
+                            onOverlayMovable = { movable ->
+                                BridgeSettings.setOverlayMovable(this, movable)
+                                BridgeService.overlayRef?.apply { this.movable = movable }
+                                state = state.copy(overlayMovable = movable)
+                            },
+                            onOverlayPassthrough = { passthrough ->
+                                BridgeSettings.setOverlayPassthrough(this, passthrough)
+                                BridgeService.overlayRef?.apply { this.passthrough = passthrough }
+                                state = state.copy(overlayPassthrough = passthrough)
+                            },
+                            onCopyApiKey = { key -> copyToClipboard(key, "已复制 API Key") },
+                            onToggleApiKeyEnabled = { apiKey, enabled ->
+                                apiKeyStore.update(apiKey.copy(enabled = enabled))
+                                loadApiKeys()
+                            },
+                            onEditApiKey = { apiKey -> state = state.copy(editingApiKey = apiKey) },
+                            onCreateApiKey = { state = state.copy(creatingApiKey = true, editingApiKey = null) },
+                            onDeleteApiKey = { apiKey -> state = state.copy(deletingApiKey = apiKey) },
+                            onClearApiKeyUsage = { apiKey ->
+                                apiKeyStore.clearUsage(apiKey.id)
+                                loadApiKeys()
+                                toast("已重置用量")
+                            },
+                            onSaveApiKey = { label, allowedModels, budget, enabled ->
+                                val editing = state.editingApiKey
+                                if (editing == null) {
+                                    val created = apiKeyStore.create(
+                                        label = label,
+                                        allowedModels = allowedModels,
+                                        budget = budget,
+                                    )
+                                    state = state.copy(
+                                        creatingApiKey = false,
+                                        justCreatedApiKey = created,
+                                    )
+                                } else {
+                                    apiKeyStore.update(
+                                        editing.copy(
+                                            label = label.ifBlank { editing.label },
+                                            allowedModels = allowedModels.distinct(),
+                                            budget = budget,
+                                            enabled = enabled,
+                                        ),
+                                    )
+                                    state = state.copy(editingApiKey = null)
+                                }
+                                loadApiKeys()
+                            },
+                            onDismissApiKeyEditor = {
+                                state = state.copy(creatingApiKey = false, editingApiKey = null)
+                            },
+                            onDismissApiKeyCreated = { state = state.copy(justCreatedApiKey = null) },
+                            onConfirmDeleteApiKey = { apiKey ->
+                                apiKeyStore.delete(apiKey.id)
+                                state = state.copy(deletingApiKey = null)
+                                loadApiKeys()
+                                toast("已删除密钥")
+                            },
+                            onDismissDeleteApiKey = { state = state.copy(deletingApiKey = null) },
+                            onExportBackup = { exportBackup() },
+                            onImportBackup = { pickBackupFile() },
+                            onImportFromText = { state = state.copy(showPasteImport = true) },
+                            onDismissPasteImport = { state = state.copy(showPasteImport = false) },
+                            onConfirmPasteImport = { text -> importFromText(text) },
+                            onQoderLogin = { startQoderLogin() },
+                            onQoderPatLogin = { state = state.copy(qoderShowPatDialog = true) },
+                            onQoderPatConfirm = { pat ->
+                                state = state.copy(qoderShowPatDialog = false)
+                                loginQoderWithPat(pat)
+                            },
+                            onQoderRefreshModels = { refreshQoderModels() },
+                            onQoderRefreshUsage = { refreshQoderUsage() },
+                            onQoderLogout = { logoutQoder() },
+                            onQoderSwitchAccount = { id -> switchQoderAccount(id) },
+                            onQoderDeleteAccount = { id -> deleteQoderAccount(id) },
+                            onQoderOpenDetail = { state = state.copy(showQoderDetail = true) },
+                            onDismissQoderDetail = { state = state.copy(showQoderDetail = false) },
+                            onQoderRequestLogout = { state = state.copy(showQoderLogoutConfirm = true) },
+                            onQoderConfirmLogout = {
+                                state = state.copy(showQoderLogoutConfirm = false)
+                                logoutQoder()
+                            },
+                            onDismissQoderLogout = { state = state.copy(showQoderLogoutConfirm = false) },
+                            onCopyQoderField = { label, value -> copyToClipboard(value, "已复制 $label") },
+                            onSwitchProvider = { provider -> switchGatewayProvider(provider) },
+                            onForwardReasoning = { enabled ->
+                                BridgeSettings.setReasoningEnabled(this, enabled)
+                                state = state.copy(forwardReasoning = enabled)
+                            },
+                            onDismissQoderPat = { state = state.copy(qoderShowPatDialog = false) },
+                            onDismissQoderLogin = { state = state.copy(qoderLoginUrl = "") },
+                            onCopyQoderUrl = { copyToClipboard(state.qoderLoginUrl, "已复制授权链接") },
+                            onSwitchRealm = { region -> switchRealm(region) },
+                            onSwitchAccount = { id -> switchAccount(id) },
+                            onDeleteAccount = { id -> deleteAccount(id) },
+                            onRequestOverlay = { requestOverlayPermission() },
+                            onOpenCredentialDetails = { state = state.copy(showCredentialDrawer = true) },
+                            onDismissCredentialDetails = { state = state.copy(showCredentialDrawer = false) },
+                            onCopyField = { label, value -> copyToClipboard(value, "已复制 $label") },
+                            onCheckin = { doCheckin() },
+                            onCheckinAll = { checkinAllAccounts() },
+                            onRefreshBalance = { loadBalance() },
+                            onCopyEndpoint = { copyEndpoint() },
+                            onCopyModel = { id -> copyToClipboard(id, "已复制模型名") },
+                            onRequestNotifications = { requestNotificationPermissionIfNeeded() },
+                            onRefreshModels = { loadModels() },
+                            onRequestBatteryExemption = { requestBatteryExemption() },
+                            onDismissCheckin = { state = state.copy(checkinMessage = "") },
+                            showHelp = showHelp,
+                            onShowHelp = { showHelp = true },
+                            onDismissHelp = { showHelp = false },
+                            onTabShown = { tab ->
+                                // Reload on entry: the service writes records without the
+                                // UI knowing, so a snapshot taken at startup goes stale.
+                                when (tab) {
+                                    HubTab.Dashboard -> {
+                                        loadCalls()
+                                        if (state.provider == GatewayProvider.QODER) {
+                                            refreshQoderUsage()
+                                        } else {
+                                            loadBalance()
+                                        }
+                                    }
+                                    HubTab.Calls -> loadCalls()
+                                    else -> Unit
+                                }
+                            },
+                        )
                     }
-                },
-            )
+                }
+            }
         }
 
         requestNotificationPermissionIfNeeded()

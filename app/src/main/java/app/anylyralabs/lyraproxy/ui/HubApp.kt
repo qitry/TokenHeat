@@ -1,37 +1,31 @@
 package app.anylyralabs.lyraproxy.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.ui.text.style.TextOverflow
-import ui.feice.mochi.basic.Text
-import ui.feice.mochi.theme.MochiTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,21 +35,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.anylyralabs.lyraproxy.bridge.ApiKey
 import app.anylyralabs.lyraproxy.proto.Wire
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
+import ui.feice.mochi.basic.MochiSwitch
+import ui.feice.mochi.basic.MochiTabBar
+import ui.feice.mochi.basic.MochiTabBarDefaults
+import ui.feice.mochi.basic.MochiTabItem
+import ui.feice.mochi.basic.Text
+import ui.feice.mochi.basic.rememberMochiTabBarScrollBehavior
 import ui.feice.mochi.effect.hdr.MochiEdgeGlow
 import ui.feice.mochi.effect.hdr.MochiHdrPalette
-import ui.feice.mochi.basic.MochiTabBar
-import ui.feice.mochi.basic.MochiTabItem
-import ui.feice.mochi.basic.MochiSwitch
 import ui.feice.mochi.effect.overscroll.ProvideMochiOverscroll
+import ui.feice.mochi.navigation.MochiPeerTransition
+import ui.feice.mochi.navigation.MochiPeerTransitionSpec
+import ui.feice.mochi.navigation.MochiTitleBar
+import ui.feice.mochi.navigation.mochiScrollEdgeFade
+import ui.feice.mochi.nothing.NothingColors
 import ui.feice.mochi.shape.MochiCapsule
+import ui.feice.mochi.theme.MochiDefaults
+import ui.feice.mochi.theme.MochiTheme
 
 /** 底部标签栏：图标 + 文字，交给 Mochi 的胶囊栏做选中块滑动与触感。 */
 private val LyraTabs = persistentListOf(
@@ -79,7 +82,14 @@ private val LyraTabs = persistentListOf(
         icon = { tint -> LyraIcon(Icons.Outlined.History, contentDescription = null, tint = tint) },
         selectedIcon = { tint -> LyraIcon(Icons.Filled.History, contentDescription = null, tint = tint) },
     ),
+    MochiTabItem(
+        label = HubTab.Theme.label,
+        icon = { tint -> LyraIcon(Icons.Outlined.Palette, contentDescription = null, tint = tint) },
+        selectedIcon = { tint -> LyraIcon(Icons.Filled.Palette, contentDescription = null, tint = tint) },
+    ),
 )
+
+private val HubPages = listOf(0, 1, 2, 3, 4)
 
 @Composable
 fun HubApp(
@@ -153,25 +163,8 @@ fun HubApp(
 ) {
     var tab by remember { mutableIntStateOf(HubTab.Dashboard.ordinal) }
     LaunchedEffect(tab) { onTabShown(HubTab.entries[tab]) }
-    // 深色模式默认跟随系统；用户手动切换后以手动选择为准，
-    // 直到系统主题再次改变（此时重新回到跟随状态）。
-    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-    var darkOverride by remember { mutableStateOf<Boolean?>(null) }
-    val dark = darkOverride ?: systemDark
-    LaunchedEffect(systemDark) {
-        // 系统主题变化时清除手动选择，让界面重新跟随系统。
-        darkOverride = null
-    }
-
-    // 状态栏图标跟随应用内的亮暗，否则暗色模式下黑色图标看不见。
-    val view = androidx.compose.ui.platform.LocalView.current
-    LaunchedEffect(dark) {
-        val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
-        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = !dark
-            isAppearanceLightNavigationBars = !dark
-        }
-    }
+    val appearance = LocalLyraAppearance.current
+    val scrollBehavior = rememberMochiTabBarScrollBehavior()
 
     // 总开关打开时点亮一圈 3 秒的边缘流光（日落配色）。
     var edgeGlow by remember { mutableStateOf(false) }
@@ -185,18 +178,26 @@ fun HubApp(
         }
     }
 
-    ClaudeTheme(darkTheme = dark) {
-        ProvideMochiOverscroll {
-        Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                AppHeader(
-                    running = state.bridgeRunning,
-                    dark = dark,
-                    onToggleDark = { darkOverride = !dark },
-                )
-                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-                    when (HubTab.entries[tab]) {
-                        HubTab.Dashboard -> DashboardScreen(
+    ProvideMochiOverscroll {
+        Box(Modifier.fillMaxSize().background(MochiDefaults.groupedBackground())) {
+            // 切换标签用同层级过渡的景深样式：前一页往后退、淡出，后一页从后面往前、淡入。
+            // 不保留已经切走的页：记录页和概览页各自有轮询，留在组合里会一直跑。
+            MochiPeerTransition(
+                targetState = tab,
+                spec = MochiPeerTransitionSpec.Depth,
+                pages = HubPages,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                onPageChange = {
+                    tab = it
+                    scrollBehavior.expand()
+                },
+                retainPages = false,
+            ) { page ->
+                when (page) {
+                    0 -> HubPage(HubTab.Dashboard.label) {
+                        DashboardScreen(
                             state = state,
                             onStartBridge = { onStartBridge(state.port) },
                             onStopBridge = onStopBridge,
@@ -210,7 +211,10 @@ fun HubApp(
                             onRefreshCalls = onRefreshCalls,
                             onRefreshQoderUsage = onQoderRefreshUsage,
                         )
-                        HubTab.Credential -> CredentialScreen(
+                    }
+
+                    1 -> HubPage(HubTab.Credential.label) {
+                        CredentialScreen(
                             state = state,
                             onSwitchRealm = onSwitchRealm,
                             onSwitchAccount = onSwitchAccount,
@@ -230,7 +234,10 @@ fun HubApp(
                             onQoderRequestLogout = onQoderRequestLogout,
                             onSwitchProvider = onSwitchProvider,
                         )
-                        HubTab.Bridge -> BridgeScreen(
+                    }
+
+                    2 -> HubPage(HubTab.Bridge.label) {
+                        BridgeScreen(
                             state = state,
                             onStart = onStartBridge,
                             onStop = onStopBridge,
@@ -258,32 +265,65 @@ fun HubApp(
                             onClearApiKeyUsage = onClearApiKeyUsage,
                             onForwardReasoning = onForwardReasoning,
                         )
-                        HubTab.Calls -> CallsScreen(state, onClearCalls, onRefreshCalls)
                     }
+
+                    3 -> HubPage(HubTab.Calls.label) {
+                        CallsScreen(state, onClearCalls, onRefreshCalls)
+                    }
+
+                    else -> ThemeTab()
                 }
-                MochiTabBar(
-                    selectedIndex = tab,
-                    onSelect = { tab = it },
-                    items = LyraTabs,
-                    modifier = Modifier.fillMaxWidth(),
-                    // 附件条：常驻显示当前模型、供应商与网关开关
-                    accessory = { inline ->
-                        LyraAccessory(
-                            inline = inline,
-                            provider = state.provider.label,
-                            model = state.calls
-                                .maxByOrNull { it.timestamp }
-                                ?.model
-                                ?.takeIf { it.isNotBlank() }
-                                ?: "自动路由",
-                            running = state.bridgeRunning,
-                            onToggle = { checked ->
-                                if (checked) onStartBridge(state.port) else onStopBridge()
-                            },
-                        )
-                    },
-                )
             }
+
+            // 滚动边缘效果：标签栏后面垫一层底色，朝内容那侧渐隐。
+            Spacer(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+                            LyraBottomBarClearance,
+                    )
+                    .mochiScrollEdgeFade(MochiDefaults.groupedBackground(), bottom = true, extent = 56.dp),
+            )
+
+            MochiTabBar(
+                selectedIndex = tab,
+                colors = if (appearance?.style == LyraStyle.Nothing) {
+                    MochiTabBarDefaults.colors(selectedContent = NothingColors.Accent)
+                } else {
+                    MochiTabBarDefaults.colors()
+                },
+                onSelect = {
+                    tab = it
+                    scrollBehavior.expand()
+                },
+                items = LyraTabs,
+                // 只有图标 + 选中项横排标签，和 demo 首页一致。
+                behavior = MochiTabBarDefaults.iconOnlyBehavior(selectedLabelOnly = true),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                scrollBehavior = scrollBehavior,
+                onReselect = { scrollBehavior.expand() },
+                // 附件条：常驻显示当前模型、供应商与网关开关
+                accessory = { inline ->
+                    LyraAccessory(
+                        inline = inline,
+                        provider = state.provider.label,
+                        model = state.calls
+                            .maxByOrNull { it.timestamp }
+                            ?.model
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "自动路由",
+                        running = state.bridgeRunning,
+                        onToggle = { checked ->
+                            if (checked) onStartBridge(state.port) else onStopBridge()
+                        },
+                    )
+                },
+            )
+
             MochiEdgeGlow(
                 active = edgeGlow,
                 modifier = Modifier.fillMaxSize(),
@@ -293,7 +333,6 @@ fun HubApp(
                 speed = 3f,
                 intensity = 1f,
             )
-        }
         }
 
         if (state.checkinMessage.isNotBlank()) {
@@ -379,6 +418,26 @@ fun HubApp(
 }
 
 /**
+ * 已有页面还没有自己的顶栏：这里给它们一个统一的 Mochi 紧凑顶栏，
+ * 内容下移，底部给浮起的标签栏和附件条让出空间。
+ */
+@Composable
+private fun HubPage(title: String, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        MochiTitleBar(title)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .padding(bottom = LyraBottomBarClearance)
+                .navigationBarsPadding(),
+        ) {
+            content()
+        }
+    }
+}
+
+/**
  * 标签栏上方的附件条：当前模型 + 供应商 + 网关开关。
  *
  * 收进标签栏那一行时（[inline]）只留模型名和开关，避免把两行文字挤进
@@ -435,60 +494,6 @@ private fun LyraAccessory(
     }
 }
 
-/**
- * 顶栏：左侧一个轻字标，右侧只有亮暗切换。
- * 运行状态放到页面正文里说，顶栏不重复。
- */
-@Composable
-private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                // 顶栏自己避让状态栏：Scaffold 只提供 padding，不会替 topBar 处理。
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Lyra",
-                style = MochiTheme.textStyles.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = MochiTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(2.dp))
-            Text(
-                text = "Proxy",
-                style = MochiTheme.textStyles.titleLarge,
-                color = MochiTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(10.dp))
-            if (running) {
-                LiveDot(active = true, size = 6.dp)
-            }
-            Spacer(Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable(onClick = onToggleDark),
-                contentAlignment = Alignment.Center,
-            ) {
-                LyraIcon(
-                    imageVector = if (dark) Icons.Default.LightMode else Icons.Default.DarkMode,
-                    contentDescription = if (dark) "浅色" else "深色",
-                    modifier = Modifier.size(18.dp),
-                    tint = MochiTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(MochiTheme.colorScheme.outline))
-    }
-}
-
-/**
- * 底栏：纯文字导航，不用图标。
- * 四个入口字数不多，文字比图标更直接，也省掉 4 个图标的绘制。
- */
 /**
  * Dynamic friendly greeting text based on local clock time.
  */
