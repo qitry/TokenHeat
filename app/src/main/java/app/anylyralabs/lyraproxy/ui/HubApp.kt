@@ -194,7 +194,11 @@ fun HubApp(
                             onShowHelp = onShowHelp,
                             onCopyModel = onCopyModel,
                             onRequestNotifications = onRequestNotifications,
-                            onRefreshModels = onRefreshModels,
+                            onRefreshModels = if (state.provider == GatewayProvider.QODER) {
+                                onQoderRefreshModels
+                            } else {
+                                onRefreshModels
+                            },
                             onRequestBatteryExemption = onRequestBatteryExemption,
                             onRequestOverlay = onRequestOverlay,
                             onOverlayOpacity = onOverlayOpacity,
@@ -254,7 +258,11 @@ fun HubApp(
         if (state.creatingApiKey || state.editingApiKey != null) {
             ApiKeyEditorDialog(
                 existing = state.editingApiKey,
-                availableModels = state.models.map { it.id },
+                availableModels = if (state.provider == GatewayProvider.QODER) {
+                    state.qoderModels.map { it.id }
+                } else {
+                    state.models.map { it.id }
+                },
                 onDismiss = onDismissApiKeyEditor,
                 onSave = onSaveApiKey,
             )

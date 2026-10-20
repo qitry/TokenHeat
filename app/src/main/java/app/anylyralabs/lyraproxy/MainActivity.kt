@@ -797,6 +797,8 @@ class MainActivity : ComponentActivity() {
         qoderStore.save(account)
         state = state.copy(
             qoderAccount = account,
+            // 登录成功后直接切到 Qoder，省得用户还要手动选一次。
+            provider = GatewayProvider.QODER,
             qoderLoginUrl = "",
             qoderBusy = false,
             qoderStatus = "已登录 ${account.name.ifBlank { account.email }}",

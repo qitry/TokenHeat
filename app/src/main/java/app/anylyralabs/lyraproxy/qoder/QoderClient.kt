@@ -29,9 +29,6 @@ object QoderConfig {
     /** 模型与聊天网关（路径以 /algo 开头）。 */
     const val GATEWAY_URL = "https://api3.qoder.sh"
 
-    /** Cloud Agents 网关；另一套 API，值得验证是否接受同一个令牌。 */
-    const val CLOUD_URL = "https://api.qoder.com"
-
     /** 浏览器授权页。 */
     const val DEVICE_PAGE = "https://qoder.com/device/selectAccounts"
 
@@ -287,7 +284,7 @@ class QoderClient {
             "Accept" to "application/json",
             "Authorization" to "Bearer ${account.accessToken}",
         )
-        val openApiUser = call("${QoderConfig.OPENAPI_URL}/api/v1/userinfo", "GET", bearer)
+        val user = call("${QoderConfig.OPENAPI_URL}/api/v1/userinfo", "GET", bearer)
         val signed = CosySigner.sign(
             method = "GET",
             path = "/api/v2/model/list",
@@ -298,33 +295,23 @@ class QoderClient {
             email = account.email,
             machineId = account.machineId,
         )
-        val cliModels = call(
+        val models = call(
             "${QoderConfig.GATEWAY_URL}/algo/api/v2/model/list?Encode=1",
             "GET",
             signed.headers + ("Accept" to "application/json"),
         )
-        val cloudUser = call("${QoderConfig.CLOUD_URL}/api/v1/userinfo", "GET", bearer)
-        val cloudModels = call(
-            "${QoderConfig.CLOUD_URL}/algo/api/v2/model/list?Encode=1",
-            "GET",
-            bearer,
-        )
 
-        val ok = openApiUser.status in 200..299 && cliModels.status in 200..299
-        val summary = buildString {
-            append("userinfo ").append(openApiUser.status)
-            append(" · COSY 模型 ").append(cliModels.status)
-            append(" · Cloud 模型 ").append(cloudModels.status)
+        val ok = user.status in 200..299 && models.status in 200..299
+        val summary = if (ok) {
+            "登录与模型接口均可用"
+        } else {
+            "userinfo ${user.status} · COSY 模型 ${models.status}"
         }
         val detail = buildString {
-            append("[1] openapi userinfo -> ").append(openApiUser.status).append('\n')
-            append(openApiUser.body.take(160)).append("\n\n")
-            append("[2] COSY model/list -> ").append(cliModels.status).append('\n')
-            append(cliModels.body.take(160)).append("\n\n")
-            append("[3] api.qoder.com userinfo -> ").append(cloudUser.status).append('\n')
-            append(cloudUser.body.take(160)).append("\n\n")
-            append("[4] api.qoder.com model/list -> ").append(cloudModels.status).append('\n')
-            append(cloudModels.body.take(200))
+            append("GET /api/v1/userinfo -> ").append(user.status).append('\n')
+            append(user.body.take(200)).append("\n\n")
+            append("GET /algo/api/v2/model/list (COSY) -> ").append(models.status).append('\n')
+            append(models.body.take(200))
         }
         return QoderProbe(ok = ok, summary = summary, detail = detail)
     }

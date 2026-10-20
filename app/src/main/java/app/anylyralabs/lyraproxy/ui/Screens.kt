@@ -409,6 +409,10 @@ fun BridgeScreen(
     onClearApiKeyUsage: (ApiKey) -> Unit = {},
 ) {
     var portText by remember(state.port) { mutableStateOf(state.port.toString()) }
+    // 模型目录跟随供应商：切到 Qoder 时展示 Qoder 的目录，避免两套模型混在一起。
+    val qoderMode = state.provider == GatewayProvider.QODER
+    val shownModels = if (qoderMode) state.qoderModels else state.models
+    val modelsBusy = if (qoderMode) state.qoderBusy else state.loading == Loading.MODELS
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -645,7 +649,7 @@ fun BridgeScreen(
                     subtitle = "点模型名复制标识",
                     trailing = {
                         TextAction(
-                            text = if (state.loading == Loading.MODELS) "获取中" else "刷新",
+                            text = if (modelsBusy) "获取中" else "刷新",
                             onClick = onRefreshModels,
                         )
                     },
@@ -654,11 +658,11 @@ fun BridgeScreen(
             }
         }
         item(key = "models") {
-            if (state.loading == Loading.MODELS && state.models.isEmpty()) {
+            if (modelsBusy && shownModels.isEmpty()) {
                 InlineLoading("正在读取模型目录")
             } else {
                 ModelList(
-                    models = state.models,
+                    models = shownModels,
                     onCopyModel = onCopyModel,
                 )
             }
