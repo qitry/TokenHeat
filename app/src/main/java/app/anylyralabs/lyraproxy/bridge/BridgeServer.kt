@@ -190,7 +190,10 @@ class BridgeServer(
                     val source = if (useQoder()) qoderModels().map { it.id } else models()
                     val allowed = source.filter { auth.modelAllowed(it) }
                     val list = allowed.joinToString(",") {
-                        """{"id":"$it","object":"model","owned_by":"workbuddy"}"""
+                        // created 是 OpenAI Model 对象的必填字段，缺失会让
+                        // 严格校验的客户端（如 opencode 使用的 AI SDK）解析失败。
+                        val owner = if (useQoder()) "qoder" else "workbuddy"
+                        """{"id":"$it","object":"model","created":0,"owned_by":"$owner"}"""
                     }
                     sendJson(output, 200, """{"object":"list","data":[$list]}""")
                 }
