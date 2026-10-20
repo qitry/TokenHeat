@@ -49,7 +49,7 @@ object QoderChat {
         val tools = request.optJSONArray("tools")?.let { normalizeTools(it) } ?: JSONArray()
 
         val recordId = UUID.randomUUID().toString().replace("-", "").take(16)
-        val body = JSONObject().apply {
+        val bodyJson = JSONObject().apply {
             put("request_id", UUID.randomUUID().toString())
             put("request_set_id", recordId)
             put("chat_record_id", recordId)
@@ -75,11 +75,14 @@ object QoderChat {
             })
         }.toString()
 
+        // 上游要求正文按自定义 Base64 编码，签名与哈希都基于编码后的字节。
+        val encodedBody = QoderBodyEncoder.encode(bodyJson.toByteArray(Charsets.UTF_8))
+
         val path = "/api/v2/service/pro/sse/agent_chat_generation"
         val signed = CosySigner.sign(
             method = "POST",
             path = path,
-            body = body,
+            body = encodedBody,
             token = account.accessToken,
             uid = account.id,
             name = account.name,
@@ -105,7 +108,7 @@ object QoderChat {
                 setRequestProperty("X-Model-Key", model.key)
                 setRequestProperty("X-Model-Source", "system")
                 signed.headers.forEach { (key, value) -> setRequestProperty(key, value) }
-                outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
+                outputStream.use { it.write(encodedBody) }
             }
             status = connection.responseCode
             upstream = if (status in 200..299) {

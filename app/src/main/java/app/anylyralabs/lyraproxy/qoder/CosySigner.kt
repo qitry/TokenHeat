@@ -45,7 +45,7 @@ XcW+ML9FoCI6AOvOzwIDAQAB
     fun sign(
         method: String,
         path: String,
-        body: String,
+        body: ByteArray = ByteArray(0),
         token: String,
         uid: String,
         name: String,
@@ -78,9 +78,13 @@ XcW+ML9FoCI6AOvOzwIDAQAB
         val payloadB64 = base64(payload.toByteArray(Charsets.UTF_8))
 
         // 签名串：payload、密钥、时间戳、请求体、路径，以换行分隔。
+        // 请求体按字节拼接，不能用字符串——编码后的正文不是合法 UTF-8。
         val signature = md5(
-            listOf(payloadB64, cosyKey, timestamp, body, path).joinToString("\n")
-                .toByteArray(Charsets.UTF_8),
+            concat(
+                "$payloadB64\n$cosyKey\n$timestamp\n".toByteArray(Charsets.UTF_8),
+                body,
+                "\n$path".toByteArray(Charsets.UTF_8),
+            ),
         )
 
         return Signed(
@@ -96,8 +100,8 @@ XcW+ML9FoCI6AOvOzwIDAQAB
                 "Cosy-Machineos" to machineOs(),
                 "Cosy-Clienttype" to QoderConfig.CLIENT_TYPE,
                 "Cosy-Clientip" to "127.0.0.1",
-                "Cosy-Bodyhash" to md5(body.toByteArray(Charsets.UTF_8)),
-                "Cosy-Bodylength" to body.toByteArray(Charsets.UTF_8).size.toString(),
+                "Cosy-Bodyhash" to md5(body),
+                "Cosy-Bodylength" to body.size.toString(),
                 "Cosy-Sigpath" to path,
                 "Cosy-Data-Policy" to "agree",
                 "Cosy-Organization-Id" to "",
@@ -133,6 +137,17 @@ XcW+ML9FoCI6AOvOzwIDAQAB
         val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
         cipher.init(Cipher.ENCRYPT_MODE, key)
         return cipher.doFinal(plain)
+    }
+
+    private fun concat(vararg parts: ByteArray): ByteArray {
+        val total = parts.sumOf { it.size }
+        val out = ByteArray(total)
+        var offset = 0
+        parts.forEach { part ->
+            System.arraycopy(part, 0, out, offset, part.size)
+            offset += part.size
+        }
+        return out
     }
 
     private fun md5(bytes: ByteArray): String =

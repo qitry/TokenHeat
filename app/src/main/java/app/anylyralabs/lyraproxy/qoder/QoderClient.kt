@@ -213,7 +213,7 @@ class QoderClient {
         val signed = CosySigner.sign(
             method = "GET",
             path = "/api/v2/model/list",
-            body = "",
+            body = ByteArray(0),
             token = account.accessToken,
             uid = account.id,
             name = account.name,
@@ -288,7 +288,7 @@ class QoderClient {
         val signed = CosySigner.sign(
             method = "GET",
             path = "/api/v2/model/list",
-            body = "",
+            body = ByteArray(0),
             token = account.accessToken,
             uid = account.id,
             name = account.name,
