@@ -313,7 +313,13 @@ fun ChatScreen(
                     .fillMaxSize()
                     .background(background),
             ) {
-                Column(Modifier.fillMaxSize()) {
+                // 键盘弹出时整页内容收缩，输入条作为 Column 的最后一个子项始终贴在可视区底部；
+                // 放在 InputBar 内部只会把输入条自己顶高，页面其余部分仍按整屏排版。
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .imePadding(),
+                ) {
                     MochiTitleBar(
                         title = titleModel,
                         navigationIcon = {
@@ -620,12 +626,12 @@ private fun InputBar(
     onStop: () -> Unit,
 ) {
     val density = LocalDensity.current
-    // 键盘弹出时底部的标签栏被键盘盖住，输入区只跟 IME 走；没有键盘时才给标签栏让位
+    // 键盘弹出时底部的标签栏被键盘盖住，输入区只跟 IME 走；没有键盘时才给标签栏让位。
+    // IME 的位移由外层 Column 的 imePadding 完成，这里只负责键盘收起时的标签栏 / 导航栏留白。
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     Row(
         Modifier
             .fillMaxWidth()
-            .imePadding()
             .then(
                 if (imeVisible) {
                     Modifier

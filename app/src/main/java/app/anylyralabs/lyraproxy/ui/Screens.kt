@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,7 +60,6 @@ import ui.feice.mochi.basic.MochiTextField
 import ui.feice.mochi.basic.Text
 import ui.feice.mochi.basic.rememberMochiSheetState
 import ui.feice.mochi.list.MochiListButton
-import ui.feice.mochi.list.MochiListColors
 import ui.feice.mochi.list.MochiListDefaults
 import ui.feice.mochi.list.MochiListRow
 import ui.feice.mochi.list.MochiListSection
@@ -166,9 +164,10 @@ fun CredentialScreen(
                                 buttonPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
                                 Text(
-                                    text = regionLabel,
+                                    text = "$regionLabel · ${saved.size}",
                                     style = MochiTheme.textStyles.labelLarge,
                                     maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 LyraIcon(
@@ -838,7 +837,9 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
     val visible = remember(state.calls, visibleCount) {
         state.calls.asReversed().take(visibleCount)
     }
-    val listColors = MochiListDefaults.colors()
+    // 每 40 条一张 Mochi 分组卡片：分隔线、首末圆角都由 MochiListSection 画，
+    // LazyColumn 仍然只组合可见的块（每块最多 40 行）。
+    val chunks = remember(visible) { visible.chunked(40) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -891,82 +892,35 @@ fun CallsScreen(state: HubState, onClear: () -> Unit, onRefresh: () -> Unit) {
                     modifier = Modifier.padding(top = MochiListDefaults.SectionSpacing),
                 )
             }
-            itemsIndexed(
-                items = visible,
-                // 记录只会在尾部追加；用绝对位置做 key，新增记录时已有行的 key 保持不变。
-                key = { index, _ -> "call-${state.calls.lastIndex - index}" },
-            ) { index, record ->
-                // 所有记录共享一张连续卡片：首行圆上角、末行圆下角，中间行保持直角。
-                val absoluteIndex = state.calls.lastIndex - index
-                FusedCallLine(
-                    record = record,
-                    first = index == 0,
-                    last = absoluteIndex == 0,
-                    colors = listColors,
-                )
+            chunks.forEachIndexed { chunkIndex, chunk ->
+                item(key = "call-chunk-$chunkIndex") {
+                    MochiListSection(
+                        modifier = if (chunkIndex == 0) {
+                            Modifier
+                        } else {
+                            Modifier.padding(top = MochiListDefaults.SectionSpacing)
+                        },
+                        animateHeight = false,
+                    ) {
+                        chunk.forEach { record -> CallLine(record) }
+                    }
+                }
             }
             if (visibleCount < state.calls.size) {
                 item(key = "more") {
                     LaunchedEffect(visibleCount) {
                         visibleCount = (visibleCount + pageSize).coerceAtMost(state.calls.size)
                     }
-                    Column(
-                        Modifier
+                    Text(
+                        text = "继续加载…",
+                        style = MochiTheme.textStyles.labelSmall.copy(textAlign = TextAlign.Center),
+                        color = MochiTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .clip(
-                                RoundedCornerShape(
-                                    bottomStart = MochiListDefaults.SectionCorner,
-                                    bottomEnd = MochiListDefaults.SectionCorner,
-                                ),
-                            )
-                            .background(listColors.container),
-                    ) {
-                        // 上一行已经画过底部分隔线，这里不再重复画，避免两条线叠成 2dp。
-                        Text(
-                            text = "继续加载…",
-                            style = MochiTheme.textStyles.labelSmall,
-                            color = MochiTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 16.dp, horizontal = 22.dp),
-                        )
-                    }
+                            .padding(vertical = 16.dp, horizontal = 22.dp),
+                    )
                 }
             }
-        }
-    }
-}
-
-/**
- * 融合明细行：所有记录在同一张卡片里，只有首行和真正的末行带圆角。
- * 每行仍是独立的 MochiListRow，分隔线由这里补，避免每行一张卡片。
- */
-@Composable
-private fun FusedCallLine(
-    record: CallRecord,
-    first: Boolean,
-    last: Boolean,
-    colors: MochiListColors,
-) {
-    val shape = RoundedCornerShape(
-        topStart = if (first) MochiListDefaults.SectionCorner else 0.dp,
-        topEnd = if (first) MochiListDefaults.SectionCorner else 0.dp,
-        bottomStart = if (last) MochiListDefaults.SectionCorner else 0.dp,
-        bottomEnd = if (last) MochiListDefaults.SectionCorner else 0.dp,
-    )
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(colors.container),
-    ) {
-        CallLine(record)
-        if (!last) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = MochiListDefaults.TextRowPadding)
-                    .height(1.dp)
-                    .background(MochiTheme.colorScheme.outlineVariant),
-            )
         }
     }
 }

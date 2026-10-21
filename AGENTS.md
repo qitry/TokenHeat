@@ -15,6 +15,6 @@
 
 - UI 组件统一使用 `ui.feice.mochi.*`，不要引入 `androidx.compose.material3`。
 - 列表使用 `MochiListSection` / `MochiListRow`，弹层使用 `MochiDialog` / `MochiSheet`。
-- 浮起的 `MochiTabBar` 会盖住页面底部：页面内容需预留 `LyraBottomBarClearance`（并加上导航栏 inset）。
+- 浮起的 `MochiTabBar` 会盖住页面底部：只有「更多」根页需要预留 `LyraBottomBarClearance`（并加上导航栏 inset）；二级页只留导航栏 inset。聊天页的输入条在键盘收起时自行避让标签栏，页面骨架不再额外留白。
 - 依赖 `mochi-compose:0.1.180`（JitPack）；该版本的源码与 `mochi-src` 参考目录一致。
 - 构建需要 JDK 17。本机 Termux 环境没有 JDK，不能本地编译；改动 Mochi API 前请先在 `~/mochi-src` 或已发布源码中核对签名。

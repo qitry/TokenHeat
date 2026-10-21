@@ -122,6 +122,7 @@ internal fun MoreTab(
     MochiNavHost(navigator = nav, modifier = Modifier.fillMaxSize()) { route ->
         when (route) {
             "ui" -> UiSettingsPage()
+            // 聊天页的输入条自己避让浮起标签栏；页面壳只留导航栏，不再叠加 LyraBottomBarClearance。
             "chat" -> ChatScreen(
                 port = state.port,
                 secret = state.secret,
@@ -268,7 +269,9 @@ private fun MoreListPage(
 ) {
     val listState = rememberLazyListState()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // 二级页只留系统导航栏；只有根页额外给浮起的标签栏让位，避免两层留白叠成一条空栏。
+    val bottom = if (reserveTabBar) navBottom + LyraBottomBarClearance else navBottom
     val progress = MochiScrollEdgeDefaults.progress(listState)
 
     Box(Modifier.fillMaxSize().background(MochiDefaults.groupedBackground())) {
@@ -279,7 +282,7 @@ private fun MoreListPage(
                 start = 16.dp,
                 end = 16.dp,
                 top = top + MochiTitleBarDefaults.Height + 12.dp,
-                bottom = bottom + if (reserveTabBar) LyraBottomBarClearance else 0.dp,
+                bottom = bottom,
             ),
             verticalArrangement = Arrangement.spacedBy(MochiListDefaults.SectionSpacing),
             content = content,
