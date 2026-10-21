@@ -56,6 +56,8 @@ class BridgeServer(
     private val qoderModels: () -> List<QoderModel> = { emptyList() },
     /** 是否转发思考过程（非标准字段，默认关闭）。 */
     private val forwardReasoning: () -> Boolean = { false },
+    /** 会话失效时强制刷新一次凭证；返回 null 表示刷新失败。 */
+    private val renewCredential: (Credential) -> Credential? = { null },
 ) {
 
     /** 通过鉴权后携带的约束。 */
@@ -312,7 +314,18 @@ class BridgeServer(
         }
 
         val started = System.currentTimeMillis()
-        when (val result = client.chatStream(cred, body)) {
+        var active = cred
+        var chatResult = client.chatStream(active, body)
+        // 服务端提前作废会话时（SESSION_DEAD），刷新一次 token 再重试，
+        // 不要直接把这个 401 甩给客户端。
+        if (chatResult is UpstreamClient.ChatResult.Failed && chatResult.kind == Wire.ErrorKind.SESSION_DEAD) {
+            val renewed = renewCredential(active)
+            if (renewed != null && renewed.accessToken != active.accessToken) {
+                active = renewed
+                chatResult = client.chatStream(active, body)
+            }
+        }
+        when (val result = chatResult) {
             is UpstreamClient.ChatResult.Failed -> {
                 val detail = Wire.displayError(result.message) ?: result.message.take(200)
                 BridgeStatus.recordError("${result.kind.name.lowercase()}: $detail")

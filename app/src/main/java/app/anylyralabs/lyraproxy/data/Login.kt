@@ -101,23 +101,33 @@ object Login {
         val data = payload.optJSONObject("data") ?: return Poll.Pending
         val token = data.optString("accessToken")
         if (token.isEmpty()) return Poll.Pending
+        // 新版权限以企业/租户为单位：账号资料里的 uid 与 enterpriseId 必须一起保存，
+        // 否则聊天请求会缺身份头（X-User-Id / X-Enterprise-Id）而被网关拒绝。
+        val profile = profile(state, token, realm)
         return Poll.Done(
             Credential(
                 accessToken = token,
                 refreshToken = data.optString("refreshToken"),
                 expiresAt = data.optLong("expiresAt", 0L),
-                // The response may omit the domain; falling back to the version
-                // the user signed in to keeps the credential filed under the
-                // right build instead of defaulting to CN.
                 domain = data.optString("domain").ifEmpty { defaultDomain(realm) },
-                uid = uidOf(token),
-                nickname = nickname(state, token, realm) ?: "",
+                uid = data.optString("uid")
+                    .ifEmpty { data.optString("userId") }
+                    .ifEmpty { profile?.uid.orEmpty() }
+                    .ifEmpty { uidOf(token) },
+                nickname = data.optString("nickname")
+                    .ifEmpty { profile?.nickname.orEmpty() },
+                enterpriseId = data.optString("enterpriseId")
+                    .ifEmpty { data.optString("tenantId") }
+                    .ifEmpty { profile?.enterpriseId },
                 source = "oauth",
             )
         )
     }
 
-    private fun nickname(state: String, token: String, realm: Realm): String? {
+    private data class Profile(val uid: String, val nickname: String, val enterpriseId: String?)
+
+    /** 账号资料：昵称、uid 与企业/租户 id；失败不影响登录本身。 */
+    private fun profile(state: String, token: String, realm: Realm): Profile? {
         return try {
             val conn = open("${base(realm)}$ACCOUNT_PATH?state=$state", realm).apply {
                 requestMethod = "GET"
@@ -128,7 +138,14 @@ object Login {
             } finally {
                 conn.disconnect()
             }
-            JSONObject(text).optJSONObject("data")?.optString("nickname")?.takeIf { it.isNotEmpty() }
+            val data = JSONObject(text).optJSONObject("data") ?: return null
+            Profile(
+                uid = data.optString("uid").ifEmpty { data.optString("userId") },
+                nickname = data.optString("nickname").ifEmpty { data.optString("name") },
+                enterpriseId = data.optString("enterpriseId")
+                    .ifEmpty { data.optString("tenantId") }
+                    .takeIf { it.isNotEmpty() },
+            )
         } catch (e: Exception) {
             null
         }

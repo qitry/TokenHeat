@@ -85,6 +85,11 @@ class BridgeService : Service() {
                 qoderAccount = { qoderStore.active() },
                 qoderModels = { qoderStore.loadModels() },
                 forwardReasoning = { BridgeSettings.reasoningEnabled(this) },
+                renewCredential = { c ->
+                    runCatching { upstream.refreshToken(c) }
+                        .onSuccess { store.save(it.region, it) }
+                        .getOrNull()
+                },
             ).also { it.start() }
             scope.launch { refreshModelsLoop() }
         }
