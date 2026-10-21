@@ -71,19 +71,17 @@ object ChatTools {
     fun search(query: String, exaKey: String, firecrawlKey: String): ToolResult {
         val exa = exaKey.trim()
         val firecrawl = firecrawlKey.trim()
-        if (exa.isEmpty() && firecrawl.isEmpty()) {
-            return ToolResult.Unavailable("未配置 Exa / Firecrawl API Key")
-        }
 
+        // 两家都提供 keyless 的托管 MCP，未配置 key 也能用（有额度限制）。
         val problems = ArrayList<String>()
-        if (exa.isNotEmpty()) {
+        run {
             when (val result = exaSearch(query, exa)) {
                 is ToolResult.Ok -> return result
                 is ToolResult.Unavailable -> problems.add(result.reason)
                 is ToolResult.Failed -> problems.add("Exa：${result.reason}")
             }
         }
-        if (firecrawl.isNotEmpty()) {
+        if (true) {
             when (val result = firecrawlSearch(query, firecrawl)) {
                 is ToolResult.Ok -> return result
                 is ToolResult.Unavailable -> problems.add(result.reason)
@@ -91,50 +89,195 @@ object ChatTools {
             }
         }
         return if (problems.isEmpty()) {
-            ToolResult.Unavailable("未配置 Exa / Firecrawl API Key")
+            ToolResult.Unavailable("Exa / Firecrawl 暂时不可用")
         } else {
             ToolResult.Failed(problems.joinToString("；"))
         }
     }
 
-    /** Exa 搜索：POST https://api.exa.ai/search，Header x-api-key。 */
+    /**
+     * Exa 搜索。优先走 keyless 托管 MCP（https://mcp.exa.ai/mcp，工具 web_search_exa），
+     * 配置了 key 时把它作为 `x-api-key` 一起带上以使用自己的额度。
+     */
     fun exaSearch(query: String, apiKey: String): ToolResult {
         val key = apiKey.trim()
-        if (key.isEmpty()) return ToolResult.Unavailable("未配置 Exa API Key")
-
-        val body = JSONObject().apply {
-            put("query", query)
-            put("numResults", 5)
-            put("contents", JSONObject().put("text", JSONObject().put("maxCharacters", 800)))
-        }
+        val headers = if (key.isEmpty()) emptyMap() else mapOf("x-api-key" to key)
         return try {
-            val raw = postJson("https://api.exa.ai/search", body, mapOf("x-api-key" to key))
-            parseExa(query, raw)
+            val text = mcpToolCall(
+                endpoint = EXA_MCP,
+                tool = "web_search_exa",
+                arguments = JSONObject().apply {
+                    put("query", query)
+                    put("numResults", 5)
+                },
+                headers = headers,
+            )
+            val sources = LINK_REGEX.findAll(text).map { it.value }
+                .distinct().take(5)
+                .map { ChatSource(url = it, title = it, domain = hostOf(it)) }
+                .toList()
+            ToolResult.Ok(text.take(MAX_SNIPPET_CHARS * 4), sources)
         } catch (e: Exception) {
-            ToolResult.Failed(friendlyError(e))
+            if (key.isNotEmpty()) {
+                // MCP 不可用时退回 REST，保证有 key 的用户仍然能搜
+                runCatching {
+                    val body = JSONObject().apply {
+                        put("query", query)
+                        put("numResults", 5)
+                        put("contents", JSONObject().put("text", JSONObject().put("maxCharacters", 800)))
+                    }
+                    parseExa(query, postJson("https://api.exa.ai/search", body, mapOf("x-api-key" to key)))
+                }.getOrElse { ToolResult.Failed(friendlyError(e)) }
+            } else {
+                ToolResult.Failed(friendlyError(e))
+            }
         }
     }
 
-    /** Firecrawl 搜索：POST https://api.firecrawl.dev/v1/search，Header Authorization: Bearer。 */
+    /**
+     * Firecrawl 搜索。keyless MCP：https://mcp.firecrawl.dev/v2/mcp，工具 firecrawl_search；
+     * 配置 key 时用 Bearer 走同一端点（额度更高）。
+     */
     fun firecrawlSearch(query: String, apiKey: String): ToolResult {
         val key = apiKey.trim()
-        if (key.isEmpty()) return ToolResult.Unavailable("未配置 Firecrawl API Key")
-
-        val body = JSONObject().apply {
-            put("query", query)
-            put("limit", 3)
-            put("scrapeOptions", JSONObject().put("formats", JSONArray().put("markdown")))
-        }
+        val headers = if (key.isEmpty()) emptyMap() else mapOf("Authorization" to "Bearer $key")
         return try {
-            val raw = postJson(
-                "https://api.firecrawl.dev/v1/search",
-                body,
-                mapOf("Authorization" to "Bearer $key"),
+            val text = mcpToolCall(
+                endpoint = FIRECRAWL_MCP,
+                tool = "firecrawl_search",
+                arguments = JSONObject().apply {
+                    put("query", query)
+                    put("limit", 3)
+                },
+                headers = headers,
             )
-            parseFirecrawl(query, raw)
+            val sources = LINK_REGEX.findAll(text).map { it.value }
+                .distinct().take(3)
+                .map { ChatSource(url = it, title = it, domain = hostOf(it)) }
+                .toList()
+            ToolResult.Ok(text.take(MAX_SNIPPET_CHARS * 4), sources)
         } catch (e: Exception) {
-            ToolResult.Failed(friendlyError(e))
+            if (key.isNotEmpty()) {
+                runCatching {
+                    val body = JSONObject().apply {
+                        put("query", query)
+                        put("limit", 3)
+                        put("scrapeOptions", JSONObject().put("formats", JSONArray().put("markdown")))
+                    }
+                    parseFirecrawl(
+                        query,
+                        postJson("https://api.firecrawl.dev/v1/search", body, mapOf("Authorization" to "Bearer $key")),
+                    )
+                }.getOrElse { ToolResult.Failed(friendlyError(e)) }
+            } else {
+                ToolResult.Failed(friendlyError(e))
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ //
+    // 托管 MCP（Streamable HTTP，JSON-RPC 2.0）
+    // ------------------------------------------------------------------ //
+
+    private const val EXA_MCP = "https://mcp.exa.ai/mcp"
+    private const val FIRECRAWL_MCP = "https://mcp.firecrawl.dev/v2/mcp"
+    private val LINK_REGEX = Regex("https?://[^\\s)\"'<>]+")
+
+    /**
+     * 一次完整的 MCP 工具调用：initialize → notifications/initialized → tools/call。
+     * 返回结果里的文本内容；失败抛异常，由调用方降级。
+     */
+    private fun mcpToolCall(
+        endpoint: String,
+        tool: String,
+        arguments: JSONObject,
+        headers: Map<String, String>,
+    ): String {
+        val base = mapOf(
+            "Content-Type" to "application/json",
+            "Accept" to "application/json, text/event-stream",
+        ) + headers
+
+        val init = JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", 1)
+            put("method", "initialize")
+            put(
+                "params",
+                JSONObject().apply {
+                    put("protocolVersion", "2024-11-05")
+                    put("capabilities", JSONObject())
+                    put(
+                        "clientInfo",
+                        JSONObject().apply {
+                            put("name", "lyra-chat")
+                            put("version", "1.0")
+                        },
+                    )
+                },
+            )
+        }
+        val (_, session) = postJsonFull(endpoint, init, base)
+
+        val sessionHeader = session?.let { mapOf("Mcp-Session-Id" to it) } ?: emptyMap()
+        runCatching {
+            postJsonFull(
+                endpoint,
+                JSONObject().apply {
+                    put("jsonrpc", "2.0")
+                    put("method", "notifications/initialized")
+                },
+                base + sessionHeader,
+            )
+        }
+
+        val call = JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", 2)
+            put("method", "tools/call")
+            put(
+                "params",
+                JSONObject().apply {
+                    put("name", tool)
+                    put("arguments", arguments)
+                },
+            )
+        }
+        val (body, _) = postJsonFull(endpoint, call, base + sessionHeader)
+        val json = extractJson(body)
+        val result = json.optJSONObject("result")
+        if (json.has("error")) {
+            throw IllegalStateException(json.optJSONObject("error")?.optString("message") ?: "MCP error")
+        }
+        val content = result?.optJSONArray("content")
+        val texts = ArrayList<String>()
+        if (content != null) {
+            for (i in 0 until content.length()) {
+                val part = content.optJSONObject(i) ?: continue
+                if (part.optString("type") == "text") texts.add(part.optString("text"))
+            }
+        }
+        if (texts.isEmpty()) {
+            // 有些服务把结构化结果放在 structuredContent 里
+            result?.optJSONObject("structuredContent")?.let { texts.add(it.toString()) }
+        }
+        if (texts.isEmpty()) throw IllegalStateException("MCP 返回为空")
+        return texts.joinToString("\n")
+    }
+
+    /** 响应可能是普通 JSON，也可能是 SSE（data: {...}）。 */
+    private fun extractJson(raw: String): JSONObject {
+        val trimmed = raw.trim()
+        runCatching { return JSONObject(trimmed) }
+        val payloads = trimmed.lineSequence()
+            .filter { it.startsWith("data:") }
+            .map { it.removePrefix("data:").trim() }
+            .filter { it.startsWith("{") }
+            .toList()
+        for (payload in payloads.asReversed()) {
+            runCatching { return JSONObject(payload) }
+        }
+        throw IllegalStateException("MCP 响应不是 JSON")
     }
 
     /** 抓取网页正文：GET，去掉 script / style / 标签，截断到 6000 字。 */
@@ -273,6 +416,38 @@ object ChatTools {
     }
 
     // ───────────────────────── HTTP ─────────────────────────
+
+    /** 和 [postJson] 相同，但把响应头里的 MCP 会话 id 一并返回。 */
+    private fun postJsonFull(
+        url: String,
+        body: JSONObject,
+        headers: Map<String, String>,
+    ): Pair<String, String?> {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("User-Agent", USER_AGENT)
+            setRequestProperty("Accept-Encoding", "identity")
+            headers.forEach { (name, value) -> setRequestProperty(name, value) }
+        }
+        return try {
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val session = connection.getHeaderField("Mcp-Session-Id")
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val raw = readLimited(stream, MAX_RESPONSE_CHARS)
+            if (code !in 200..299) throw IOException("HTTP $code：${errorText(raw)}")
+            raw to session
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** 取 URL 的域名，失败时退回原串。 */
+    private fun hostOf(url: String): String = runCatching { URL(url).host }.getOrDefault(url)
 
     private fun postJson(url: String, body: JSONObject, headers: Map<String, String>): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
