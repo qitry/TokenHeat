@@ -51,6 +51,12 @@ object Login {
             setRequestProperty("User-Agent", userAgent(realm))
             setRequestProperty("Origin", origin(realm))
             setRequestProperty("Referer", "${origin(realm)}/")
+            // 官方客户端在登录链路上显式声明「本请求不带身份」，
+            // 缺这四个头会被网关当成可疑请求拦截。
+            setRequestProperty("X-No-Authorization", "true")
+            setRequestProperty("X-No-User-Id", "true")
+            setRequestProperty("X-No-Enterprise-Id", "true")
+            setRequestProperty("X-No-Department-Info", "true")
         }
 
     private fun read(conn: HttpURLConnection): String {
@@ -75,7 +81,15 @@ object Login {
         val state = data.optString("state")
         val authUrl = data.optString("authUrl")
         if (state.isEmpty() || authUrl.isEmpty()) throw RuntimeException("缺少 state/authUrl")
-        return Session(state, authUrl, realm)
+        // 官方会给授权链接补上 applyGroup，登录后才会落到正确的团队空间。
+        val grouped = runCatching {
+            java.net.URI(authUrl).let { uri ->
+                val query = uri.rawQuery.orEmpty()
+                val merged = if (query.isBlank()) "applyGroup=true" else "$query&applyGroup=true"
+                java.net.URI(uri.scheme, uri.authority, uri.path, merged, uri.fragment).toString()
+            }
+        }.getOrDefault(authUrl)
+        return Session(state, grouped, realm)
     }
 
     sealed class Poll {
