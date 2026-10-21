@@ -213,6 +213,20 @@ object Wire {
         headers["X-IDE-Name"] = "WorkBuddy"
         headers["X-IDE-Version"] = clientVersion
         headers["X-Product"] = "SaaS"
+        headers["X-Product-Version"] = clientVersion
+
+        // 渠道校验（code 11128 "request illegal"）要求请求带上一整套会话/Agent 头，
+        // 缺任意一个都会被判定为「非官方客户端」而拦截。
+        val requestId = java.util.UUID.randomUUID().toString()
+        val conversationId = java.util.UUID.nameUUIDFromBytes(
+            "lyra-conversation:$uid".toByteArray(Charsets.UTF_8),
+        ).toString()
+        headers["X-Request-ID"] = requestId
+        headers["X-Conversation-ID"] = conversationId
+        headers["X-Conversation-Request-ID"] = java.util.UUID.randomUUID().toString()
+        headers["X-Conversation-Message-ID"] = requestId
+        headers["X-Agent-Intent"] = "craft"
+        headers["X-Agent-Runtime"] = "local-agent"
         return headers
     }
 
