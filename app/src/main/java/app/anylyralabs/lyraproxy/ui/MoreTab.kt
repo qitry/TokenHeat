@@ -161,7 +161,7 @@ private fun MoreHome(
     onOpenSettings: () -> Unit,
     onOpenChat: () -> Unit,
 ) {
-    MoreListPage(title = "更多") {
+    MoreListPage(title = "更多", reserveTabBar = true) {
         item(key = "identity") { AppIdentity() }
 
         item(key = "personal") {
@@ -227,22 +227,28 @@ private fun AppIdentity() {
             )
         }
         Spacer(Modifier.width(16.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(
                 text = "LyraProxy",
                 style = MochiTheme.textStyles.headlineLarge,
                 color = MochiTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = "版本 $version",
                 style = MochiTheme.textStyles.footnote,
                 color = MochiTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "本机运行的 OpenAI 兼容网关",
                 style = MochiTheme.textStyles.footnote,
                 color = MochiTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -251,11 +257,13 @@ private fun AppIdentity() {
 /**
  * 二级页的通用骨架：浮起的顶栏 + 分组列表。
  * @param back 二级页显示返回按钮；根页不显示
+ * @param reserveTabBar 只有根页需要给浮起的标签栏留高度；二级页只留导航栏安全区
  */
 @Composable
 private fun MoreListPage(
     title: String,
     back: Boolean = false,
+    reserveTabBar: Boolean = false,
     content: LazyListScope.() -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -271,7 +279,7 @@ private fun MoreListPage(
                 start = 16.dp,
                 end = 16.dp,
                 top = top + MochiTitleBarDefaults.Height + 12.dp,
-                bottom = bottom + LyraBottomBarClearance,
+                bottom = bottom + if (reserveTabBar) LyraBottomBarClearance else 0.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(MochiListDefaults.SectionSpacing),
             content = content,
@@ -321,7 +329,7 @@ private fun UiSettingsPage() {
                     start = 16.dp,
                     end = 16.dp,
                     top = top + MochiTitleBarDefaults.Height + 12.dp,
-                    bottom = bottom + LyraBottomBarClearance,
+                    bottom = bottom,
                 ),
             verticalArrangement = Arrangement.spacedBy(MochiListDefaults.SectionSpacing),
         ) {
@@ -495,7 +503,7 @@ private fun AboutPage(onOpenLicenses: () -> Unit) {
                 )
                 MochiListRow(
                     title = "GitHub",
-                    subtitle = "https://github.com/qitry/TokenHeat",
+                    trailing = { MonoValue("https://github.com/qitry/TokenHeat") },
                 )
             }
         }

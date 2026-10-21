@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -142,37 +144,13 @@ fun CredentialScreen(
                 )
             }
         } else {
-
-            // 当前账号
-            item(key = "current") {
-                MochiListSection(header = regionLabel) {
-                    if (active == null) {
-                        MochiListRow(
-                            title = "$regionLabel 还没有登录",
-                            subtitle = "登录后即可通过本机网关调用模型",
-                        )
-                    } else {
-                        MochiListRow(
-                            title = active.nickname.ifBlank { active.uid.take(10) },
-                            subtitle = "有效期至 ${state.expiryText.ifBlank { "未知" }}",
-                        )
-                    }
-                    MochiListButton("凭证详情", onOpenDetails)
-                    if (state.hasAnyCredential) {
-                        MochiListButton("退出登录", onLogout, destructive = true)
-                    }
-                }
-            }
-
             // 版本切换：国内版 / 国际版是两套账号，用下拉菜单切换，省掉并排分段。
             item(key = "realm") {
                 MochiListSection(
-                    header = "版本",
-                    footer = "两个版本各自保存账号，切换后立即使用对应版本的凭证。",
+                    footer = "当前版本有 ${saved.size} 个账号。两个版本各自保存账号，切换后立即使用对应版本的凭证。",
                 ) {
                     MochiListRow(
-                        title = "当前版本",
-                        subtitle = "国内版 / 国际版",
+                        title = "版本",
                         trailing = {
                             MochiDropdown(
                                 expanded = realmMenuOpen,
@@ -188,7 +166,7 @@ fun CredentialScreen(
                                 buttonPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
                                 Text(
-                                    text = "$regionLabel · ${saved.size} 个账号",
+                                    text = regionLabel,
                                     style = MochiTheme.textStyles.labelLarge,
                                     maxLines = 1,
                                 )
@@ -204,32 +182,64 @@ fun CredentialScreen(
                 }
             }
 
-            // 账号列表：与 Qoder 的账号行保持同一套排版。
-            if (saved.isNotEmpty()) {
-                item(key = "accounts") {
-                    MochiListSection(header = "$regionLabel 的账号 · ${saved.size}") {
+            // 账号列表：与 Qoder 的账号行共用同一套结构：
+            // 34dp 行首图标块 + 标题 / 副标题 + 当前账号 chip + 右侧删除，选中态用 checked。
+            item(key = "accounts") {
+                MochiListSection(
+                    header = if (saved.isEmpty()) {
+                        "$regionLabel 账号"
+                    } else {
+                        "$regionLabel 账号 · ${saved.size}"
+                    },
+                    footer = if (saved.isEmpty()) {
+                        "登录后即可通过本机网关调用模型。"
+                    } else {
+                        "点账号行切换；删除只影响本机保存的凭证。"
+                    },
+                ) {
+                    if (saved.isEmpty()) {
+                        if (active == null) {
+                            MochiListRow(
+                                title = "还没有登录",
+                                subtitle = "国内版与国际版的账号各自保存，互不影响。",
+                            )
+                        } else {
+                            AccountLine(
+                                label = active.nickname.ifBlank { active.uid.take(10) },
+                                subtitle = active.uid.take(10).ifBlank { null },
+                                isActive = true,
+                                onSelect = {},
+                                onDelete = null,
+                            )
+                        }
+                    } else {
                         saved.forEach { account ->
-                            val isActive = account.id == state.activeAccountId
                             AccountLine(
                                 label = account.label,
-                                uid = account.uid,
-                                isActive = isActive,
+                                subtitle = account.uid.take(10).ifBlank { null },
+                                isActive = account.id == state.activeAccountId,
                                 onSelect = { onSwitchAccount(account.id) },
                                 onDelete = { onDeleteAccount(account.id) },
                             )
                         }
                     }
-                }
-            }
-
-            // 登录
-            item(key = "actions") {
-                MochiListSection {
                     MochiListRow(
-                        title = if (active == null) "登录 $regionLabel" else "添加 $regionLabel 账号",
+                        title = if (active == null) "登录 $regionLabel" else "添加账号",
                         onClick = { onLogin(region) },
                         chevron = true,
                     )
+                    if (active != null) {
+                        MochiListRow(
+                            title = "凭证详情",
+                            onClick = onOpenDetails,
+                            chevron = true,
+                        )
+                        MochiListRow(
+                            title = "退出登录",
+                            onClick = onLogout,
+                            destructive = true,
+                        )
+                    }
                 }
             }
 
@@ -248,41 +258,59 @@ fun CredentialScreen(
 
 private val ProviderLabels = persistentListOf("WorkBuddy", "Qoder")
 
-/** 账号行：一行文字 + 右侧状态；选中态靠一个小圆点，不用整行换色。 */
+/**
+ * 账号行：和 Qoder 账号行同一套结构。
+ *
+ * 行首是 34dp 的圆角图标块（尺寸与圆角都取 [MochiListDefaults]），
+ * 当前账号用状态 chip 标出，右侧保留删除；整行点按切换账号。
+ */
 @Composable
 private fun AccountLine(
     label: String,
-    uid: String,
+    subtitle: String?,
     isActive: Boolean,
     onSelect: () -> Unit,
-    onDelete: () -> Unit,
+    onDelete: (() -> Unit)?,
 ) {
+    val cs = MochiTheme.colorScheme
     MochiListRow(
         title = label,
-        subtitle = if (uid.isNotBlank()) uid.take(10) else null,
+        subtitle = subtitle,
         leading = {
             Box(
                 modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isActive) {
-                            MochiTheme.colorScheme.primary
-                        } else {
-                            MochiTheme.colorScheme.outline
-                        },
-                    ),
-            )
+                    .size(MochiListDefaults.LeadingSize)
+                    .clip(RoundedCornerShape(MochiListDefaults.LeadingCorner))
+                    .background(if (isActive) cs.primaryContainer else cs.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                LyraIcon(
+                    imageVector = Icons.Outlined.Person,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isActive) cs.onPrimaryContainer else cs.onSurfaceVariant,
+                )
+            }
         },
         onClick = onSelect,
         checked = isActive,
-        titleTrailing = {
-            if (isActive) {
-                Tag("使用中", tone = TagTone.Active)
+        status = if (isActive) {
+            {
+                MochiListStatusChip(
+                    text = "当前账号",
+                    containerColor = cs.primaryContainer,
+                    contentColor = cs.onPrimaryContainer,
+                )
             }
+        } else {
+            null
         },
-        trailing = {
-            TextAction(text = "删除", onClick = onDelete, danger = true)
+        trailing = if (onDelete != null) {
+            {
+                TextAction(text = "删除", onClick = onDelete, danger = true)
+            }
+        } else {
+            null
         },
     )
 }
@@ -326,10 +354,17 @@ fun CredentialDetailDrawer(
             )
             MochiListSection {
                 rows.forEach { (label, value) ->
+                    // 地址、密钥这类长值放在行尾等宽显示并单行省略，避免把标题挤没、把行高撑成两三行
+                    val longValue = label == "UID" || label == "Access Token" || label == "Refresh Token"
                     MochiListRow(
                         title = label,
-                        subtitle = value,
+                        subtitle = if (longValue) null else value,
                         onClick = { onCopy(label, value) },
+                        trailing = if (longValue) {
+                            { MonoValue(value) }
+                        } else {
+                            null
+                        },
                     )
                 }
             }
@@ -733,15 +768,16 @@ fun BridgeScreen(
 
 private val OverlayModeLabels = persistentListOf("可拖动", "锁定", "完全穿透")
 
-/** 接入信息里的值：等宽、右对齐，长地址单行省略。 */
+/** 接入信息等行尾的等宽值：右对齐、单行省略，宽度封顶，避免长地址/密钥把标题挤掉。 */
 @Composable
-private fun MonoValue(text: String) {
+internal fun MonoValue(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MonoSmall.copy(textAlign = TextAlign.End),
         color = MochiTheme.colorScheme.onSurface,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
+        modifier = modifier.widthIn(max = 168.dp),
     )
 }
 
@@ -1010,16 +1046,20 @@ fun CheckinDialog(
                                 ),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Column {
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 text = entry.label,
                                 style = MochiTheme.textStyles.bodyMedium,
                                 color = MochiTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = entry.message,
                                 style = MochiTheme.textStyles.labelSmall,
                                 color = MochiTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -1082,12 +1122,12 @@ fun HelpDialog(state: HubState, onDismiss: () -> Unit, onCopyEndpoint: () -> Uni
         MochiListSection {
             MochiListRow(
                 title = "地址",
-                subtitle = endpoint,
                 onClick = onCopyEndpoint,
+                trailing = { MonoValue(endpoint) },
             )
             MochiListRow(
                 title = "密钥",
-                subtitle = state.secret,
+                trailing = { MonoValue(state.secret) },
             )
         }
         Text(

@@ -12,7 +12,7 @@
  *       models = gatewayModels,             // 模型名列表；为空时退回 "default"
  *       onBack = { nav.pop() },             // 左上角返回
  *       modifier = Modifier,
- *       contentPadding = PaddingValues(bottom = LyraBottomBarClearance + navBarInset), // 浮起标签栏 + 导航栏留白
+ *       contentPadding = PaddingValues(),   // 额外加给消息列表的留白，不影响底部输入区
  *   )
  *
  * 注意：targetSdk >= 28 时访问 http://127.0.0.1 属于明文流量，需要在 manifest 里允许
@@ -34,10 +34,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,11 +74,14 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.anylyralabs.lyraproxy.ui.LyraBottomBarClearance
 import kotlinx.collections.immutable.toImmutableList
 import ui.feice.mochi.basic.MochiBarIconButton
 import ui.feice.mochi.basic.MochiButtonDefaults
@@ -194,6 +202,16 @@ fun ChatScreen(
     var modelsOpen by remember { mutableStateOf(false) }
     val barColors = MochiButtonDefaults.barColors()
     val listState = rememberLazyListState()
+    // contentPadding 只加在消息列表上：底部输入区自己处理标签栏与安全区，不跟着被顶起来
+    val layoutDirection = LocalLayoutDirection.current
+    val messagePadding = remember(contentPadding, layoutDirection) {
+        PaddingValues(
+            start = 16.dp + contentPadding.calculateStartPadding(layoutDirection),
+            end = 16.dp + contentPadding.calculateEndPadding(layoutDirection),
+            top = 10.dp + contentPadding.calculateTopPadding(),
+            bottom = 10.dp + contentPadding.calculateBottomPadding(),
+        )
+    }
     val background = MochiDefaults.groupedBackground()
     // 顶栏左右各有按钮：标题只取模型名最后一段并限长，避免长 vendor 前缀压到按钮上；完整名字在菜单里
     val titleModel = remember(selectedModel) {
@@ -288,14 +306,12 @@ fun ChatScreen(
                     style = ts.footnote,
                     color = cs.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(contentPadding.calculateBottomPadding()))
             },
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(background)
-                    .padding(contentPadding),
+                    .background(background),
             ) {
                 Column(Modifier.fillMaxSize()) {
                     MochiTitleBar(
@@ -349,7 +365,7 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                        contentPadding = messagePadding,
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         if (session.messages.isEmpty()) {
@@ -603,10 +619,22 @@ private fun InputBar(
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
+    val density = LocalDensity.current
+    // 键盘弹出时底部的标签栏被键盘盖住，输入区只跟 IME 走；没有键盘时才给标签栏让位
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     Row(
         Modifier
             .fillMaxWidth()
             .imePadding()
+            .then(
+                if (imeVisible) {
+                    Modifier
+                } else {
+                    Modifier
+                        .navigationBarsPadding()
+                        .padding(bottom = LyraBottomBarClearance)
+                },
+            )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -620,19 +648,19 @@ private fun InputBar(
             maxLines = 5,
             clearButton = false,
         )
+        // 发送键常驻（流式输出中置灰），停止键只在生成时出现，两个按钮不会互相顶掉
+        MochiIconButton(
+            onClick = onSend,
+            enabled = canSend,
+            style = MochiButtonStyle.Filled,
+            modifier = Modifier.semantics { contentDescription = "发送" },
+        ) { SendGlyph() }
         if (streaming) {
             MochiIconButton(
                 onClick = onStop,
                 style = MochiButtonStyle.Tonal,
                 modifier = Modifier.semantics { contentDescription = "停止生成" },
             ) { StopGlyph() }
-        } else {
-            MochiIconButton(
-                onClick = onSend,
-                enabled = canSend,
-                style = MochiButtonStyle.Filled,
-                modifier = Modifier.semantics { contentDescription = "发送" },
-            ) { SendGlyph() }
         }
     }
 }

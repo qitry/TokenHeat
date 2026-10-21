@@ -1,5 +1,7 @@
 package app.anylyralabs.lyraproxy.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -166,6 +168,36 @@ fun HubApp(
     val appearance = LocalLyraAppearance.current
     val scrollBehavior = rememberMochiTabBarScrollBehavior()
 
+    // 收起时胶囊缩成当前图标的小圆：底色和选中块一起换成强调色，
+    // 颜色用 tween 跟随 scrollBehavior 的弹簧，不会在阈值处硬切。
+    val cs = MochiTheme.colorScheme
+    val collapsed = scrollBehavior.collapsed
+    val baseTabColors = if (appearance?.style == LyraStyle.Nothing) {
+        MochiTabBarDefaults.colors(selectedContent = NothingColors.Accent)
+    } else {
+        MochiTabBarDefaults.colors()
+    }
+    val tabContainer by animateColorAsState(
+        targetValue = if (collapsed) cs.primaryContainer else baseTabColors.container,
+        animationSpec = tween(durationMillis = 320),
+        label = "tabBarContainer",
+    )
+    val tabIndicator by animateColorAsState(
+        targetValue = if (collapsed) cs.primary else baseTabColors.indicator,
+        animationSpec = tween(durationMillis = 320),
+        label = "tabBarIndicator",
+    )
+    val tabSelectedContent by animateColorAsState(
+        targetValue = if (collapsed) cs.onPrimary else baseTabColors.selectedContent,
+        animationSpec = tween(durationMillis = 320),
+        label = "tabBarSelectedContent",
+    )
+    val tabColors = baseTabColors.copy(
+        container = tabContainer,
+        indicator = tabIndicator,
+        selectedContent = tabSelectedContent,
+    )
+
     // 总开关打开时点亮一圈 1 秒的边缘流光（日落配色）。
     var edgeGlow by remember { mutableStateOf(false) }
     LaunchedEffect(state.bridgeRunning) {
@@ -295,11 +327,7 @@ fun HubApp(
 
             MochiTabBar(
                 selectedIndex = tab,
-                colors = if (appearance?.style == LyraStyle.Nothing) {
-                    MochiTabBarDefaults.colors(selectedContent = NothingColors.Accent)
-                } else {
-                    MochiTabBarDefaults.colors()
-                },
+                colors = tabColors,
                 onSelect = {
                     tab = it
                     scrollBehavior.expand()
