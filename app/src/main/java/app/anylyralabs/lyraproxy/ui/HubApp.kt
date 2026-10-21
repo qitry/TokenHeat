@@ -1,6 +1,7 @@
 package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -168,9 +169,8 @@ fun HubApp(
     val appearance = LocalLyraAppearance.current
     val scrollBehavior = rememberMochiTabBarScrollBehavior()
 
-    // 收起时胶囊缩成当前图标的小圆：底色和选中块一起换成强调色，
-    // 颜色用 tween 跟随 scrollBehavior 的弹簧，不会在阈值处硬切。
-    val cs = MochiTheme.colorScheme
+    // 收起时胶囊缩成当前图标的小圆：底色与选中块各退一档（更浅、更透明），
+    // 高度同步收窄。颜色和高度都用 tween 跟随 scrollBehavior 的弹簧，不会在阈值处硬切。
     val collapsed = scrollBehavior.collapsed
     val baseTabColors = if (appearance?.style == LyraStyle.Nothing) {
         MochiTabBarDefaults.colors(selectedContent = NothingColors.Accent)
@@ -178,24 +178,31 @@ fun HubApp(
         MochiTabBarDefaults.colors()
     }
     val tabContainer by animateColorAsState(
-        targetValue = if (collapsed) cs.primaryContainer else baseTabColors.container,
+        targetValue = if (collapsed) {
+            baseTabColors.container.copy(alpha = 0.82f)
+        } else {
+            baseTabColors.container
+        },
         animationSpec = tween(durationMillis = 320),
         label = "tabBarContainer",
     )
     val tabIndicator by animateColorAsState(
-        targetValue = if (collapsed) cs.primary else baseTabColors.indicator,
+        targetValue = if (collapsed) {
+            baseTabColors.indicator.copy(alpha = 0.55f)
+        } else {
+            baseTabColors.indicator
+        },
         animationSpec = tween(durationMillis = 320),
         label = "tabBarIndicator",
-    )
-    val tabSelectedContent by animateColorAsState(
-        targetValue = if (collapsed) cs.onPrimary else baseTabColors.selectedContent,
-        animationSpec = tween(durationMillis = 320),
-        label = "tabBarSelectedContent",
     )
     val tabColors = baseTabColors.copy(
         container = tabContainer,
         indicator = tabIndicator,
-        selectedContent = tabSelectedContent,
+    )
+    val tabHeight by animateDpAsState(
+        targetValue = if (collapsed) 44.dp else 52.dp,
+        animationSpec = tween(durationMillis = 320),
+        label = "tabBarHeight",
     )
 
     // 总开关打开时点亮一圈 1 秒的边缘流光（日落配色）。
@@ -334,7 +341,12 @@ fun HubApp(
                 },
                 items = LyraTabs,
                 // 只有图标 + 选中项横排标签；5 项时把每项稍微加宽，整条胶囊更舒展。
-                behavior = MochiTabBarDefaults.iconOnlyBehavior(itemWidth = 70.dp, selectedLabelOnly = true),
+                // 高度跟着收起状态走，小圆比展开时矮一档，附件条也一起收。
+                behavior = MochiTabBarDefaults.iconOnlyBehavior(
+                    height = tabHeight,
+                    itemWidth = 70.dp,
+                    selectedLabelOnly = true,
+                ),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 16.dp, vertical = 12.dp),

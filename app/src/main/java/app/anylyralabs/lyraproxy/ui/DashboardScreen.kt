@@ -274,13 +274,21 @@ fun DashboardScreen(
                         MochiListRow(
                             title = stat.model,
                             subtitle = "${stat.count} 次 · ${formatTokenCount(stat.tokens)}",
-                            value = sharePercent(stat.count * 100f / modelTotal),
                             leading = {
                                 Box(
                                     Modifier
                                         .size(10.dp)
                                         .clip(CircleShape)
                                         .background(palette[index % palette.size]),
+                                )
+                            },
+                            // 百分比固定在最右侧；有副标题时不能用 value，那会排到标题后面。
+                            trailing = {
+                                Text(
+                                    text = sharePercent(stat.count * 100f / modelTotal),
+                                    style = MochiTheme.textStyles.body,
+                                    color = MochiTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
                                 )
                             },
                         )
@@ -629,7 +637,8 @@ private fun HeroBlock(
         MochiListSection {
             MochiListRow(
                 title = if (running) "网关运行中" else "网关已停止",
-                subtitle = "127.0.0.1:$port · 仅接受本机请求",
+                // 地址只留回环地址，避免窄屏折成两行；运行时长固定在行尾。
+                subtitle = "127.0.0.1:$port",
                 leading = { LiveDot(active = running) },
                 trailing = {
                     Text(
@@ -758,11 +767,14 @@ private fun HourlyBars(hourly: IntArray, peak: Int) {
                 text = "24 小时前",
                 style = MochiTheme.textStyles.labelSmall,
                 color = cs.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "现在",
                 style = MochiTheme.textStyles.labelSmall,
                 color = cs.onSurfaceVariant,
+                maxLines = 1,
             )
         }
     }
@@ -829,6 +841,7 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
                     text = "${calls.size} 次",
                     style = MochiTheme.textStyles.labelMedium,
                     color = MochiTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             },
         )
@@ -846,6 +859,8 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
                     } else {
                         MochiTheme.colorScheme.onSurfaceVariant
                     },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(
