@@ -1,7 +1,17 @@
 package app.anylyralabs.lyraproxy.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -39,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,9 +72,6 @@ fun CredentialScreen(
     onLogin: (Wire.Region) -> Unit,
     onLogout: () -> Unit,
     onOpenDetails: () -> Unit,
-    onExportBackup: () -> Unit = {},
-    onImportBackup: () -> Unit = {},
-    onImportFromText: () -> Unit = {},
     onQoderLogin: () -> Unit = {},
     onQoderPatLogin: () -> Unit = {},
     onQoderLogout: () -> Unit = {},
@@ -183,18 +190,17 @@ fun CredentialScreen(
                 }
             }
             items(saved, key = { it.id }) { account ->
-                val isActive = account.id == state.activeAccountId
-                AccountLine(
+                AnimatedAccountLine(
                     label = account.label,
                     uid = account.uid,
-                    isActive = isActive,
+                    isActive = account.id == state.activeAccountId,
                     onSelect = { onSwitchAccount(account.id) },
                     onDelete = { onDeleteAccount(account.id) },
                 )
             }
         }
 
-        // 登录与迁移
+        // 登录
         item(key = "actions") {
             Column(Modifier.padding(top = 26.dp)) {
                 Rule()
@@ -204,21 +210,6 @@ fun CredentialScreen(
                     onClick = { onLogin(region) },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(18.dp))
-                SectionLabel("账号迁移")
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "导出为 .json.gz 备份，或在换机后粘贴凭证直接恢复。导入按账号合并，重复导入只刷新。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
-                    QuietButton("导入文件", onImportBackup, Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(8.dp))
-                QuietButton("粘贴凭证导入", onImportFromText, Modifier.fillMaxWidth())
             }
         }
 
@@ -248,7 +239,7 @@ private fun SegmentTab(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(SmoothRoundedCornerShape(10.dp))
             .background(
                 if (selected) {
                     MaterialTheme.colorScheme.surfaceVariant
@@ -273,7 +264,37 @@ private fun SegmentTab(
     }
 }
 
-/** 账号行：一行文字 + 右侧状态；选中态靠一个小圆点，不用整行换色。 */
+/**
+ * 账号行：与 QoderSection 的账号行保持同一结构。
+ *
+ * 左侧 6dp 状态点，中间账号名与 UID，右侧「使用中」与删除。
+ * 选中态只改变点的颜色，不整行换色——两套账号体系看起来才一致。
+ */
+@Composable
+private fun AnimatedAccountLine(
+    label: String,
+    uid: String,
+    isActive: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    AnimatedVisibility(
+        visible = shown,
+        enter = fadeIn(animationSpec = tween(180)) +
+            expandVertically(animationSpec = tween(220), expandFrom = Alignment.Top),
+    ) {
+        AccountLine(
+            label = label,
+            uid = uid,
+            isActive = isActive,
+            onSelect = onSelect,
+            onDelete = onDelete,
+        )
+    }
+}
+
 @Composable
 private fun AccountLine(
     label: String,
@@ -282,50 +303,68 @@ private fun AccountLine(
     onSelect: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSelect)
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isActive) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        },
-                    ),
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val rowScale by animateFloatAsState(
+        targetValue = when {
+            pressed -> 0.98f
+            isActive -> 1f
+            else -> 0.995f
+        },
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+        label = "accountScale",
+    )
+    val dotColor by animateColorAsState(
+        targetValue = if (isActive) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.outline
+        },
+        animationSpec = tween(180),
+        label = "accountDot",
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(rowScale)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = onSelect,
             )
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(dotColor),
+        )
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (uid.isNotBlank()) {
                 Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = uid.take(10),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (uid.isNotBlank()) {
-                    Text(
-                        text = uid.take(10),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
-            if (isActive) {
-                Tag("使用中", tone = TagTone.Active)
-                Spacer(Modifier.width(10.dp))
-            }
-            TextAction(text = "删除", onClick = onDelete, danger = true)
         }
+        if (isActive) {
+            Tag("使用中", tone = TagTone.Active)
+            Spacer(Modifier.width(8.dp))
+        }
+        TextAction(text = "删除", danger = true, onClick = onDelete)
     }
 }
 
@@ -745,7 +784,7 @@ private fun NoticeLine(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(SmoothRoundedCornerShape(8.dp))
             .background(
                 if (danger) {
                     MaterialTheme.colorScheme.errorContainer
@@ -776,7 +815,7 @@ private fun NoticeLine(
                 MaterialTheme.colorScheme.primary
             },
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(SmoothRoundedCornerShape(6.dp))
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp, vertical = 3.dp),
         )
@@ -950,7 +989,7 @@ fun CheckinDialog(
                                     .clip(CircleShape)
                                     .background(
                                         if (entry.ok) {
-                                            Claude.Moss
+                                            MaterialTheme.colorScheme.tertiary
                                         } else {
                                             MaterialTheme.colorScheme.error
                                         },

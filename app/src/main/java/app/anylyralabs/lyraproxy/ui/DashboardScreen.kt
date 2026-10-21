@@ -1,7 +1,17 @@
 package app.anylyralabs.lyraproxy.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,7 +61,8 @@ import java.util.Locale
  * 自上而下：问候与运行状态 → 今日读数 → 近 24 小时热度 → 累计四项 →
  * 请求热力墙（按周惰性组合）→ 模型用量 → 签到与积分 → 账号备份。
  *
- * 整页不用卡片，靠细线与留白分段。数字用衬线，是页面上唯一的视觉重音。
+ * 主体仍靠细线与留白分段；只有「账号备份」用一张轻卡片，
+ * 把三个迁移入口收在一起。数字用衬线，是页面上唯一的视觉重音。
  */
 @Composable
 fun DashboardScreen(
@@ -59,6 +72,7 @@ fun DashboardScreen(
     onCopyEndpoint: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    onImportFromText: () -> Unit = {},
     onNavigateToCalls: () -> Unit,
     onCheckin: () -> Unit,
     onCheckinAll: () -> Unit,
@@ -306,25 +320,88 @@ fun DashboardScreen(
 
         // ---------- 账号备份 ----------
         item(key = "backup") {
-            Column(Modifier.padding(top = 26.dp)) {
-                Rule()
-                SectionHeading(
-                    title = "账号备份",
-                    subtitle = "导出为 .json.gz，或从备份与凭证字符串恢复",
-                    
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuietButton("导出", onExportBackup, Modifier.weight(1f))
-                    QuietButton("导入", onImportBackup, Modifier.weight(1f))
+            var shown by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { shown = true }
+            AnimatedVisibility(
+                visible = shown,
+                enter = fadeIn(animationSpec = tween(220)) +
+                    expandVertically(animationSpec = tween(260), expandFrom = Alignment.Top),
+            ) {
+                Column(Modifier.padding(top = 26.dp)) {
+                    Rule()
+                    SectionHeading(
+                        title = "账号备份",
+                        subtitle = "导出为 .json.gz，或从备份与凭证字符串恢复",
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .lyraCard(SmoothRoundedCornerShape(18.dp))
+                            .animateContentSize(
+                                animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+                            )
+                            .padding(12.dp),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            BackupAction("导出备份", onExportBackup, Modifier.weight(1f))
+                            BackupAction("导入文件", onImportBackup, Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        BackupAction(
+                            text = "粘贴凭证导入",
+                            onClick = onImportFromText,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = "本次会话共 ${summary.calls} 次成功、${summary.failures} 次失败，消耗 ${formatCredits(summary.credits)} 积分。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
+        }
+    }
+}
+
+/**
+ * 备份动作按钮：沿用 QuietButton 的尺寸与配色，额外加一个按下缩放。
+ * 三个入口都在首页「账号备份」卡片里，按下时缩到 0.97，松开回弹。
+ */
+@Composable
+private fun BackupAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 600f),
+        label = "backupActionScale",
+    )
+    Surface(
+        modifier = modifier.height(46.dp).scale(pressScale),
+        shape = SmoothRoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        interactionSource = interaction,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -591,25 +668,25 @@ private fun HeatmapBlock(calls: List<CallRecord>, modifier: Modifier = Modifier)
     }
 }
 
-/** 五档热阶：纸 → 陶土，与主色同源。 */
+/** 五档热阶：灰 → Nothing 强调红，与主题同源。 */
 @Composable
 private fun heatLadder(): List<Color> {
     val dark = isClaudeDark()
     return if (dark) {
         listOf(
-            Color(0xFF30302E),
-            Color(0xFF4A342C),
-            Color(0xFF7A4A38),
-            Color(0xFFB0613F),
-            Color(0xFFD97757),
+            Color(0xFF303030),
+            Color(0xFF3A1A1D),
+            Color(0xFF6B2228),
+            Color(0xFFC7353C),
+            Color(0xFFFF4D55),
         )
     } else {
         listOf(
-            Color(0xFFF0EEE6),
-            Color(0xFFE8D3C6),
-            Color(0xFFD9A88F),
-            Color(0xFFC96442),
-            Color(0xFFA84E32),
+            Color(0xFFE3E3E3),
+            Color(0xFFF4D3D4),
+            Color(0xFFE9A3A6),
+            Color(0xFFD71921),
+            Color(0xFF9E1016),
         )
     }
 }

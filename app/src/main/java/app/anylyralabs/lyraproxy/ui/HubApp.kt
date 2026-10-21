@@ -1,8 +1,13 @@
 package app.anylyralabs.lyraproxy.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +22,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
@@ -27,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,12 +141,17 @@ fun HubApp(
     }
 
     ClaudeTheme(darkTheme = dark) {
-        val background = MaterialTheme.colorScheme.background
-        Surface(color = background, contentColor = contentColorFor(background)) {
+        val background by animateColorAsState(
+            targetValue = MaterialTheme.colorScheme.background,
+            label = "appBackground",
+        )
+        Surface(color = background, contentColor = MaterialTheme.colorScheme.onBackground) {
             Scaffold(
                 // 交给顶栏与底栏各自避让系统栏：Scaffold 若同时消费 insets，
                 // 会与栏内的 statusBarsPadding / navigationBarsPadding 叠加成双倍留白。
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                // 用动画中的背景色，亮暗切换时整页一起过渡，而不是瞬间跳变。
+                containerColor = background,
                 topBar = {
                     AppHeader(
                         running = state.bridgeRunning,
@@ -170,6 +179,7 @@ fun HubApp(
                             onCopyEndpoint = onCopyEndpoint,
                             onExportBackup = onExportBackup,
                             onImportBackup = onImportBackup,
+                            onImportFromText = onImportFromText,
                             onNavigateToCalls = { tab = HubTab.Calls.ordinal },
                             onCheckin = onCheckin,
                             onCheckinAll = onCheckinAll,
@@ -185,9 +195,6 @@ fun HubApp(
                             onLogin = onLogin,
                             onLogout = onLogout,
                             onOpenDetails = onOpenCredentialDetails,
-                            onExportBackup = onExportBackup,
-                            onImportBackup = onImportBackup,
-                            onImportFromText = onImportFromText,
                             onQoderLogin = onQoderLogin,
                             onQoderPatLogin = onQoderPatLogin,
                             onQoderLogout = onQoderLogout,
@@ -348,7 +355,7 @@ private fun AppHeader(running: Boolean, dark: Boolean, onToggleDark: () -> Unit)
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(SmoothRoundedCornerShape(10.dp))
                     .clickable(onClick = onToggleDark),
                 contentAlignment = Alignment.Center,
             ) {
@@ -382,6 +389,13 @@ private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
         ) {
             HubTab.entries.forEach { item ->
                 val selected = current == item.ordinal
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val pressScale by animateFloatAsState(
+                    targetValue = if (pressed) 0.95f else 1f,
+                    animationSpec = spring(dampingRatio = 0.7f, stiffness = 600f),
+                    label = "tabPress",
+                )
                 val color by animateColorAsState(
                     targetValue = if (selected) {
                         MaterialTheme.colorScheme.primary
@@ -392,8 +406,12 @@ private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
                 )
                 Column(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { onSelect(item.ordinal) }
+                        .scale(pressScale)
+                        .clip(SmoothRoundedCornerShape(10.dp))
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = LocalIndication.current,
+                        ) { onSelect(item.ordinal) }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -410,7 +428,7 @@ private fun BottomTabs(current: Int, onSelect: (Int) -> Unit) {
                         modifier = Modifier
                             .width(16.dp)
                             .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
+                            .clip(SmoothRoundedCornerShape(1.dp))
                             .background(
                                 if (selected) {
                                     MaterialTheme.colorScheme.primary
